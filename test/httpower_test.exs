@@ -165,7 +165,6 @@ defmodule HTTPowerTest do
     end
 
     test "allows requests with plug even in test mode" do
-
       Req.Test.stub(HTTPower, fn conn ->
         conn
         |> Plug.Conn.put_resp_content_type("text/plain")
@@ -231,7 +230,8 @@ defmodule HTTPowerTest do
 
         assert {:ok, response} =
                  HTTPower.get("https://api.example.com/status",
-                   max_retries: 0,  # Disable retries for status code testing
+                   # Disable retries for status code testing
+                   max_retries: 0,
                    plug: {Req.Test, HTTPower}
                  )
 
@@ -524,7 +524,6 @@ defmodule HTTPowerTest do
     end
 
     test "client GET requests work with base_url and relative paths" do
-
       Req.Test.stub(HTTPower, fn conn ->
         assert conn.method == "GET"
         assert conn.request_path == "/users"
@@ -538,7 +537,6 @@ defmodule HTTPowerTest do
     end
 
     test "client POST requests merge options correctly" do
-
       Req.Test.stub(HTTPower, fn conn ->
         assert conn.method == "POST"
         assert conn.request_path == "/users"
@@ -565,7 +563,6 @@ defmodule HTTPowerTest do
     end
 
     test "client options override client defaults" do
-
       Req.Test.stub(HTTPower, fn conn ->
         assert conn.method == "GET"
         assert Plug.Conn.get_req_header(conn, "authorization") == ["Bearer override-token"]
@@ -588,7 +585,6 @@ defmodule HTTPowerTest do
     end
 
     test "client without base_url uses full path as URL" do
-
       Req.Test.stub(HTTPower, fn conn ->
         assert conn.method == "GET"
         assert conn.host == "different-api.com"
@@ -606,7 +602,6 @@ defmodule HTTPowerTest do
     end
 
     test "client works with all HTTP methods" do
-
       Req.Test.stub(HTTPower, fn conn ->
         case conn.method do
           "GET" -> Req.Test.json(conn, %{method: "get"})
@@ -632,7 +627,6 @@ defmodule HTTPowerTest do
     end
 
     test "client URL building with different path formats" do
-
       Req.Test.stub(HTTPower, fn conn ->
         assert conn.host == "api.example.com"
         Req.Test.json(conn, %{path: conn.request_path})
@@ -657,28 +651,42 @@ defmodule HTTPowerTest do
   describe "retry decision logic" do
     test "retryable_status?/1 identifies retryable HTTP status codes" do
       # Should retry these status codes (industry standard)
-      assert HTTPower.Client.retryable_status?(408) == true  # Request Timeout
-      assert HTTPower.Client.retryable_status?(429) == true  # Too Many Requests
-      assert HTTPower.Client.retryable_status?(500) == true  # Internal Server Error
-      assert HTTPower.Client.retryable_status?(502) == true  # Bad Gateway
-      assert HTTPower.Client.retryable_status?(503) == true  # Service Unavailable
-      assert HTTPower.Client.retryable_status?(504) == true  # Gateway Timeout
+      # Request Timeout
+      assert HTTPower.Client.retryable_status?(408) == true
+      # Too Many Requests
+      assert HTTPower.Client.retryable_status?(429) == true
+      # Internal Server Error
+      assert HTTPower.Client.retryable_status?(500) == true
+      # Bad Gateway
+      assert HTTPower.Client.retryable_status?(502) == true
+      # Service Unavailable
+      assert HTTPower.Client.retryable_status?(503) == true
+      # Gateway Timeout
+      assert HTTPower.Client.retryable_status?(504) == true
     end
 
     test "retryable_status?/1 does not retry client errors" do
       # Should NOT retry 4xx client errors (except 408, 429)
-      assert HTTPower.Client.retryable_status?(400) == false  # Bad Request
-      assert HTTPower.Client.retryable_status?(401) == false  # Unauthorized
-      assert HTTPower.Client.retryable_status?(403) == false  # Forbidden
-      assert HTTPower.Client.retryable_status?(404) == false  # Not Found
-      assert HTTPower.Client.retryable_status?(409) == false  # Conflict
+      # Bad Request
+      assert HTTPower.Client.retryable_status?(400) == false
+      # Unauthorized
+      assert HTTPower.Client.retryable_status?(401) == false
+      # Forbidden
+      assert HTTPower.Client.retryable_status?(403) == false
+      # Not Found
+      assert HTTPower.Client.retryable_status?(404) == false
+      # Conflict
+      assert HTTPower.Client.retryable_status?(409) == false
     end
 
     test "retryable_status?/1 does not retry success codes" do
       # Should NOT retry successful responses
-      assert HTTPower.Client.retryable_status?(200) == false  # OK
-      assert HTTPower.Client.retryable_status?(201) == false  # Created
-      assert HTTPower.Client.retryable_status?(204) == false  # No Content
+      # OK
+      assert HTTPower.Client.retryable_status?(200) == false
+      # Created
+      assert HTTPower.Client.retryable_status?(201) == false
+      # No Content
+      assert HTTPower.Client.retryable_status?(204) == false
     end
 
     test "retryable_error?/2 handles HTTP status codes" do
@@ -690,7 +698,7 @@ defmodule HTTPowerTest do
       assert HTTPower.Client.retryable_error?(:timeout, false) == true
       assert HTTPower.Client.retryable_error?(:econnrefused, false) == true
       assert HTTPower.Client.retryable_error?(:closed, false) == true
-      
+
       # econnreset depends on retry_safe flag
       assert HTTPower.Client.retryable_error?(:econnreset, true) == true
       assert HTTPower.Client.retryable_error?(:econnreset, false) == false
@@ -710,14 +718,15 @@ defmodule HTTPowerTest do
       retry_opts = %{
         base_delay: 1000,
         max_delay: 10_000,
-        jitter_factor: 0.0  # No jitter for predictable testing
+        # No jitter for predictable testing
+        jitter_factor: 0.0
       }
 
       # Attempt 1: base_delay * 2^0 = 1000ms
       delay1 = HTTPower.Client.calculate_backoff_delay(1, retry_opts)
       assert delay1 == 1000
 
-      # Attempt 2: base_delay * 2^1 = 2000ms  
+      # Attempt 2: base_delay * 2^1 = 2000ms
       delay2 = HTTPower.Client.calculate_backoff_delay(2, retry_opts)
       assert delay2 == 2000
 
@@ -755,14 +764,17 @@ defmodule HTTPowerTest do
       assert {:ok, response} =
                HTTPower.get("https://api.example.com/test",
                  max_retries: 2,
-                 base_delay: 1,  # 1ms instead of 1000ms
-                 max_delay: 10,  # 10ms instead of 30s
+                 # 1ms instead of 1000ms
+                 base_delay: 1,
+                 # 10ms instead of 30s
+                 max_delay: 10,
                  plug: {Req.Test, HTTPower}
                )
 
       assert response.status == 200
       assert response.body == %{"success" => true}
-      assert Agent.get(pid, & &1) == 2  # 1 failure + 1 success
+      # 1 failure + 1 success
+      assert Agent.get(pid, & &1) == 2
     end
 
     test "does not retry non-retryable errors" do
@@ -782,7 +794,8 @@ defmodule HTTPowerTest do
                )
 
       assert response.status == 404
-      assert Agent.get(pid, & &1) == 1  # Only one attempt, no retries
+      # Only one attempt, no retries
+      assert Agent.get(pid, & &1) == 1
     end
   end
 end

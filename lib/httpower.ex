@@ -152,7 +152,8 @@ defmodule HTTPower do
   end
 
   # Client + path + options pattern (3-arity)
-  @spec get(client(), String.t(), keyword()) :: {:ok, HTTPower.Response.t()} | {:error, HTTPower.Error.t()}
+  @spec get(client(), String.t(), keyword()) ::
+          {:ok, HTTPower.Response.t()} | {:error, HTTPower.Error.t()}
   def get(%__MODULE__{} = client, path, opts) when is_binary(path) and is_list(opts) do
     {url, merged_opts} = prepare_client_request(client, path, opts)
     Client.get(url, merged_opts)
@@ -198,7 +199,8 @@ defmodule HTTPower do
   end
 
   # Client + path + options pattern (3-arity)
-  @spec post(client(), String.t(), keyword()) :: {:ok, HTTPower.Response.t()} | {:error, HTTPower.Error.t()}
+  @spec post(client(), String.t(), keyword()) ::
+          {:ok, HTTPower.Response.t()} | {:error, HTTPower.Error.t()}
   def post(%__MODULE__{} = client, path, opts) when is_binary(path) and is_list(opts) do
     {url, merged_opts} = prepare_client_request(client, path, opts)
     Client.post(url, merged_opts)
@@ -240,7 +242,8 @@ defmodule HTTPower do
   end
 
   # Client + path + options pattern (3-arity)
-  @spec put(client(), String.t(), keyword()) :: {:ok, HTTPower.Response.t()} | {:error, HTTPower.Error.t()}
+  @spec put(client(), String.t(), keyword()) ::
+          {:ok, HTTPower.Response.t()} | {:error, HTTPower.Error.t()}
   def put(%__MODULE__{} = client, path, opts) when is_binary(path) and is_list(opts) do
     {url, merged_opts} = prepare_client_request(client, path, opts)
     Client.put(url, merged_opts)
@@ -269,26 +272,33 @@ defmodule HTTPower do
   def delete(url_or_client, opts_or_path \\ [])
 
   # URL + options pattern
-  @spec delete(String.t(), keyword()) :: {:ok, HTTPower.Response.t()} | {:error, HTTPower.Error.t()}
+  @spec delete(String.t(), keyword()) ::
+          {:ok, HTTPower.Response.t()} | {:error, HTTPower.Error.t()}
   def delete(url, opts) when is_binary(url) do
     Client.delete(url, opts)
   end
 
   # Client + path pattern (calls 3-arity with empty options)
-  @spec delete(client(), String.t()) :: {:ok, HTTPower.Response.t()} | {:error, HTTPower.Error.t()}
+  @spec delete(client(), String.t()) ::
+          {:ok, HTTPower.Response.t()} | {:error, HTTPower.Error.t()}
   def delete(%__MODULE__{} = client, path) when is_binary(path) do
     delete(client, path, [])
   end
 
   # Client + path + options pattern (3-arity)
-  @spec delete(client(), String.t(), keyword()) :: {:ok, HTTPower.Response.t()} | {:error, HTTPower.Error.t()}
+  @spec delete(client(), String.t(), keyword()) ::
+          {:ok, HTTPower.Response.t()} | {:error, HTTPower.Error.t()}
   def delete(%__MODULE__{} = client, path, opts) when is_binary(path) and is_list(opts) do
     {url, merged_opts} = prepare_client_request(client, path, opts)
     Client.delete(url, merged_opts)
   end
 
   # Private helper function to prepare client requests
-  defp prepare_client_request(%__MODULE__{base_url: base_url, options: client_opts}, path, request_opts) do
+  defp prepare_client_request(
+         %__MODULE__{base_url: base_url, options: client_opts},
+         path,
+         request_opts
+       ) do
     url = build_url(base_url, path)
     merged_opts = merge_client_options(client_opts, request_opts)
     {url, merged_opts}
