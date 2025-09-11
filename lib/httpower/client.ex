@@ -15,9 +15,12 @@ defmodule HTTPower.Client do
 
   @default_timeout 60
   @default_max_retries 3
-  @default_base_delay 1000  # 1 second base delay
-  @default_max_delay 30_000  # 30 seconds max delay
-  @default_jitter_factor 0.2  # 20% jitter
+  # 1 second base delay
+  @default_base_delay 1000
+  # 30 seconds max delay
+  @default_max_delay 30_000
+  # 20% jitter
+  @default_jitter_factor 0.2
 
   # 408: Request Timeout, 429: Too Many Requests, 500-504: Server errors
   @retryable_status_codes [408, 429, 500, 502, 503, 504]
@@ -202,11 +205,11 @@ defmodule HTTPower.Client do
   defp handle_retry(req_opts, retry_opts, attempt, reason) do
     if retryable_error?(reason, retry_opts.retry_safe) do
       log_retry_attempt(attempt, reason, retry_opts.max_retries)
-      
+
       # Apply exponential backoff with jitter
       delay = calculate_backoff_delay(attempt, retry_opts)
       :timer.sleep(delay)
-      
+
       do_request(req_opts, retry_opts, attempt + 1)
     else
       {:error, %Error{reason: reason, message: error_message(reason)}}
@@ -217,14 +220,14 @@ defmodule HTTPower.Client do
     # Exponential backoff: 2^attempt
     factor = Integer.pow(2, attempt - 1)
     delay_before_cap = retry_opts.base_delay * factor
-    
+
     # Apply maximum delay cap
     max_delay = min(retry_opts.max_delay, delay_before_cap)
-    
+
     # Apply jitter to prevent thundering herd
     # Generates jitter between (1 - jitter_factor) and 1
     jitter = 1 - retry_opts.jitter_factor * :rand.uniform()
-    
+
     # Calculate final delay with jitter
     trunc(max_delay * jitter)
   end
