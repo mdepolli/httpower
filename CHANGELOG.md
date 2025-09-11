@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
+- Client configuration with `HTTPower.new/1` for reusable HTTP clients
+- Base URL support for configured clients with automatic path resolution
+- Option merging between client defaults and per-request settings
+- Support for all HTTP methods (GET, POST, PUT, DELETE) with client instances
+- Comprehensive test coverage for client configuration functionality
+
+### Planned for v0.2.0
+
 - HTTP request/response logging with configurable levels
 - PCI-compliant data sanitization for logs
 - Request timing and performance metrics
@@ -15,18 +24,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Circuit breaker pattern for failing services
 - Request/response ID correlation for tracing
 
-### Changed
-- Improved test coverage from 50% to 62.65%
-- Added comprehensive test suite with 29 tests covering all HTTP methods
-- Enhanced error handling with better message formatting
-- Improved SSL and proxy configuration testing
+## [0.1.1] - 2025-09-10
 
-### Removed
-- Redundant error handling code paths for better maintainability
+### Fixed
+
+- Corrected changelog to accurately reflect implemented vs planned features
+- Updated documentation to clarify current capabilities
 
 ## [0.1.0] - 2025-09-09
 
 ### Added
+
 - Basic HTTP methods (GET, POST, PUT, DELETE) with clean API
 - Test mode request blocking to prevent real HTTP requests during testing
 - Req.Test integration for controlled HTTP testing and mocking
@@ -45,6 +53,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Hex package configuration for easy installation
 
 ### Technical Details
+
 - Built on top of Req HTTP client for reliability
 - Uses Mint for low-level HTTP transport (via Req)
 - Supports HTTP/1.1 and HTTP/2 protocols
