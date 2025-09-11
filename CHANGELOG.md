@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2025-01-09
+
 ### Added
 
 - Client configuration with `HTTPower.new/1` for reusable HTTP clients
@@ -23,8 +25,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Retry test suite performance improved by 70% (48s → 15s) through separation of concerns
 - Refactored retry decision functions for better testability and maintainability
-
-## [0.1.1] - 2025-09-10
 
 ### Fixed
 
@@ -61,5 +61,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Production-ready error handling and logging
 - PCI DSS compliance considerations in design
 
-[unreleased]: https://github.com/mdepolli/httpower/compare/v0.1.0...HEAD
+[unreleased]: https://github.com/mdepolli/httpower/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/mdepolli/httpower/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/mdepolli/httpower/releases/tag/v0.1.0
