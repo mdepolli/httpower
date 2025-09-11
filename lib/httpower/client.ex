@@ -195,7 +195,7 @@ defmodule HTTPower.Client do
   end
 
   defp retryable_error?(reason, retry_safe) when is_atom(reason) do
-    retryable_atom_error?(reason, retry_safe)
+    retryable_transport_error?(reason, retry_safe)
   end
 
   defp retryable_error?(_, _), do: false
@@ -205,11 +205,6 @@ defmodule HTTPower.Client do
   defp retryable_transport_error?(:econnrefused, _), do: true
   defp retryable_transport_error?(:econnreset, retry_safe), do: retry_safe
   defp retryable_transport_error?(_, _), do: false
-
-  defp retryable_atom_error?(:timeout, _), do: true
-  defp retryable_atom_error?(:econnrefused, _), do: true
-  defp retryable_atom_error?(:econnreset, retry_safe), do: retry_safe
-  defp retryable_atom_error?(_, _), do: false
 
   defp error_message(%Mint.TransportError{reason: reason}), do: error_message(reason)
   defp error_message(:timeout), do: "Request timeout"
