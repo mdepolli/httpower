@@ -15,6 +15,9 @@ defmodule HTTPower.Client do
 
   @default_timeout 60
   @default_max_retries 3
+  @default_base_delay 1000  # 1 second base delay
+  @default_max_delay 30_000  # 30 seconds max delay
+  @default_jitter_factor 0.2  # 20% jitter
 
   # 408: Request Timeout, 429: Too Many Requests, 500-504: Server errors
   @retryable_status_codes [408, 429, 500, 502, 503, 504]
@@ -63,12 +66,24 @@ defmodule HTTPower.Client do
     timeout = Keyword.get(opts, :timeout, @default_timeout)
     ssl_verify = Keyword.get(opts, :ssl_verify, true)
     proxy = Keyword.get(opts, :proxy, :system)
+    base_delay = Keyword.get(opts, :base_delay, @default_base_delay)
+    max_delay = Keyword.get(opts, :max_delay, @default_max_delay)
+    jitter_factor = Keyword.get(opts, :jitter_factor, @default_jitter_factor)
 
     # Build Req options
     req_opts = build_req_opts(method, url, body, headers, timeout, ssl_verify, proxy, opts)
 
+    # Build retry options
+    retry_opts = %{
+      max_retries: max_retries,
+      retry_safe: retry_safe,
+      base_delay: base_delay,
+      max_delay: max_delay,
+      jitter_factor: jitter_factor
+    }
+
     # Execute with retry logic
-    do_request(req_opts, max_retries, retry_safe, 1)
+    do_request(req_opts, retry_opts, 1)
   end
 
   defp build_req_opts(method, url, body, headers, timeout, ssl_verify, proxy, opts) do
@@ -88,7 +103,10 @@ defmodule HTTPower.Client do
         :timeout,
         :ssl_verify,
         :proxy,
-        :body
+        :body,
+        :base_delay,
+        :max_delay,
+        :jitter_factor
       ])
 
     base_opts
@@ -132,12 +150,12 @@ defmodule HTTPower.Client do
     Map.put(headers, "connection", "close")
   end
 
-  defp do_request(req_opts, max_retries, retry_safe, attempt) do
+  defp do_request(req_opts, retry_opts, attempt) do
     with true <- can_do_request?(req_opts),
          {:ok, response} <- safe_req_request(req_opts) do
       # Check if HTTP status code should be retried
-      if retryable_status?(response.status) and attempt < max_retries do
-        handle_retry(req_opts, max_retries, retry_safe, attempt, {:http_status, response.status})
+      if retryable_status?(response.status) and attempt < retry_opts.max_retries do
+        handle_retry(req_opts, retry_opts, attempt, {:http_status, response.status})
       else
         {:ok, convert_response(response)}
       end
@@ -145,8 +163,8 @@ defmodule HTTPower.Client do
       false ->
         {:error, %Error{reason: :network_blocked, message: "Network access blocked in test mode"}}
 
-      {:error, reason} when attempt < max_retries ->
-        handle_retry(req_opts, max_retries, retry_safe, attempt, reason)
+      {:error, reason} when attempt < retry_opts.max_retries ->
+        handle_retry(req_opts, retry_opts, attempt, reason)
 
       {:error, reason} ->
         {:error, %Error{reason: reason, message: error_message(reason)}}
@@ -181,13 +199,34 @@ defmodule HTTPower.Client do
     }
   end
 
-  defp handle_retry(req_opts, max_retries, retry_safe, attempt, reason) do
-    if retryable_error?(reason, retry_safe) do
-      log_retry_attempt(attempt, reason, max_retries)
-      do_request(req_opts, max_retries, retry_safe, attempt + 1)
+  defp handle_retry(req_opts, retry_opts, attempt, reason) do
+    if retryable_error?(reason, retry_opts.retry_safe) do
+      log_retry_attempt(attempt, reason, retry_opts.max_retries)
+      
+      # Apply exponential backoff with jitter
+      delay = calculate_backoff_delay(attempt, retry_opts)
+      :timer.sleep(delay)
+      
+      do_request(req_opts, retry_opts, attempt + 1)
     else
       {:error, %Error{reason: reason, message: error_message(reason)}}
     end
+  end
+
+  def calculate_backoff_delay(attempt, retry_opts) do
+    # Exponential backoff: 2^attempt
+    factor = Integer.pow(2, attempt - 1)
+    delay_before_cap = retry_opts.base_delay * factor
+    
+    # Apply maximum delay cap
+    max_delay = min(retry_opts.max_delay, delay_before_cap)
+    
+    # Apply jitter to prevent thundering herd
+    # Generates jitter between (1 - jitter_factor) and 1
+    jitter = 1 - retry_opts.jitter_factor * :rand.uniform()
+    
+    # Calculate final delay with jitter
+    trunc(max_delay * jitter)
   end
 
   defp log_retry_attempt(attempt, reason, max_retries) do
