@@ -154,6 +154,7 @@ defmodule HTTPowerTest do
     end
 
     test "blocks real requests when test_mode is true" do
+      Application.put_env(:httpower, :test_mode, true)
 
       assert HTTPower.test_mode?() == true
 
@@ -807,6 +808,35 @@ defmodule HTTPowerTest do
       assert response.status == 200
       assert response.body == %{"final" => true}
       assert Agent.get(pid, & &1) == 6  # 5 retries + 1 success
+    end
+
+    test "backoff delay calculation" do
+      # Test that delay increases exponentially but stays within bounds
+      retry_opts = %{
+        base_delay: 1000,
+        max_delay: 10_000,
+        jitter_factor: 0.0  # No jitter for predictable testing
+      }
+
+      # Attempt 1: base_delay * 2^0 = 1000ms
+      delay1 = HTTPower.Client.calculate_backoff_delay(1, retry_opts)
+      assert delay1 == 1000
+
+      # Attempt 2: base_delay * 2^1 = 2000ms  
+      delay2 = HTTPower.Client.calculate_backoff_delay(2, retry_opts)
+      assert delay2 == 2000
+
+      # Attempt 3: base_delay * 2^2 = 4000ms
+      delay3 = HTTPower.Client.calculate_backoff_delay(3, retry_opts)
+      assert delay3 == 4000
+
+      # Attempt 4: base_delay * 2^3 = 8000ms
+      delay4 = HTTPower.Client.calculate_backoff_delay(4, retry_opts)
+      assert delay4 == 8000
+
+      # Attempt 5: base_delay * 2^4 = 16000ms, but capped at max_delay = 10000ms
+      delay5 = HTTPower.Client.calculate_backoff_delay(5, retry_opts)
+      assert delay5 == 10_000
     end
   end
 end
