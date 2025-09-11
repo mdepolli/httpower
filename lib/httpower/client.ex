@@ -237,22 +237,22 @@ defmodule HTTPower.Client do
     )
   end
 
-  defp retryable_error?({:http_status, status}, _retry_safe) do
+  def retryable_error?({:http_status, status}, _retry_safe) do
     retryable_status?(status)
   end
 
-  defp retryable_error?(%Mint.TransportError{reason: reason}, retry_safe) do
+  def retryable_error?(%Mint.TransportError{reason: reason}, retry_safe) do
     retryable_transport_error?(reason, retry_safe)
   end
 
-  defp retryable_error?(reason, retry_safe) when is_atom(reason) do
+  def retryable_error?(reason, retry_safe) when is_atom(reason) do
     retryable_transport_error?(reason, retry_safe)
   end
 
-  defp retryable_error?(_, _), do: false
+  def retryable_error?(_, _), do: false
 
-  defp retryable_status?(status) when status in @retryable_status_codes, do: true
-  defp retryable_status?(_), do: false
+  def retryable_status?(status) when status in @retryable_status_codes, do: true
+  def retryable_status?(_), do: false
 
   defp retryable_transport_error?(:timeout, _), do: true
   defp retryable_transport_error?(:closed, _), do: true
