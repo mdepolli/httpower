@@ -727,9 +727,61 @@ defmodule HTTPowerTest do
       assert Agent.get(pid, & &1) == 1  # Only one attempt, no retries
     end
 
+    test "retries on 408 request timeout" do
+      attempt_count = Agent.start_link(fn -> 0 end)
+      {:ok, pid} = attempt_count
+
+      Req.Test.stub(HTTPower, fn conn ->
+        Agent.update(pid, &(&1 + 1))
+        current_attempt = Agent.get(pid, & &1)
+
+        if current_attempt <= 1 do
+          Plug.Conn.resp(conn, 408, "Request Timeout")
+        else
+          Req.Test.json(conn, %{success: true})
+        end
+      end)
+
+      assert {:ok, response} =
+               HTTPower.get("https://api.example.com/test",
+                 max_retries: 2,
+                 plug: {Req.Test, HTTPower}
+               )
+
+      assert response.status == 200
+      assert response.body == %{"success" => true}
+      assert Agent.get(pid, & &1) == 2
+    end
+
+    test "retries on 429 too many requests" do
+      attempt_count = Agent.start_link(fn -> 0 end)
+      {:ok, pid} = attempt_count
+
+      Req.Test.stub(HTTPower, fn conn ->
+        Agent.update(pid, &(&1 + 1))
+        current_attempt = Agent.get(pid, & &1)
+
+        if current_attempt <= 1 do
+          Plug.Conn.resp(conn, 429, "Too Many Requests")
+        else
+          Req.Test.json(conn, %{success: true})
+        end
+      end)
+
+      assert {:ok, response} =
+               HTTPower.get("https://api.example.com/test",
+                 max_retries: 2,
+                 plug: {Req.Test, HTTPower}
+               )
+
+      assert response.status == 200
+      assert response.body == %{"success" => true}
+      assert Agent.get(pid, & &1) == 2
+    end
+
     test "retries multiple HTTP status codes" do
 
-      status_codes = [503, 504, 500, 200]
+      status_codes = [408, 429, 503, 504, 500, 200]
       attempt_count = Agent.start_link(fn -> 0 end)
       {:ok, pid} = attempt_count
 
@@ -748,13 +800,13 @@ defmodule HTTPowerTest do
 
       assert {:ok, response} =
                HTTPower.get("https://api.example.com/test",
-                 max_retries: 4,
+                 max_retries: 6,
                  plug: {Req.Test, HTTPower}
                )
 
       assert response.status == 200
       assert response.body == %{"final" => true}
-      assert Agent.get(pid, & &1) == 4  # 3 retries + 1 success
+      assert Agent.get(pid, & &1) == 6  # 5 retries + 1 success
     end
   end
 end

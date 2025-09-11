@@ -16,6 +16,9 @@ defmodule HTTPower.Client do
   @default_timeout 60
   @default_max_retries 3
 
+  # 408: Request Timeout, 429: Too Many Requests, 500-504: Server errors
+  @retryable_status_codes [408, 429, 500, 502, 503, 504]
+
   @doc """
   Makes an HTTP GET request.
   """
@@ -209,7 +212,7 @@ defmodule HTTPower.Client do
 
   defp retryable_error?(_, _), do: false
 
-  defp retryable_status?(status) when status in [500, 502, 503, 504, 507, 508, 510, 511], do: true
+  defp retryable_status?(status) when status in @retryable_status_codes, do: true
   defp retryable_status?(_), do: false
 
   defp retryable_transport_error?(:timeout, _), do: true
