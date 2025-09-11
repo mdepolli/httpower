@@ -132,7 +132,12 @@ defmodule HTTPower.Client do
   defp do_request(req_opts, max_retries, retry_safe, attempt) do
     with true <- can_do_request?(req_opts),
          {:ok, response} <- safe_req_request(req_opts) do
-      {:ok, convert_response(response)}
+      # Check if HTTP status code should be retried
+      if retryable_status?(response.status) and attempt < max_retries do
+        handle_retry(req_opts, max_retries, retry_safe, attempt, {:http_status, response.status})
+      else
+        {:ok, convert_response(response)}
+      end
     else
       false ->
         {:error, %Error{reason: :network_blocked, message: "Network access blocked in test mode"}}
@@ -190,6 +195,10 @@ defmodule HTTPower.Client do
     )
   end
 
+  defp retryable_error?({:http_status, status}, _retry_safe) do
+    retryable_status?(status)
+  end
+
   defp retryable_error?(%Mint.TransportError{reason: reason}, retry_safe) do
     retryable_transport_error?(reason, retry_safe)
   end
@@ -200,6 +209,9 @@ defmodule HTTPower.Client do
 
   defp retryable_error?(_, _), do: false
 
+  defp retryable_status?(status) when status in [500, 502, 503, 504, 507, 508, 510, 511], do: true
+  defp retryable_status?(_), do: false
+
   defp retryable_transport_error?(:timeout, _), do: true
   defp retryable_transport_error?(:closed, _), do: true
   defp retryable_transport_error?(:econnrefused, _), do: true
@@ -207,6 +219,7 @@ defmodule HTTPower.Client do
   defp retryable_transport_error?(_, _), do: false
 
   defp error_message(%Mint.TransportError{reason: reason}), do: error_message(reason)
+  defp error_message({:http_status, status}), do: "HTTP #{status} error"
   defp error_message(:timeout), do: "Request timeout"
   defp error_message(:econnrefused), do: "Connection refused"
   defp error_message(:econnreset), do: "Connection reset"
