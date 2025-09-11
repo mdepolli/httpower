@@ -14,15 +14,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Option merging between client defaults and per-request settings
 - Support for all HTTP methods (GET, POST, PUT, DELETE) with client instances
 - Comprehensive test coverage for client configuration functionality
+- HTTP status code retry logic following industry standards (408, 429, 500, 502, 503, 504)
+- Exponential backoff with jitter for intelligent retry timing
+- Configurable retry parameters: `base_delay`, `max_delay`, `jitter_factor`
+- Fast unit tests for retry decision logic separated from execution
 
-### Planned for v0.2.0
+### Improved
 
-- HTTP request/response logging with configurable levels
-- PCI-compliant data sanitization for logs
-- Request timing and performance metrics
-- Built-in rate limiting with token bucket algorithm
-- Circuit breaker pattern for failing services
-- Request/response ID correlation for tracing
+- Retry test suite performance improved by 70% (48s → 15s) through separation of concerns
+- Refactored retry decision functions for better testability and maintainability
 
 ## [0.1.1] - 2025-09-10
 
