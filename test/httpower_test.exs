@@ -498,4 +498,161 @@ defmodule HTTPowerTest do
       assert response.status == 200
     end
   end
+
+  describe "configured clients" do
+    test "HTTPower.new/1 creates a client struct" do
+      client = HTTPower.new(base_url: "https://api.example.com")
+      assert %HTTPower{base_url: "https://api.example.com", options: []} = client
+    end
+
+    test "HTTPower.new/1 accepts additional options" do
+      client =
+        HTTPower.new(
+          base_url: "https://api.example.com",
+          headers: %{"Authorization" => "Bearer token"},
+          timeout: 30
+        )
+
+      assert %HTTPower{
+               base_url: "https://api.example.com",
+               options: [headers: %{"Authorization" => "Bearer token"}, timeout: 30]
+             } = client
+    end
+
+    test "client GET requests work with base_url and relative paths" do
+      Application.put_env(:httpower, :test_mode, true)
+
+      Req.Test.stub(HTTPower, fn conn ->
+        assert conn.method == "GET"
+        assert conn.request_path == "/users"
+        Req.Test.json(conn, %{users: []})
+      end)
+
+      client = HTTPower.new(base_url: "https://api.example.com")
+      assert {:ok, response} = HTTPower.get(client, "/users", plug: {Req.Test, HTTPower})
+      assert response.status == 200
+      assert response.body == %{"users" => []}
+    end
+
+    test "client POST requests merge options correctly" do
+      Application.put_env(:httpower, :test_mode, true)
+
+      Req.Test.stub(HTTPower, fn conn ->
+        assert conn.method == "POST"
+        assert conn.request_path == "/users"
+        assert Plug.Conn.get_req_header(conn, "authorization") == ["Bearer token"]
+        assert Plug.Conn.get_req_header(conn, "content-type") == ["application/json"]
+        Req.Test.json(conn, %{created: true})
+      end)
+
+      client =
+        HTTPower.new(
+          base_url: "https://api.example.com",
+          headers: %{"Authorization" => "Bearer token"}
+        )
+
+      assert {:ok, response} =
+               HTTPower.post(client, "/users",
+                 body: Jason.encode!(%{name: "John"}),
+                 headers: %{"Content-Type" => "application/json"},
+                 plug: {Req.Test, HTTPower}
+               )
+
+      assert response.status == 200
+      assert response.body == %{"created" => true}
+    end
+
+    test "client options override client defaults" do
+      Application.put_env(:httpower, :test_mode, true)
+
+      Req.Test.stub(HTTPower, fn conn ->
+        assert conn.method == "GET"
+        assert Plug.Conn.get_req_header(conn, "authorization") == ["Bearer override-token"]
+        Req.Test.json(conn, %{success: true})
+      end)
+
+      client =
+        HTTPower.new(
+          base_url: "https://api.example.com",
+          headers: %{"Authorization" => "Bearer default-token"}
+        )
+
+      assert {:ok, response} =
+               HTTPower.get(client, "/users",
+                 headers: %{"Authorization" => "Bearer override-token"},
+                 plug: {Req.Test, HTTPower}
+               )
+
+      assert response.status == 200
+    end
+
+    test "client without base_url uses full path as URL" do
+      Application.put_env(:httpower, :test_mode, true)
+
+      Req.Test.stub(HTTPower, fn conn ->
+        assert conn.method == "GET"
+        assert conn.host == "different-api.com"
+        assert conn.request_path == "/data"
+        Req.Test.json(conn, %{data: "test"})
+      end)
+
+      client = HTTPower.new(timeout: 30)
+
+      assert {:ok, response} =
+               HTTPower.get(client, "https://different-api.com/data", plug: {Req.Test, HTTPower})
+
+      assert response.status == 200
+      assert response.body == %{"data" => "test"}
+    end
+
+    test "client works with all HTTP methods" do
+      Application.put_env(:httpower, :test_mode, true)
+
+      Req.Test.stub(HTTPower, fn conn ->
+        case conn.method do
+          "GET" -> Req.Test.json(conn, %{method: "get"})
+          "POST" -> Req.Test.json(conn, %{method: "post"})
+          "PUT" -> Req.Test.json(conn, %{method: "put"})
+          "DELETE" -> Req.Test.json(conn, %{method: "delete"})
+        end
+      end)
+
+      client = HTTPower.new(base_url: "https://api.example.com")
+
+      assert {:ok, response} = HTTPower.get(client, "/test", plug: {Req.Test, HTTPower})
+      assert response.body == %{"method" => "get"}
+
+      assert {:ok, response} = HTTPower.post(client, "/test", plug: {Req.Test, HTTPower})
+      assert response.body == %{"method" => "post"}
+
+      assert {:ok, response} = HTTPower.put(client, "/test", plug: {Req.Test, HTTPower})
+      assert response.body == %{"method" => "put"}
+
+      assert {:ok, response} = HTTPower.delete(client, "/test", plug: {Req.Test, HTTPower})
+      assert response.body == %{"method" => "delete"}
+    end
+
+    test "client URL building with different path formats" do
+      Application.put_env(:httpower, :test_mode, true)
+
+      Req.Test.stub(HTTPower, fn conn ->
+        assert conn.host == "api.example.com"
+        Req.Test.json(conn, %{path: conn.request_path})
+      end)
+
+      client = HTTPower.new(base_url: "https://api.example.com")
+
+      # Test absolute path (starting with /)
+      assert {:ok, response} = HTTPower.get(client, "/users", plug: {Req.Test, HTTPower})
+      assert response.body == %{"path" => "/users"}
+
+      # Test relative path (not starting with /)
+      assert {:ok, response} = HTTPower.get(client, "posts", plug: {Req.Test, HTTPower})
+      assert response.body == %{"path" => "/posts"}
+
+      # Test empty path
+      assert {:ok, response} = HTTPower.get(client, "", plug: {Req.Test, HTTPower})
+      assert response.body == %{"path" => nil}
+    end
+  end
 end
