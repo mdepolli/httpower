@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2025-09-30
+
+### Added
+
+- **Global adapter configuration** - Configure HTTP adapter application-wide
+  - `config :httpower, adapter: HTTPower.Adapter.Req` for global adapter selection
+  - `config :httpower, adapter: {HTTPower.Adapter.Tesla, tesla_client}` for pre-configured clients
+  - Configuration priority: per-request > per-client > global
+  - Allows adapter switching without code changes
+- **Comprehensive documentation structure** in `guides/` directory
+  - `guides/migrating-from-tesla.md` - Complete 7-step Tesla migration guide
+    - Emphasizes adapter-agnostic final code
+    - Shows HTTPower.Test for testing (not Tesla.Mock)
+    - Global and per-client configuration examples
+  - `guides/migrating-from-req.md` - Req migration guide with error handling differences
+  - `guides/configuration-reference.md` - Complete option reference with availability matrix
+  - `guides/production-deployment.md` - Production deployment guide with supervision tree, monitoring, security
+  - Moved examples to `guides/examples/` directory
+- **Configuration availability matrix** showing which options work at global/per-client/per-request levels
+- Updated ExDoc integration with organized guide groups (Migration Guides, Guides, Examples)
+
+### Changed
+
+- **README improvements**
+  - Simplified "Adapter Support" section (removed confusing adapter-specific examples)
+  - Added "Perfect For" section at top showing target use cases
+  - Updated "Basic Usage" to show both direct and client-based patterns
+  - Split "Correlation IDs" into standalone section (not just PCI logging)
+  - Removed redundant "Production Considerations" and "Why HTTPower?" sections
+  - Updated all references from Req.Test to HTTPower.Test
+- **Documentation corrections across all guides**
+  - Fixed sanitization config structure: `sanitize_headers` and `sanitize_body_fields` (not nested under `sanitize:`)
+  - Clarified that custom sanitization fields are additive (supplement defaults, not replace)
+  - Updated all examples to use correct configuration structure
+
+### Technical Details
+
+- Global adapter configuration integrates with existing per-client/per-request options
+- Adapter detection order: per-request option → global config → auto-detection (Req preferred)
+- Documentation now correctly reflects implementation details
+- All configuration examples consistent across README, guides, and reference docs
+
 ## [0.5.0] - 2025-09-30
 
 ### Added
@@ -239,7 +281,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Production-ready error handling and logging
 - PCI DSS compliance considerations in design
 
-[unreleased]: https://github.com/mdepolli/httpower/compare/v0.3.0...HEAD
+[unreleased]: https://github.com/mdepolli/httpower/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/mdepolli/httpower/compare/v0.5.0...v0.6.0
+[0.5.0]: https://github.com/mdepolli/httpower/compare/v0.4.0...v0.5.0
+[0.4.0]: https://github.com/mdepolli/httpower/compare/v0.3.1...v0.4.0
+[0.3.1]: https://github.com/mdepolli/httpower/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/mdepolli/httpower/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/mdepolli/httpower/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/mdepolli/httpower/releases/tag/v0.1.0
