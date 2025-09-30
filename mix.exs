@@ -1,7 +1,7 @@
 defmodule HTTPower.MixProject do
   use Mix.Project
 
-  @version "0.2.0"
+  @version "0.3.0"
   @source_url "https://github.com/mdepolli/httpower"
 
   def project do
@@ -27,7 +27,10 @@ defmodule HTTPower.MixProject do
 
   defp deps do
     [
-      {:req, "~> 0.4.0"},
+      # HTTP client adapters - at least one required
+      {:req, "~> 0.4.0", optional: true},
+      {:tesla, "~> 1.11", optional: true},
+      # Development dependencies
       {:plug, "~> 1.15", only: :test},
       {:ex_doc, "~> 0.31", only: :dev, runtime: false}
     ]
@@ -35,9 +38,10 @@ defmodule HTTPower.MixProject do
 
   defp description do
     """
-    A reliable HTTP client that wraps Req with advanced features including
-    test mode request blocking, smart retries, rate limiting, and circuit breaker patterns.
-    Perfect for production applications that need bulletproof HTTP behavior.
+    Production-ready HTTP client with adapter support for Req and Tesla. Adds reliability
+    patterns (circuit breakers, rate limiting, smart retries, PCI-compliant logging) on top
+    of your HTTP client choice. Perfect for payment processing, API integrations, and
+    microservices that need enterprise-grade reliability.
     """
   end
 

@@ -1,19 +1,23 @@
 defmodule HTTPower.Client do
   @moduledoc """
-  HTTPower client that wraps Req with advanced features.
+  HTTPower client with adapter support and advanced features.
 
   This module provides:
-  - Test mode request blocking with Req.Test integration
-  - Smart retry logic with configurable policies
+  - Adapter pattern supporting multiple HTTP clients (Req, Tesla)
+  - Test mode request blocking
+  - Smart retry logic with exponential backoff and jitter
   - Clean error handling (never raises exceptions)
   - SSL/Proxy configuration support
   - Request timeout management
+
+  The client sits above the adapter layer, providing consistent retry logic,
+  error handling, and other production features regardless of the underlying
+  HTTP client.
   """
 
   require Logger
   alias HTTPower.{Response, Error}
 
-  @default_timeout 60
   @default_max_retries 3
   # 1 second base delay
   @default_base_delay 1000
@@ -66,15 +70,12 @@ defmodule HTTPower.Client do
     headers = Keyword.get(opts, :headers, %{})
     max_retries = Keyword.get(opts, :max_retries, @default_max_retries)
     retry_safe = Keyword.get(opts, :retry_safe, false)
-    timeout = Keyword.get(opts, :timeout, @default_timeout)
-    ssl_verify = Keyword.get(opts, :ssl_verify, true)
-    proxy = Keyword.get(opts, :proxy, :system)
     base_delay = Keyword.get(opts, :base_delay, @default_base_delay)
     max_delay = Keyword.get(opts, :max_delay, @default_max_delay)
     jitter_factor = Keyword.get(opts, :jitter_factor, @default_jitter_factor)
 
-    # Build Req options
-    req_opts = build_req_opts(method, url, body, headers, timeout, ssl_verify, proxy, opts)
+    # Get adapter (default to Req)
+    adapter = get_adapter(opts)
 
     # Build retry options
     retry_opts = %{
@@ -85,124 +86,112 @@ defmodule HTTPower.Client do
       jitter_factor: jitter_factor
     }
 
-    # Execute with retry logic
-    do_request(req_opts, retry_opts, 1)
-  end
-
-  defp build_req_opts(method, url, body, headers, timeout, ssl_verify, proxy, opts) do
-    base_opts = [
+    # Build request parameters for adapter
+    request_params = %{
       method: method,
       url: url,
-      headers: prepare_headers(headers, method),
-      receive_timeout: timeout * 1000
-    ]
+      body: body,
+      headers: headers,
+      opts: opts,
+      adapter: adapter
+    }
 
-    # Extract any additional options (like :plug for Req.Test)
-    additional_opts =
-      Keyword.drop(opts, [
-        :headers,
-        :max_retries,
-        :retry_safe,
-        :timeout,
-        :ssl_verify,
-        :proxy,
-        :body,
-        :base_delay,
-        :max_delay,
-        :jitter_factor
-      ])
-
-    base_opts
-    |> maybe_add_body(body)
-    |> maybe_add_ssl_options(url, ssl_verify)
-    |> maybe_add_proxy_options(proxy)
-    |> Keyword.merge(additional_opts)
+    # Execute with retry logic
+    do_request(request_params, retry_opts, 1)
   end
 
-  defp maybe_add_body(opts, nil), do: opts
-  defp maybe_add_body(opts, body), do: Keyword.put(opts, :body, body)
-
-  defp maybe_add_ssl_options(opts, url, ssl_verify) do
-    if String.contains?(url, "https://") do
-      ssl_opts = [verify: if(ssl_verify, do: :verify_peer, else: :verify_none)]
-      Keyword.put(opts, :connect_options, transport_opts: ssl_opts)
-    else
-      opts
+  defp get_adapter(opts) do
+    case Keyword.get(opts, :adapter) do
+      nil -> get_default_adapter()
+      {_adapter_module, _config} = adapter -> adapter
+      adapter_module when is_atom(adapter_module) -> adapter_module
     end
   end
 
-  defp maybe_add_proxy_options(opts, :system),
-    do: Keyword.put(opts, :connect_options, proxy: :system)
+  defp get_default_adapter do
+    cond do
+      Code.ensure_loaded?(HTTPower.Adapter.Req) ->
+        HTTPower.Adapter.Req
 
-  defp maybe_add_proxy_options(opts, nil), do: opts
+      Code.ensure_loaded?(HTTPower.Adapter.Tesla) ->
+        HTTPower.Adapter.Tesla
 
-  defp maybe_add_proxy_options(opts, proxy_opts) when is_list(proxy_opts) do
-    Keyword.put(opts, :connect_options, proxy: proxy_opts)
+      true ->
+        raise_missing_adapter_error()
+    end
   end
 
-  defp maybe_add_proxy_options(opts, _), do: opts
+  defp raise_missing_adapter_error do
+    raise """
+    HTTPower requires at least one HTTP client adapter.
 
-  defp prepare_headers(headers, :post) do
-    default_post_headers = %{"Content-Type" => "application/x-www-form-urlencoded"}
+    Add one of the following to your mix.exs dependencies:
 
-    Map.merge(default_post_headers, headers)
-    |> Map.put("connection", "close")
+      # Recommended for new projects (batteries-included)
+      {:req, "~> 0.4.0"}
+
+      # If you already use Tesla
+      {:tesla, "~> 1.11"}
+
+    Then run:
+      mix deps.get
+
+    Alternatively, specify an adapter explicitly:
+      HTTPower.get(url, adapter: HTTPower.Adapter.Req)
+    """
   end
 
-  defp prepare_headers(headers, _method) do
-    Map.put(headers, "connection", "close")
-  end
+  defp do_request(request_params, retry_opts, attempt) do
+    %{method: method, url: url, body: body, headers: headers, opts: opts, adapter: adapter} =
+      request_params
 
-  defp do_request(req_opts, retry_opts, attempt) do
-    with true <- can_do_request?(req_opts),
-         {:ok, response} <- safe_req_request(req_opts) do
-      # Check if HTTP status code should be retried
-      if retryable_status?(response.status) and attempt < retry_opts.max_retries do
-        handle_retry(req_opts, retry_opts, attempt, {:http_status, response.status})
-      else
-        {:ok, convert_response(response)}
-      end
+    with true <- can_do_request?(opts),
+         {:ok, response} <- call_adapter(adapter, method, url, body, headers, opts),
+         false <- retryable_status?(response.status) and attempt < retry_opts.max_retries do
+      {:ok, response}
     else
       false ->
         {:error, %Error{reason: :network_blocked, message: "Network access blocked in test mode"}}
 
+      true ->
+        # Response has retryable status and we have retries left
+        {:ok, response} = call_adapter(adapter, method, url, body, headers, opts)
+        handle_retry(request_params, retry_opts, attempt, {:http_status, response.status})
+
       {:error, reason} when attempt < retry_opts.max_retries ->
-        handle_retry(req_opts, retry_opts, attempt, reason)
+        handle_retry(request_params, retry_opts, attempt, reason)
 
       {:error, reason} ->
-        {:error, %Error{reason: reason, message: error_message(reason)}}
+        wrap_error(reason)
     end
   end
 
-  defp can_do_request?(req_opts) do
+  defp can_do_request?(opts) do
     test_mode = Application.get_env(:httpower, :test_mode, false)
-    has_plug = Keyword.has_key?(req_opts, :plug)
+    has_plug = Keyword.has_key?(opts, :plug)
+    has_adapter_with_config = match?({_module, _config}, Keyword.get(opts, :adapter))
+    httpower_test_enabled = HTTPower.Test.mock_enabled?()
 
-    not test_mode or has_plug
+    # Allow request if:
+    # 1. Test mode is disabled, OR
+    # 2. HTTPower.Test mocking is enabled (adapter-agnostic mocking), OR
+    # 3. Adapter-specific mocking is configured (plug or adapter config)
+    not test_mode or httpower_test_enabled or has_plug or has_adapter_with_config
   end
 
-  defp safe_req_request(req_opts) do
-    try do
-      case Req.request(req_opts) do
-        {:ok, response} -> {:ok, response}
-        {:error, reason} -> {:error, reason}
-      end
-    rescue
-      error -> {:error, error}
-    catch
-      error -> {:error, error}
-    end
+  defp call_adapter({adapter_module, config}, method, url, body, headers, opts) do
+    # Adapter with configuration (e.g., {HTTPower.Adapter.Tesla, tesla_client})
+    adapter_opts = Keyword.put(opts, :adapter_config, config)
+    adapter_module.request(method, url, body, headers, adapter_opts)
   end
 
-  defp convert_response(%Req.Response{status: status, headers: headers, body: body}) do
-    %Response{
-      status: status,
-      headers: Map.new(headers),
-      body: body
-    }
+  defp call_adapter(adapter_module, method, url, body, headers, opts)
+       when is_atom(adapter_module) do
+    # Simple adapter module
+    adapter_module.request(method, url, body, headers, opts)
   end
 
-  defp handle_retry(req_opts, retry_opts, attempt, reason) do
+  defp handle_retry(request_params, retry_opts, attempt, reason) do
     if retryable_error?(reason, retry_opts.retry_safe) do
       log_retry_attempt(attempt, reason, retry_opts.max_retries)
 
@@ -210,11 +199,14 @@ defmodule HTTPower.Client do
       delay = calculate_backoff_delay(attempt, retry_opts)
       :timer.sleep(delay)
 
-      do_request(req_opts, retry_opts, attempt + 1)
+      do_request(request_params, retry_opts, attempt + 1)
     else
-      {:error, %Error{reason: reason, message: error_message(reason)}}
+      wrap_error(reason)
     end
   end
+
+  defp wrap_error(%Error{} = error), do: {:error, error}
+  defp wrap_error(reason), do: {:error, %Error{reason: reason, message: error_message(reason)}}
 
   def calculate_backoff_delay(attempt, retry_opts) do
     # Exponential backoff: 2^attempt

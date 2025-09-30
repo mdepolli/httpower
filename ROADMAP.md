@@ -94,8 +94,8 @@ A reliable HTTP client that wraps Req with advanced features for production appl
 ## Design Principles
 
 1. **Production First**: Every feature must be production-ready with comprehensive tests
-2. **Req-Based**: Leverage Req's excellent foundation while adding advanced features
-3. **Zero-Config Sensible Defaults**: Work great out of the box, configure when needed
+2. **Adapter-Based**: Support multiple HTTP clients (Req, Tesla) through adapter pattern, ensuring production features work consistently across all adapters
+3. **Zero-Config Sensible Defaults**: Work great out of the box with Req adapter, configure when needed
 4. **Elixir Idiomatic**: Use proper Elixir patterns (GenServer, supervision, etc.)
 5. **Never Break**: Comprehensive backward compatibility and smooth upgrades
 6. **PCI Compliance**: Built-in security features for payment processing
