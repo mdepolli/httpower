@@ -490,13 +490,12 @@ HTTPower.CircuitBreaker.get_state("my_api")
 
 - Read [Configuration Reference](configuration-reference.md) for all available options
 - Read [Production Deployment Guide](production-deployment.md) for production setup
-- See [examples/tesla_example.exs](examples/tesla_example.exs) for runnable examples
-- Check [Troubleshooting Guide](troubleshooting.md) for common issues
+- Review runnable examples in `guides/examples/`
 
 ## Getting Help
 
 If you encounter issues:
 1. Check this migration guide
-2. Read the [Troubleshooting Guide](troubleshooting.md)
+2. Review the configuration reference and production deployment guide
 3. Review examples in `guides/examples/`
 4. Open an issue: https://github.com/mdepolli/httpower/issues

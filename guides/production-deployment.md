@@ -499,8 +499,8 @@ config :httpower, rate_limit: [enabled: false]
 ## Next Steps
 
 - Read [Configuration Reference](configuration-reference.md) for all options
-- See [Troubleshooting Guide](troubleshooting.md) for common issues
-- Review [examples/](examples/) for code patterns
+- See [Migrating from Tesla](migrating-from-tesla.md) or [Migrating from Req](migrating-from-req.md)
+- Review `guides/examples/` for code patterns
 - Monitor production logs for HTTPower messages
 
 ## Getting Help
@@ -508,5 +508,5 @@ config :httpower, rate_limit: [enabled: false]
 Production issues:
 1. Check logs for [HTTPower] messages with correlation IDs
 2. Review circuit breaker and rate limit state
-3. Check [Troubleshooting Guide](troubleshooting.md)
+3. Review configuration reference and deployment guide
 4. Open an issue with logs and config: https://github.com/mdepolli/httpower/issues

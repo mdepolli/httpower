@@ -606,11 +606,12 @@ mix test --cover
 
 ## Roadmap
 
-See [ROADMAP.md](ROADMAP.md) for planned features including:
+Planned features:
 
-- **Phase 1**: Logging, rate limiting, circuit breaker patterns
 - **Phase 2**: Performance optimization, security features, middleware
 - **Phase 3**: Advanced authentication, monitoring, streaming
+
+Phase 1 (logging, rate limiting, circuit breaker patterns) is complete.
 
 ## Contributing
 
@@ -622,7 +623,7 @@ See [ROADMAP.md](ROADMAP.md) for planned features including:
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
+MIT License
 
 ---
 
