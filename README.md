@@ -9,6 +9,7 @@ HTTPower is a production-ready HTTP client library for Elixir that provides bull
 
 ### 🛡️ **Production-Ready Reliability**
 
+- **Circuit breaker**: Automatic failure detection and recovery with state tracking
 - **Built-in rate limiting**: Token bucket algorithm with per-endpoint configuration
 - **PCI-compliant logging**: Automatic sanitization of sensitive data in logs
 - **Request/response correlation**: Trace requests with unique correlation IDs
@@ -24,10 +25,6 @@ HTTPower is a production-ready HTTP client library for Elixir that provides bull
 - **Comprehensive error messages**: Human-readable error descriptions
 - **Zero-config defaults**: Works great out of the box
 - **Elixir-idiomatic**: Proper pattern matching and result tuples
-
-### 🚀 **Coming Soon** (Phase 1)
-
-- **Circuit breaker**: Automatic failure detection and recovery
 
 ## Adapter Support
 
@@ -394,6 +391,184 @@ HTTPower.get("https://api.example.com/search",
 )
 ```
 
+## Circuit Breaker
+
+HTTPower includes circuit breaker pattern implementation to protect your application from cascading failures when calling failing services.
+
+### How Circuit Breakers Work
+
+The circuit breaker has three states:
+
+1. **Closed** (normal operation)
+   - Requests pass through normally
+   - Failures are tracked in a sliding window
+   - Transitions to Open when failure threshold is exceeded
+
+2. **Open** (failing service)
+   - Requests fail immediately with `:circuit_breaker_open`
+   - No actual service calls are made
+   - After a timeout period, transitions to Half-Open
+
+3. **Half-Open** (testing recovery)
+   - Limited test requests are allowed through
+   - If they succeed, circuit transitions back to Closed
+   - If they fail, circuit transitions back to Open
+
+### Basic Usage
+
+```elixir
+# Global circuit breaker configuration
+config :httpower, :circuit_breaker,
+  enabled: true,
+  failure_threshold: 5,             # Open after 5 failures
+  window_size: 10,                  # Track last 10 requests
+  timeout: 60_000,                  # Stay open for 60s
+  half_open_requests: 1             # Allow 1 test request in half-open
+
+# All requests automatically use circuit breaker
+HTTPower.get("https://api.example.com/users")
+```
+
+### Per-Client Circuit Breaker
+
+```elixir
+# Configure circuit breaker per client
+payment_gateway = HTTPower.new(
+  base_url: "https://api.payment-gateway.com",
+  circuit_breaker: [
+    failure_threshold: 3,
+    timeout: 30_000
+  ]
+)
+
+# This client has its own circuit breaker
+HTTPower.post(payment_gateway, "/charge", body: %{amount: 100})
+```
+
+### Per-Request Circuit Breaker Key
+
+```elixir
+# Use custom keys to group requests
+HTTPower.get("https://api.example.com/endpoint1",
+  circuit_breaker_key: "example_api"
+)
+
+HTTPower.get("https://api.example.com/endpoint2",
+  circuit_breaker_key: "example_api"  # Shares same circuit breaker
+)
+```
+
+### Threshold Strategies
+
+**Absolute Threshold**
+```elixir
+config :httpower, :circuit_breaker,
+  failure_threshold: 5,        # Open after 5 failures
+  window_size: 10              # In last 10 requests
+```
+
+**Percentage Threshold**
+```elixir
+config :httpower, :circuit_breaker,
+  failure_threshold_percentage: 50,  # Open at 50% failure rate
+  window_size: 10                     # Need 10 requests minimum
+```
+
+### Manual Control
+
+```elixir
+# Manually open a circuit
+HTTPower.CircuitBreaker.open_circuit("payment_api")
+
+# Manually close a circuit
+HTTPower.CircuitBreaker.close_circuit("payment_api")
+
+# Reset a circuit completely
+HTTPower.CircuitBreaker.reset_circuit("payment_api")
+
+# Check circuit state
+HTTPower.CircuitBreaker.get_state("payment_api")
+# Returns: :closed | :open | :half_open | nil
+```
+
+### Configuration Options
+
+```elixir
+config :httpower, :circuit_breaker,
+  enabled: true,                          # Enable/disable (default: false)
+  failure_threshold: 5,                   # Failures to trigger open
+  failure_threshold_percentage: nil,      # Or use percentage (optional)
+  window_size: 10,                        # Sliding window size
+  timeout: 60_000,                        # Open state timeout (ms)
+  half_open_requests: 1                   # Test requests in half-open
+```
+
+### Real-World Examples
+
+**Payment Gateway Protection**
+```elixir
+# Protect against payment gateway failures
+payment = HTTPower.new(
+  base_url: "https://api.stripe.com",
+  circuit_breaker: [
+    failure_threshold: 3,      # Open after 3 failures
+    timeout: 30_000,           # Try again after 30s
+    half_open_requests: 2      # Test with 2 requests
+  ]
+)
+
+case HTTPower.post(payment, "/charges", body: charge_data) do
+  {:ok, response} ->
+    handle_payment(response)
+
+  {:error, %{reason: :circuit_breaker_open}} ->
+    # Circuit is open, use fallback payment method
+    use_fallback_payment_method()
+
+  {:error, error} ->
+    handle_payment_error(error)
+end
+```
+
+**Cascading Failure Prevention**
+```elixir
+# After 5 consecutive failures, circuit opens
+for _ <- 1..5 do
+  {:error, _} = HTTPower.get("https://failing-api.com/endpoint")
+end
+
+# Subsequent requests fail immediately (no cascading failures)
+{:error, %{reason: :circuit_breaker_open}} =
+  HTTPower.get("https://failing-api.com/endpoint")
+
+# After 60 seconds, circuit enters half-open
+:timer.sleep(60_000)
+
+# Next successful request closes the circuit
+{:ok, _} = HTTPower.get("https://failing-api.com/endpoint")
+```
+
+**Combining with Exponential Backoff**
+```elixir
+# Circuit breaker works with existing retry logic
+HTTPower.get("https://api.example.com/users",
+  # Retry configuration (transient failures)
+  max_retries: 3,
+  base_delay: 1000,
+
+  # Circuit breaker (persistent failures)
+  circuit_breaker: [
+    failure_threshold: 5,
+    timeout: 60_000
+  ]
+)
+```
+
+Circuit breaker complements exponential backoff:
+- **Exponential backoff**: Handles transient failures (timeouts, temporary errors)
+- **Circuit breaker**: Handles persistent failures (service down, deployment issues)
+- Together they provide comprehensive failure handling
+
 ## Production Considerations
 
 HTTPower is designed for production use with:
@@ -402,6 +577,7 @@ HTTPower is designed for production use with:
 
 - **Never raises exceptions** - All errors returned as `{:error, reason}` tuples
 - **Automatic retries** for transient failures (timeouts, connection issues)
+- **Circuit breaker** for persistent failures (service outages) ✅
 - **Request timeout management** to prevent hanging requests
 - **SSL verification** enabled by default for security
 
@@ -415,7 +591,8 @@ HTTPower is designed for production use with:
 
 - **Request/response logging** with PCI-compliant data sanitization ✅
 - **Performance metrics** with request timing and correlation IDs ✅
-- **Circuit breaker patterns** for failing services (Coming Soon)
+- **Rate limiting** with token bucket algorithm ✅
+- **Circuit breaker** state tracking and transitions ✅
 
 ## Why HTTPower?
 

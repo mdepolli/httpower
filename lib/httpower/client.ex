@@ -84,39 +84,49 @@ defmodule HTTPower.Client do
 
     case HTTPower.RateLimiter.consume(rate_limit_key, rate_limit_config) do
       :ok ->
-        # Generate correlation ID and log request
-        correlation_id =
-          HTTPowerLogger.log_request(method, url,
-            headers: headers,
-            body: body
-          )
+        # Check circuit breaker
+        circuit_breaker_key = get_circuit_breaker_key(url, opts)
+        circuit_breaker_config = get_circuit_breaker_config(opts)
 
-        # Record start time for duration tracking
-        start_time = System.monotonic_time(:millisecond)
+        HTTPower.CircuitBreaker.call(
+          circuit_breaker_key,
+          fn ->
+            # Generate correlation ID and log request
+            correlation_id =
+              HTTPowerLogger.log_request(method, url,
+                headers: headers,
+                body: body
+              )
 
-        # Build retry options
-        retry_opts = %{
-          max_retries: max_retries,
-          retry_safe: retry_safe,
-          base_delay: base_delay,
-          max_delay: max_delay,
-          jitter_factor: jitter_factor
-        }
+            # Record start time for duration tracking
+            start_time = System.monotonic_time(:millisecond)
 
-        # Build request parameters for adapter
-        request_params = %{
-          method: method,
-          url: url,
-          body: body,
-          headers: headers,
-          opts: opts,
-          adapter: adapter,
-          correlation_id: correlation_id,
-          start_time: start_time
-        }
+            # Build retry options
+            retry_opts = %{
+              max_retries: max_retries,
+              retry_safe: retry_safe,
+              base_delay: base_delay,
+              max_delay: max_delay,
+              jitter_factor: jitter_factor
+            }
 
-        # Execute with retry logic
-        do_request(request_params, retry_opts, 1)
+            # Build request parameters for adapter
+            request_params = %{
+              method: method,
+              url: url,
+              body: body,
+              headers: headers,
+              opts: opts,
+              adapter: adapter,
+              correlation_id: correlation_id,
+              start_time: start_time
+            }
+
+            # Execute with retry logic
+            do_request(request_params, retry_opts, 1)
+          end,
+          circuit_breaker_config
+        )
 
       {:error, reason} ->
         # Rate limit exceeded
@@ -319,6 +329,7 @@ defmodule HTTPower.Client do
   defp error_message(:closed), do: "Connection closed"
   defp error_message(:rate_limit_exceeded), do: "Rate limit exceeded"
   defp error_message(:rate_limit_wait_timeout), do: "Rate limit wait timeout"
+  defp error_message(:circuit_breaker_open), do: "Circuit breaker is open"
   defp error_message(reason), do: inspect(reason)
 
   defp get_rate_limit_key(url, opts) do
@@ -340,6 +351,32 @@ defmodule HTTPower.Client do
 
     # Convert to keyword list if needed
     case rate_limit_opts do
+      opts when is_list(opts) -> opts
+      false -> [enabled: false]
+      true -> []
+      _ -> []
+    end
+  end
+
+  defp get_circuit_breaker_key(url, opts) do
+    # Use custom key if provided, otherwise use URL host
+    case Keyword.get(opts, :circuit_breaker_key) do
+      nil ->
+        # Extract host from URL for circuit key
+        uri = URI.parse(url)
+        uri.host || url
+
+      custom_key ->
+        custom_key
+    end
+  end
+
+  defp get_circuit_breaker_config(opts) do
+    # Extract circuit breaker options from opts
+    circuit_breaker_opts = Keyword.get(opts, :circuit_breaker, [])
+
+    # Convert to keyword list if needed
+    case circuit_breaker_opts do
       opts when is_list(opts) -> opts
       false -> [enabled: false]
       true -> []

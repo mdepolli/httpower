@@ -7,6 +7,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2025-09-30
+
+### Added
+
+- **Circuit breaker pattern implementation** for protecting against cascading failures
+- `HTTPower.CircuitBreaker` GenServer with three-state machine (closed, open, half-open)
+- **Sliding window failure tracking** with unified request history
+  - Tracks last N requests (both successes and failures) in a single sliding window
+  - More accurate than separate windows for each result type
+- **Dual threshold strategies**:
+  - Absolute threshold: Open circuit after N failures
+  - Percentage threshold: Open circuit when failure rate exceeds X%
+- **Automatic state transitions**:
+  - Closed → Open: When failure threshold is exceeded
+  - Open → Half-Open: After timeout period expires
+  - Half-Open → Closed: When all test requests succeed
+  - Half-Open → Open: When any test request fails
+- **Half-open state** with configurable test request limit
+- **Manual circuit control**:
+  - `HTTPower.CircuitBreaker.open_circuit/1` - Manually open a circuit
+  - `HTTPower.CircuitBreaker.close_circuit/1` - Manually close a circuit
+  - `HTTPower.CircuitBreaker.reset_circuit/1` - Reset circuit to initial state
+  - `HTTPower.CircuitBreaker.get_state/1` - Check current circuit state
+- **Flexible circuit breaker configuration**:
+  - Global configuration via `config :httpower, :circuit_breaker`
+  - Per-client configuration via `HTTPower.new/1`
+  - Per-request configuration via request options
+  - Custom circuit keys for grouping requests
+- **Integration with existing retry logic**: Circuit breaker complements exponential backoff
+  - Retry logic handles transient failures (timeouts, temporary errors)
+  - Circuit breaker handles persistent failures (service outages, deployment issues)
+- Comprehensive test suite (26 new tests covering all states, thresholds, transitions)
+- Added circuit breaker section to README with examples and best practices
+
+### Changed
+
+- Refactored circuit breaker sliding window implementation
+  - Changed from separate success/failure windows to unified request tracking
+  - Uses tuples `{:success | :failure, timestamp}` for better accuracy
+  - Window size now correctly limits total requests tracked (not per-type)
+- Updated `HTTPower.Client` to integrate circuit breaker into request flow
+- Circuit breaker wraps retry logic to provide fail-fast behavior when circuit is open
+- Updated documentation to clarify relationship between circuit breaker and retry logic
+
+### Technical Details
+
+- Circuit breaker uses ETS for thread-safe state storage
+- State transitions are logged for observability
+- Circuit keys default to URL host but can be customized
+- Sliding window implementation ensures accurate failure rate tracking
+- Half-open state prevents thundering herd by limiting concurrent test requests
+
 ## [0.4.0] - 2025-09-30
 
 ### Added
