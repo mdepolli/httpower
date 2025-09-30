@@ -7,7 +7,9 @@ defmodule HTTPower.Application do
   def start(_type, _args) do
     children = [
       # Rate limiter GenServer
-      HTTPower.RateLimiter
+      HTTPower.RateLimiter,
+      # Circuit breaker GenServer
+      HTTPower.CircuitBreaker
     ]
 
     opts = [strategy: :one_for_one, name: HTTPower.Supervisor]

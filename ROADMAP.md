@@ -20,7 +20,9 @@ A reliable HTTP client that wraps Req with advanced features for production appl
 - ✅ Request timing and duration tracking
 - ✅ Built-in rate limiting with token bucket algorithm
 - ✅ Per-endpoint and per-client rate limit configuration
-- ✅ Comprehensive test suite (115 tests, 67%+ coverage)
+- ✅ Circuit breaker pattern with three states (closed, open, half-open)
+- ✅ Failure threshold tracking with sliding window
+- ✅ Comprehensive test suite (141 tests, 67%+ coverage)
 
 ## Phase 1: Production Reliability 🚧
 
@@ -45,13 +47,18 @@ A reliable HTTP client that wraps Req with advanced features for production appl
 - [ ] Rate limit headers parsing and respect (Future)
 - [ ] Automatic backoff when limits are hit (Already implemented via strategy)
 
-**Circuit Breaker Pattern**
+**Circuit Breaker Pattern** ✅ COMPLETED
 
-- [ ] Circuit breaker for failing services
-- [ ] Configurable failure thresholds
-- [ ] Half-open state for health checks
-- ✅ Exponential backoff with jitter for retries (already implemented)
-- [ ] Circuit state notifications/callbacks
+- ✅ Circuit breaker for failing services
+- ✅ Three states: closed, open, half-open
+- ✅ Configurable failure thresholds (absolute and percentage)
+- ✅ Sliding window for request tracking
+- ✅ Half-open state with limited test requests
+- ✅ Automatic state transitions based on success/failure
+- ✅ Manual circuit control (open, close, reset)
+- ✅ Per-client and per-endpoint circuit breaker keys
+- ✅ Works seamlessly with existing retry logic
+- [ ] Circuit state notifications/callbacks (Future)
 
 ## Phase 2: Advanced Features 🔮
 

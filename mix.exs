@@ -1,7 +1,7 @@
 defmodule HTTPower.MixProject do
   use Mix.Project
 
-  @version "0.4.0"
+  @version "0.5.0"
   @source_url "https://github.com/mdepolli/httpower"
 
   def project do
