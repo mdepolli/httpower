@@ -1,6 +1,6 @@
 # HTTPower Roadmap
 
-A reliable HTTP client that wraps Req with advanced features for production applications.
+A reliable HTTP client library for Elixir with advanced reliability patterns for production applications. Works with Req or Tesla through an adapter pattern.
 
 ## Current Status ✅
 
@@ -59,78 +59,106 @@ A reliable HTTP client that wraps Req with advanced features for production appl
 
 ## Phase 2: Advanced Features 🔮
 
-**Rate Limiting Enhancements**
+**Priority 1: Core Reliability Enhancements**
 
-- [ ] Rate limit headers parsing and respect (X-RateLimit-*, RateLimit-*, Retry-After)
-- [ ] Automatic rate limit detection from server responses
-- [ ] Dynamic rate limit adjustment based on headers
-- [ ] Rate limit quota tracking and reporting
+- [ ] **Request deduplication** - Prevent duplicate requests from double-clicks, retries, or race conditions
+  - Hash-based deduplication (method + URL + body)
+  - Configurable time window
+  - Option to return cached response or wait for in-flight request
+  - Critical for payment processing and order creation
 
-**Performance & Reliability**
+**Priority 2: Observability & Monitoring**
 
-- [ ] Request deduplication
-- [ ] Response compression handling
-- [ ] Circuit state notifications/callbacks
+- [ ] **Telemetry integration** - OpenTelemetry support for distributed tracing
+  - Instrument all HTTP requests with spans
+  - Track circuit breaker state changes
+  - Monitor rate limiter consumption
+  - Request/response timing metrics
+  - Integration with existing observability tools
 
-**Security & Compliance**
+**Priority 3: Smart Rate Limiting**
 
-- ✅ Request/response sanitization (PCI-compliant logging)
-- ✅ PCI DSS compliance features (automatic data redaction)
-- ✅ Audit logging capabilities (correlation IDs + timing)
-- [ ] Request signature verification
-- [ ] HMAC authentication helpers
+- [ ] **Rate limit headers parsing** - Automatic detection from server responses
+  - Support X-RateLimit-*, RateLimit-*, Retry-After headers
+  - Dynamic rate limit adjustment based on server responses
+  - Rate limit quota tracking and reporting
+  - Automatic backoff when server indicates limits
 
-**Developer Experience**
+**Priority 4: Circuit Breaker Enhancements**
+
+- [ ] **Circuit state notifications/callbacks** - Enable alerting and monitoring
+  - Callbacks for state transitions (closed → open, etc.)
+  - Configurable notification handlers
+  - Integration with monitoring systems
+
+**Priority 5: Developer Experience**
+
+- [ ] **Automatic pagination handling** - Simplify paginated API consumption
+  - Common pagination patterns (offset, cursor, page number)
+  - Lazy enumeration of all pages
+  - Configurable page size and limits
+  - Works with existing retry and rate limiting
+
+**Future Enhancements**
 
 - [ ] Request/response middleware pipeline
 - [ ] Pre/post request hooks
-- [ ] Request transformation utilities
 - [ ] Response validation helpers
-- [ ] Mock server integration for testing
+- [ ] Bulk operation batching
 
 ## Phase 3: Ecosystem Integration 🌐
 
-**Advanced Authentication**
+**Authentication & Caching**
 
 - [ ] OAuth 2.0 token management with automatic refresh
-- [ ] API key rotation and management
-- [ ] JWT token handling and validation
-- [ ] Multi-tenant authentication patterns
+- [ ] Response caching (memory/Redis)
+  - Cache-Control header respect
+  - ETags and conditional requests
+  - Configurable cache backends
 
-**Monitoring & Observability**
+**Monitoring & Metrics**
 
-- [ ] Telemetry integration (OpenTelemetry)
 - [ ] Prometheus metrics export
 - [ ] Health check endpoints
-- [ ] Request tracing and spans
 - [ ] Performance benchmarking tools
-
-**Advanced Patterns**
-
-- [ ] Response caching (memory/Redis)
-- [ ] Request streaming for large payloads
-- [ ] Automatic pagination handling
-- [ ] Bulk operation batching
-- [ ] Webhook verification utilities
+- [ ] Request/response size tracking
 
 ## Version History
 
-**v0.3.0** (Current)
-- Added PCI-compliant request/response logging with automatic sanitization
-- Implemented correlation IDs for distributed tracing
-- Added request duration tracking and performance metrics
+**v0.5.0** (Current) - Circuit Breaker
+- Added circuit breaker pattern with three states (closed, open, half-open)
+- Sliding window failure tracking with unified request history
+- Dual threshold strategies (absolute and percentage)
+- Manual circuit control and state inspection
+- Phase 1 complete: All production reliability features shipped
+
+**v0.4.0** - Rate Limiting
+- Built-in rate limiting with token bucket algorithm
+- Two strategies: wait (with timeout) or error
+- Per-endpoint and per-client configuration
+- ETS-based storage for high performance
+
+**v0.3.1** - PCI-Compliant Logging
+- PCI-compliant request/response logging with automatic sanitization
+- Request correlation IDs for distributed tracing
+- Request duration tracking and performance metrics
 - Configurable sanitization rules for headers and body fields
 
-**v0.2.0**
-- Implemented client configuration pattern with `HTTPower.new/1`
-- Added HTTP status code retry logic (408, 429, 500-504)
-- Implemented exponential backoff with jitter
+**v0.3.0** - Adapter Pattern
+- Adapter pattern supporting Req and Tesla HTTP clients
+- Both adapters are optional dependencies
+- Fixed critical double retry bug
+
+**v0.2.0** - Smart Retries
+- Client configuration pattern with `HTTPower.new/1`
+- HTTP status code retry logic (408, 429, 500-504)
+- Exponential backoff with jitter
 - Improved retry test performance by 70%
 
-**v0.1.0**
-- Initial release with basic HTTP methods
+**v0.1.0** - Initial Release
+- Basic HTTP methods (GET, POST, PUT, DELETE)
 - Test mode blocking with Req.Test integration
-- Smart retry logic and error handling
+- Smart retry logic and clean error handling
 - SSL/Proxy configuration support
 
 ## Design Principles
