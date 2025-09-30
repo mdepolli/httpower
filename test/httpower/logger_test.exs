@@ -140,9 +140,7 @@ defmodule HTTPower.LoggerTest do
 
       log =
         capture_log(fn ->
-          HTTPowerLogger.log_response(correlation_id, 404,
-            body: ~s({"error": "Not found"})
-          )
+          HTTPowerLogger.log_response(correlation_id, 404, body: ~s({"error": "Not found"}))
         end)
 
       assert log =~ correlation_id

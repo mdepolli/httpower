@@ -1,4 +1,7 @@
 defmodule HTTPower.Test do
+  # Suppress warnings for Plug functions when Plug is not loaded (e.g., in prod)
+  @compile {:no_warn_undefined, [Plug.Conn, Plug.Test]}
+
   @moduledoc """
   Adapter-agnostic testing utilities for HTTPower.
 

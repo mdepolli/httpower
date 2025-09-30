@@ -9,6 +9,7 @@ HTTPower is a production-ready HTTP client library for Elixir that provides bull
 
 ### 🛡️ **Production-Ready Reliability**
 
+- **Built-in rate limiting**: Token bucket algorithm with per-endpoint configuration
 - **PCI-compliant logging**: Automatic sanitization of sensitive data in logs
 - **Request/response correlation**: Trace requests with unique correlation IDs
 - **Test mode blocking**: Prevents real HTTP requests during testing
@@ -26,7 +27,6 @@ HTTPower is a production-ready HTTP client library for Elixir that provides bull
 
 ### 🚀 **Coming Soon** (Phase 1)
 
-- **Rate limiting**: Built-in token bucket algorithm with per-endpoint configuration
 - **Circuit breaker**: Automatic failure detection and recovery
 
 ## Adapter Support
@@ -267,6 +267,131 @@ config :httpower, :logging, enabled: false
 config :logger, :console,
   format: "$time $metadata[$level] $message\n",
   metadata: [:request_id]
+```
+
+## Rate Limiting
+
+HTTPower includes built-in rate limiting using a token bucket algorithm to prevent overwhelming APIs and respect rate limits.
+
+### Token Bucket Algorithm
+
+The token bucket algorithm works by:
+1. Each API endpoint has a bucket with a maximum capacity of tokens
+2. Tokens are refilled at a fixed rate (e.g., 100 tokens per minute)
+3. Each request consumes one token
+4. If no tokens are available, the request either waits or returns an error
+
+### Basic Usage
+
+```elixir
+# Global rate limiting configuration
+config :httpower, :rate_limit,
+  enabled: true,
+  requests: 100,        # Max 100 requests
+  per: :minute,         # Per minute
+  strategy: :wait       # Wait for tokens (or :error to fail immediately)
+
+# All requests automatically respect rate limits
+HTTPower.get("https://api.example.com/users")
+```
+
+### Per-Client Rate Limiting
+
+```elixir
+# Configure rate limits per client
+github_client = HTTPower.new(
+  base_url: "https://api.github.com",
+  rate_limit: [requests: 60, per: :minute]
+)
+
+# This client respects GitHub's 60 req/min limit
+HTTPower.get(github_client, "/users")
+```
+
+### Per-Request Configuration
+
+```elixir
+# Override rate limit for specific requests
+HTTPower.get("https://api.example.com/search",
+  rate_limit: [
+    requests: 10,
+    per: :minute,
+    strategy: :error  # Return error instead of waiting
+  ]
+)
+```
+
+### Custom Bucket Keys
+
+```elixir
+# Use custom keys to group requests
+HTTPower.get("https://api.example.com/endpoint1",
+  rate_limit_key: "example_api",
+  rate_limit: [requests: 100, per: :minute]
+)
+
+HTTPower.get("https://api.example.com/endpoint2",
+  rate_limit_key: "example_api",  # Shares same rate limit
+  rate_limit: [requests: 100, per: :minute]
+)
+```
+
+### Strategies
+
+**`:wait` Strategy** (default)
+- Waits until tokens are available (up to `max_wait_time`)
+- Ensures requests eventually succeed
+- Good for background jobs
+
+```elixir
+config :httpower, :rate_limit,
+  strategy: :wait,
+  max_wait_time: 5000  # Wait up to 5 seconds
+```
+
+**`:error` Strategy**
+- Returns `{:error, :rate_limit_exceeded}` immediately
+- Lets your application decide how to handle rate limits
+- Good for user-facing requests
+
+```elixir
+case HTTPower.get(url, rate_limit: [strategy: :error]) do
+  {:ok, response} -> handle_success(response)
+  {:error, %{reason: :rate_limit_exceeded}} -> handle_rate_limit()
+  {:error, error} -> handle_error(error)
+end
+```
+
+### Configuration Options
+
+```elixir
+config :httpower, :rate_limit,
+  enabled: true,              # Enable/disable (default: false)
+  requests: 100,              # Max requests per time window
+  per: :second,               # Time window: :second, :minute, :hour
+  strategy: :wait,            # Strategy: :wait or :error
+  max_wait_time: 5000         # Max wait time in ms (default: 5000)
+```
+
+### Real-World Examples
+
+```elixir
+# GitHub API: 60 requests per minute
+github = HTTPower.new(
+  base_url: "https://api.github.com",
+  rate_limit: [requests: 60, per: :minute]
+)
+
+# Stripe API: 100 requests per second
+stripe = HTTPower.new(
+  base_url: "https://api.stripe.com",
+  rate_limit: [requests: 100, per: :second, strategy: :error]
+)
+
+# Search endpoints: Lower limits
+HTTPower.get("https://api.example.com/search",
+  rate_limit: [requests: 10, per: :minute]
+)
 ```
 
 ## Production Considerations
