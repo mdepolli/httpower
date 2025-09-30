@@ -73,11 +73,11 @@ defmodule HTTPower.MixProject do
           "guides/migrating-from-tesla.md",
           "guides/migrating-from-req.md"
         ],
-        "Guides": [
+        Guides: [
           "guides/configuration-reference.md",
           "guides/production-deployment.md"
         ],
-        "Examples": [
+        Examples: [
           "guides/examples/tesla_example.exs",
           "guides/examples/req_example.exs"
         ]
