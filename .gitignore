@@ -21,3 +21,6 @@ httpower-*.tar
 
 # Temporary files, for example, from tests.
 /tmp/
+
+# Claude Code configuration file
+CLAUDE.md
