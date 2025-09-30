@@ -44,8 +44,6 @@ A reliable HTTP client that wraps Req with advanced features for production appl
 - ✅ Two strategies: wait (with timeout) or error
 - ✅ ETS-based storage for high performance
 - ✅ Custom bucket keys for flexible grouping
-- [ ] Rate limit headers parsing and respect (Future)
-- [ ] Automatic backoff when limits are hit (Already implemented via strategy)
 
 **Circuit Breaker Pattern** ✅ COMPLETED
 
@@ -58,17 +56,21 @@ A reliable HTTP client that wraps Req with advanced features for production appl
 - ✅ Manual circuit control (open, close, reset)
 - ✅ Per-client and per-endpoint circuit breaker keys
 - ✅ Works seamlessly with existing retry logic
-- [ ] Circuit state notifications/callbacks (Future)
 
 ## Phase 2: Advanced Features 🔮
 
+**Rate Limiting Enhancements**
+
+- [ ] Rate limit headers parsing and respect (X-RateLimit-*, RateLimit-*, Retry-After)
+- [ ] Automatic rate limit detection from server responses
+- [ ] Dynamic rate limit adjustment based on headers
+- [ ] Rate limit quota tracking and reporting
+
 **Performance & Reliability**
 
-- [ ] Connection pooling optimization
-- [ ] HTTP/2 support
-- [ ] Keep-alive connection management
 - [ ] Request deduplication
 - [ ] Response compression handling
+- [ ] Circuit state notifications/callbacks
 
 **Security & Compliance**
 
