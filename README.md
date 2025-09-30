@@ -2,8 +2,6 @@
 
 HTTPower is a production-ready HTTP client library for Elixir that provides bulletproof HTTP behavior with advanced features like test mode blocking, smart retries, and comprehensive error handling.
 
-[![CI](https://img.shields.io/github/workflow/status/mdepolli/httpower/CI)](https://github.com/mdepolli/httpower/actions)
-[![Coverage](https://img.shields.io/badge/coverage-62.65%25-yellow)](https://github.com/mdepolli/httpower)
 [![Hex.pm](https://img.shields.io/hexpm/v/httpower)](https://hex.pm/packages/httpower)
 [![Documentation](https://img.shields.io/badge/docs-hexdocs-blue)](https://hexdocs.pm/httpower)
 
