@@ -31,19 +31,54 @@ HTTPower is a production-ready HTTP client library for Elixir that provides bull
 - **Circuit breaker**: Automatic failure detection and recovery
 - **Performance metrics**: Request timing and tracing with correlation IDs
 
+## Adapter Support
+
+HTTPower works with multiple HTTP clients through its adapter system, allowing you to choose the right foundation for your needs:
+
+### **Req Adapter** (Default - Batteries Included)
+Perfect for new projects and simple use cases. Req provides automatic JSON handling, compression, and a friendly API.
+
+```elixir
+# Works out of the box - no configuration needed
+HTTPower.get("https://api.example.com/users")
+```
+
+### **Tesla Adapter** (Bring Your Own Configuration)
+Ideal for existing applications or when you need specific HTTP client features. Use your existing Tesla setup and add HTTPower's production features on top.
+
+```elixir
+# Use your existing Tesla client
+tesla_client = MyApp.ApiClient.client()
+
+client = HTTPower.new(
+  adapter: {HTTPower.Adapter.Tesla, tesla_client}
+)
+
+HTTPower.get(client, "/users")
+```
+
+**Why adapters?** HTTPower's production features (retry logic, circuit breakers, rate limiting, PCI logging) work consistently across all adapters. Choose the HTTP client that fits your architecture, get the reliability patterns you need.
+
 ## Quick Start
 
 ### Installation
 
-Add `httpower` to your dependencies in `mix.exs`:
+Add `httpower` and at least one HTTP client adapter to your dependencies in `mix.exs`:
 
 ```elixir
 def deps do
   [
-    {:httpower, "~> 0.1.0"}
+    {:httpower, "~> 0.3.0"},
+
+    # Choose at least one adapter:
+    {:req, "~> 0.4.0"},        # Recommended for new projects
+    # OR
+    {:tesla, "~> 1.11"}        # If you already use Tesla
   ]
 end
 ```
+
+**Note:** HTTPower requires either Req or Tesla. If both are present, Req is used by default (can be overridden with the `adapter` option).
 
 ### Basic Usage
 
@@ -188,18 +223,26 @@ HTTPower is designed for production use with:
 
 ## Why HTTPower?
 
-HTTPower fills the gap between simple HTTP clients and complex production needs:
+HTTPower adds production reliability patterns on top of your HTTP client choice:
 
-- **vs HTTPoison**: Better error handling, test mode blocking, modern Elixir patterns
-- **vs Req**: Adds production features like retry logic, test blocking, advanced configuration
-- **vs Tesla**: Simpler API, better defaults, built-in reliability patterns
+### **vs Building It Yourself**
+Get circuit breakers, rate limiting, PCI-compliant logging, and telemetry integration without building and maintaining them.
+
+### **vs Using Raw HTTP Clients**
+- **Req/Tesla/HTTPoison**: Great HTTP clients, but lack production patterns like circuit breakers, rate limiting, and compliance features
+- **HTTPower**: Use your preferred HTTP client (Req or Tesla) + get enterprise reliability features
+
+### **Adapter Flexibility**
+- **New projects**: Use Req adapter for simplicity
+- **Existing apps**: Use Tesla adapter, keep your configuration
+- **Consistent features**: Circuit breakers, rate limiting, retry logic work the same regardless of adapter
 
 Perfect for:
 
-- **Payment processing** (PCI-compliant features)
-- **API integrations** (reliable with smart retries)
-- **Microservices** (test mode blocking, comprehensive error handling)
-- **Production applications** (timeout management, SSL verification)
+- **Payment processing** - PCI-compliant logging and audit trails
+- **API integrations** - Rate limiting and circuit breakers for third-party APIs
+- **Microservices** - Reliability patterns across service boundaries
+- **Financial services** - Compliance and observability requirements
 
 ## Development
 
