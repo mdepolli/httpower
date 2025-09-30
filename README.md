@@ -21,38 +21,28 @@ HTTPower is a production-ready HTTP client library for Elixir that provides bull
 
 ### 🔧 **Developer-Friendly**
 
-- **Req.Test integration**: Seamless mocking for tests
+- **HTTPower.Test**: Adapter-agnostic mocking for tests
 - **Comprehensive error messages**: Human-readable error descriptions
 - **Zero-config defaults**: Works great out of the box
 - **Elixir-idiomatic**: Proper pattern matching and result tuples
 
+### 🎯 **Perfect For**
+
+- **API integrations** - Rate limiting and circuit breakers for third-party APIs
+- **Payment processing** - PCI-compliant logging and audit trails
+- **Microservices** - Reliability patterns across service boundaries
+- **Financial services** - Compliance and observability requirements
+
 ## Adapter Support
 
-HTTPower works with multiple HTTP clients through its adapter system, allowing you to choose the right foundation for your needs:
+HTTPower supports multiple HTTP clients through an adapter system:
 
-### **Req Adapter** (Default - Batteries Included)
-Perfect for new projects and simple use cases. Req provides automatic JSON handling, compression, and a friendly API.
+- **Req** (default) - Batteries-included HTTP client with automatic JSON handling
+- **Tesla** - Flexible HTTP client with extensive middleware ecosystem
 
-```elixir
-# Works out of the box - no configuration needed
-HTTPower.get("https://api.example.com/users")
-```
+HTTPower's production features (circuit breaker, rate limiting, PCI logging, smart retries) work consistently across both adapters. For existing Tesla applications, your middleware continues to work unchanged - HTTPower adds reliability on top.
 
-### **Tesla Adapter** (Bring Your Own Configuration)
-Ideal for existing applications or when you need specific HTTP client features. Use your existing Tesla setup and add HTTPower's production features on top.
-
-```elixir
-# Use your existing Tesla client
-tesla_client = MyApp.ApiClient.client()
-
-client = HTTPower.new(
-  adapter: {HTTPower.Adapter.Tesla, tesla_client}
-)
-
-HTTPower.get(client, "/users")
-```
-
-**Why adapters?** HTTPower's production features (retry logic, circuit breakers, rate limiting, PCI logging) work consistently across all adapters. Choose the HTTP client that fits your architecture, get the reliability patterns you need.
+See [Migrating from Tesla](guides/migrating-from-tesla.md) or [Migrating from Req](guides/migrating-from-req.md) for adapter-specific guidance.
 
 ## Quick Start
 
@@ -63,7 +53,7 @@ Add `httpower` and at least one HTTP client adapter to your dependencies in `mix
 ```elixir
 def deps do
   [
-    {:httpower, "~> 0.3.0"},
+    {:httpower, "~> 0.5.0"},
 
     # Choose at least one adapter:
     {:req, "~> 0.4.0"},        # Recommended for new projects
@@ -77,6 +67,8 @@ end
 
 ### Basic Usage
 
+**Direct requests:**
+
 ```elixir
 # Simple GET request
 {:ok, response} = HTTPower.get("https://api.example.com/users")
@@ -88,88 +80,25 @@ IO.inspect(response.body)    # %{"users" => [...]}
   body: "name=John&email=john@example.com",
   headers: %{"Content-Type" => "application/x-www-form-urlencoded"}
 )
+```
 
-# With configuration options
-{:ok, response} = HTTPower.get("https://api.example.com/slow-endpoint",
-  timeout: 30,           # 30 second timeout
-  max_retries: 5,        # Retry up to 5 times
-  retry_safe: true       # Retry connection resets
+**Client-based usage (recommended for reusable configuration):**
+
+```elixir
+# Create a configured client
+client = HTTPower.new(
+  base_url: "https://api.example.com",
+  headers: %{"authorization" => "Bearer #{token}"},
+  timeout: 30,
+  max_retries: 3
 )
+
+# Use the client for multiple requests
+{:ok, users} = HTTPower.get(client, "/users")
+{:ok, user} = HTTPower.get(client, "/users/123")
+{:ok, created} = HTTPower.post(client, "/users", body: data)
 
 # Error handling (never raises!)
-case HTTPower.get("https://unreachable-api.com") do
-  {:ok, response} ->
-    IO.puts("Success: #{response.status}")
-  {:error, error} ->
-    IO.puts("Failed: #{error.message}")  # "Connection refused"
-end
-```
-
-## Test Mode Integration
-
-HTTPower can completely block real HTTP requests during testing while allowing mocked requests:
-
-```elixir
-# In test_helper.exs or test configuration
-Application.put_env(:httpower, :test_mode, true)
-
-# In your tests
-defmodule MyAppTest do
-  use ExUnit.Case
-
-  test "API integration with mocking" do
-    # This will work - uses Req.Test
-    Req.Test.stub(HTTPower, fn conn ->
-      Req.Test.json(conn, %{status: "success"})
-    end)
-
-    {:ok, response} = HTTPower.get("https://api.example.com/test",
-      plug: {Req.Test, HTTPower}
-    )
-    assert response.body == %{"status" => "success"}
-  end
-
-  test "real requests are blocked" do
-    # This will be blocked in test mode
-    {:error, error} = HTTPower.get("https://real-api.com")
-    assert error.reason == :network_blocked
-  end
-end
-```
-
-## Configuration Options
-
-HTTPower supports extensive configuration for production use:
-
-```elixir
-HTTPower.get("https://api.example.com/endpoint",
-  # Request configuration
-  timeout: 60,                    # Request timeout in seconds (default: 60)
-  max_retries: 3,                 # Maximum retry attempts (default: 3)
-  retry_safe: false,              # Retry connection resets (default: false)
-
-  # Headers and body
-  headers: %{
-    "Authorization" => "Bearer token",
-    "User-Agent" => "MyApp/1.0"
-  },
-  body: "request data",
-
-  # SSL and proxy
-  ssl_verify: true,               # Enable SSL verification (default: true)
-  proxy: :system,                 # Use system proxy settings
-  # proxy: [host: "proxy.com", port: 8080],  # Custom proxy
-
-  # Additional Req options are passed through
-  connect_timeout: 15_000
-)
-```
-
-## Error Handling
-
-HTTPower provides comprehensive error handling with clean result tuples:
-
-```elixir
 case HTTPower.get("https://api.example.com") do
   {:ok, %HTTPower.Response{status: 200, body: body}} ->
     # Success case
@@ -192,6 +121,75 @@ case HTTPower.get("https://api.example.com") do
     handle_test_mode()
 end
 ```
+
+## Test Mode Integration
+
+HTTPower can completely block real HTTP requests during testing while allowing mocked requests:
+
+```elixir
+# In test_helper.exs
+Application.put_env(:httpower, :test_mode, true)
+
+# In your tests
+defmodule MyAppTest do
+  use ExUnit.Case
+
+  test "API integration with mocking" do
+    # Use HTTPower.Test for adapter-agnostic mocking
+    HTTPower.Test.stub(fn conn ->
+      Plug.Conn.resp(conn, 200, Jason.encode!(%{status: "success"}))
+    end)
+
+    {:ok, response} = HTTPower.get("https://api.example.com/test")
+    assert response.body == %{"status" => "success"}
+  end
+
+  test "real requests are blocked" do
+    # Requests without mocks are blocked in test mode
+    {:error, error} = HTTPower.get("https://real-api.com")
+    assert error.reason == :network_blocked
+  end
+end
+```
+
+## Configuration Options
+
+HTTPower supports extensive configuration at multiple levels. **Global configuration in `config.exs` is recommended** for production settings:
+
+### Global Configuration (Recommended)
+
+```elixir
+# config/config.exs
+config :httpower,
+  # Retry configuration
+  max_retries: 3,
+  retry_safe: false,
+  base_delay: 1000,
+  max_delay: 30000,
+
+  # Rate limiting (see Rate Limiting section)
+  rate_limit: [
+    enabled: true,
+    requests: 100,
+    per: :minute,
+    strategy: :wait
+  ],
+
+  # Circuit breaker (see Circuit Breaker section)
+  circuit_breaker: [
+    enabled: true,
+    failure_threshold: 5,
+    timeout: 60_000
+  ],
+
+  # Logging (see PCI-Compliant Logging section)
+  logging: [
+    enabled: true,
+    level: :info
+  ]
+```
+
+**Priority:** Per-request options > Per-client options > Global configuration
 
 ## PCI-Compliant Logging
 
@@ -218,26 +216,17 @@ HTTPower.post("https://payment-api.com/charge",
 ### What Gets Sanitized
 
 **Headers:**
+
 - Authorization, API-Key, X-API-Key, Token, Cookie, Secret
 
 **Body Fields:**
+
 - password, api_key, token, credit_card, cvv, ssn, pin
 
 **Patterns:**
+
 - Credit card numbers (13-19 digits)
 - CVV codes (3-4 digits)
-
-### Correlation IDs
-
-Every request gets a unique correlation ID for tracing:
-
-```elixir
-# Example log output:
-[HTTPower] [req_a1b2c3d4e5f6g7h8] → GET https://api.example.com/users
-[HTTPower] [req_a1b2c3d4e5f6g7h8] ← 200 (245ms) body=%{"users" => [...]}
-```
-
-Use these IDs to correlate requests with responses in your logs.
 
 ### Configuration
 
@@ -246,11 +235,13 @@ Control logging behavior in your config:
 ```elixir
 # config/config.exs
 config :httpower, :logging,
-  enabled: true,                    # Enable/disable logging (default: true)
-  level: :info,                     # Log level (default: :info)
-  sanitize_headers: ["X-Custom"],   # Additional headers to sanitize
-  sanitize_body_fields: ["secret"]  # Additional body fields to sanitize
+  enabled: true,                         # Enable/disable logging (default: true)
+  level: :info,                          # Log level (default: :info)
+  sanitize_headers: ["x-custom-token"],  # Additional headers to sanitize (adds to defaults)
+  sanitize_body_fields: ["secret_key"]   # Additional body fields to sanitize (adds to defaults)
 ```
+
+**Important:** Custom sanitization fields are **additive** - they supplement the defaults, not replace them. The default headers and body fields will always be sanitized, plus any custom ones you specify.
 
 ### Disabling Logging
 
@@ -266,6 +257,25 @@ config :logger, :console,
   metadata: [:request_id]
 ```
 
+## Correlation IDs
+
+Every request gets a unique correlation ID for distributed tracing and request tracking:
+
+```elixir
+# Example log output:
+[HTTPower] [req_a1b2c3d4e5f6g7h8] → GET https://api.example.com/users
+[HTTPower] [req_a1b2c3d4e5f6g7h8] ← 200 (245ms) body=%{"users" => [...]}
+```
+
+Correlation IDs help you:
+
+- Track requests across services and logs
+- Correlate requests with their responses
+- Debug production issues with distributed tracing
+- Analyze request flows in microservices
+
+The correlation ID format is `req_` followed by 16 hexadecimal characters, ensuring uniqueness across requests.
+
 ## Rate Limiting
 
 HTTPower includes built-in rate limiting using a token bucket algorithm to prevent overwhelming APIs and respect rate limits.
@@ -273,6 +283,7 @@ HTTPower includes built-in rate limiting using a token bucket algorithm to preve
 ### Token Bucket Algorithm
 
 The token bucket algorithm works by:
+
 1. Each API endpoint has a bucket with a maximum capacity of tokens
 2. Tokens are refilled at a fixed rate (e.g., 100 tokens per minute)
 3. Each request consumes one token
@@ -336,6 +347,7 @@ HTTPower.get("https://api.example.com/endpoint2",
 ### Strategies
 
 **`:wait` Strategy** (default)
+
 - Waits until tokens are available (up to `max_wait_time`)
 - Ensures requests eventually succeed
 - Good for background jobs
@@ -347,6 +359,7 @@ config :httpower, :rate_limit,
 ```
 
 **`:error` Strategy**
+
 - Returns `{:error, :rate_limit_exceeded}` immediately
 - Lets your application decide how to handle rate limits
 - Good for user-facing requests
@@ -461,6 +474,7 @@ HTTPower.get("https://api.example.com/endpoint2",
 ### Threshold Strategies
 
 **Absolute Threshold**
+
 ```elixir
 config :httpower, :circuit_breaker,
   failure_threshold: 5,        # Open after 5 failures
@@ -468,6 +482,7 @@ config :httpower, :circuit_breaker,
 ```
 
 **Percentage Threshold**
+
 ```elixir
 config :httpower, :circuit_breaker,
   failure_threshold_percentage: 50,  # Open at 50% failure rate
@@ -506,6 +521,7 @@ config :httpower, :circuit_breaker,
 ### Real-World Examples
 
 **Payment Gateway Protection**
+
 ```elixir
 # Protect against payment gateway failures
 payment = HTTPower.new(
@@ -531,6 +547,7 @@ end
 ```
 
 **Cascading Failure Prevention**
+
 ```elixir
 # After 5 consecutive failures, circuit opens
 for _ <- 1..5 do
@@ -549,6 +566,7 @@ end
 ```
 
 **Combining with Exponential Backoff**
+
 ```elixir
 # Circuit breaker works with existing retry logic
 HTTPower.get("https://api.example.com/users",
@@ -565,57 +583,10 @@ HTTPower.get("https://api.example.com/users",
 ```
 
 Circuit breaker complements exponential backoff:
+
 - **Exponential backoff**: Handles transient failures (timeouts, temporary errors)
 - **Circuit breaker**: Handles persistent failures (service down, deployment issues)
 - Together they provide comprehensive failure handling
-
-## Production Considerations
-
-HTTPower is designed for production use with:
-
-### Reliability
-
-- **Never raises exceptions** - All errors returned as `{:error, reason}` tuples
-- **Automatic retries** for transient failures (timeouts, connection issues)
-- **Circuit breaker** for persistent failures (service outages) ✅
-- **Request timeout management** to prevent hanging requests
-- **SSL verification** enabled by default for security
-
-### Testing
-
-- **Complete test mode blocking** prevents accidental external calls in tests
-- **Req.Test integration** for easy mocking and stubbing
-- **Deterministic behavior** for reliable CI/CD pipelines
-
-### Observability
-
-- **Request/response logging** with PCI-compliant data sanitization ✅
-- **Performance metrics** with request timing and correlation IDs ✅
-- **Rate limiting** with token bucket algorithm ✅
-- **Circuit breaker** state tracking and transitions ✅
-
-## Why HTTPower?
-
-HTTPower adds production reliability patterns on top of your HTTP client choice:
-
-### **vs Building It Yourself**
-Get circuit breakers, rate limiting, PCI-compliant logging, and telemetry integration without building and maintaining them.
-
-### **vs Using Raw HTTP Clients**
-- **Req/Tesla/HTTPoison**: Great HTTP clients, but lack production patterns like circuit breakers, rate limiting, and compliance features
-- **HTTPower**: Use your preferred HTTP client (Req or Tesla) + get enterprise reliability features
-
-### **Adapter Flexibility**
-- **New projects**: Use Req adapter for simplicity
-- **Existing apps**: Use Tesla adapter, keep your configuration
-- **Consistent features**: Circuit breakers, rate limiting, retry logic work the same regardless of adapter
-
-Perfect for:
-
-- **Payment processing** - PCI-compliant logging and audit trails
-- **API integrations** - Rate limiting and circuit breakers for third-party APIs
-- **Microservices** - Reliability patterns across service boundaries
-- **Financial services** - Compliance and observability requirements
 
 ## Development
 

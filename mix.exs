@@ -55,10 +55,33 @@ defmodule HTTPower.MixProject do
 
   defp docs do
     [
-      main: "HTTPower",
+      main: "readme",
       source_ref: "v#{@version}",
       source_url: @source_url,
-      extras: ["README.md"]
+      extras: [
+        "README.md",
+        "CHANGELOG.md",
+        "guides/migrating-from-tesla.md",
+        "guides/migrating-from-req.md",
+        "guides/configuration-reference.md",
+        "guides/production-deployment.md",
+        "guides/examples/tesla_example.exs",
+        "guides/examples/req_example.exs"
+      ],
+      groups_for_extras: [
+        "Migration Guides": [
+          "guides/migrating-from-tesla.md",
+          "guides/migrating-from-req.md"
+        ],
+        "Guides": [
+          "guides/configuration-reference.md",
+          "guides/production-deployment.md"
+        ],
+        "Examples": [
+          "guides/examples/tesla_example.exs",
+          "guides/examples/req_example.exs"
+        ]
+      ]
     ]
   end
 end
