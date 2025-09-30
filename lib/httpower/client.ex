@@ -17,6 +17,7 @@ defmodule HTTPower.Client do
 
   require Logger
   alias HTTPower.{Response, Error}
+  alias HTTPower.Logger, as: HTTPowerLogger
 
   @default_max_retries 3
   # 1 second base delay
@@ -77,6 +78,16 @@ defmodule HTTPower.Client do
     # Get adapter (default to Req)
     adapter = get_adapter(opts)
 
+    # Generate correlation ID and log request
+    correlation_id =
+      HTTPowerLogger.log_request(method, url,
+        headers: headers,
+        body: body
+      )
+
+    # Record start time for duration tracking
+    start_time = System.monotonic_time(:millisecond)
+
     # Build retry options
     retry_opts = %{
       max_retries: max_retries,
@@ -93,7 +104,9 @@ defmodule HTTPower.Client do
       body: body,
       headers: headers,
       opts: opts,
-      adapter: adapter
+      adapter: adapter,
+      correlation_id: correlation_id,
+      start_time: start_time
     }
 
     # Execute with retry logic
@@ -142,16 +155,36 @@ defmodule HTTPower.Client do
   end
 
   defp do_request(request_params, retry_opts, attempt) do
-    %{method: method, url: url, body: body, headers: headers, opts: opts, adapter: adapter} =
-      request_params
+    %{
+      method: method,
+      url: url,
+      body: body,
+      headers: headers,
+      opts: opts,
+      adapter: adapter,
+      correlation_id: correlation_id,
+      start_time: start_time
+    } = request_params
 
     with true <- can_do_request?(opts),
          {:ok, response} <- call_adapter(adapter, method, url, body, headers, opts),
          false <- retryable_status?(response.status) and attempt < retry_opts.max_retries do
+      # Calculate duration and log successful response
+      duration_ms = System.monotonic_time(:millisecond) - start_time
+
+      HTTPowerLogger.log_response(correlation_id, response.status,
+        headers: response.headers,
+        body: response.body,
+        duration_ms: duration_ms
+      )
+
       {:ok, response}
     else
       false ->
-        {:error, %Error{reason: :network_blocked, message: "Network access blocked in test mode"}}
+        # Log blocked request
+        error = %Error{reason: :network_blocked, message: "Network access blocked in test mode"}
+        HTTPowerLogger.log_error(correlation_id, :network_blocked, error.message)
+        {:error, error}
 
       true ->
         # Response has retryable status and we have retries left
@@ -162,7 +195,18 @@ defmodule HTTPower.Client do
         handle_retry(request_params, retry_opts, attempt, reason)
 
       {:error, reason} ->
-        wrap_error(reason)
+        # Log final error after all retries exhausted
+        error = wrap_error(reason)
+
+        case error do
+          {:error, %Error{} = err} ->
+            HTTPowerLogger.log_error(correlation_id, err.reason, err.message)
+
+          _ ->
+            nil
+        end
+
+        error
     end
   end
 

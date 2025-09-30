@@ -9,6 +9,8 @@ HTTPower is a production-ready HTTP client library for Elixir that provides bull
 
 ### 🛡️ **Production-Ready Reliability**
 
+- **PCI-compliant logging**: Automatic sanitization of sensitive data in logs
+- **Request/response correlation**: Trace requests with unique correlation IDs
 - **Test mode blocking**: Prevents real HTTP requests during testing
 - **Smart retry logic**: Intelligent retries with configurable policies
 - **Clean error handling**: Never raises exceptions, always returns result tuples
@@ -24,10 +26,8 @@ HTTPower is a production-ready HTTP client library for Elixir that provides bull
 
 ### 🚀 **Coming Soon** (Phase 1)
 
-- **HTTP request/response logging**: PCI-compliant debugging with data sanitization
 - **Rate limiting**: Built-in token bucket algorithm with per-endpoint configuration
 - **Circuit breaker**: Automatic failure detection and recovery
-- **Performance metrics**: Request timing and tracing with correlation IDs
 
 ## Adapter Support
 
@@ -196,6 +196,79 @@ case HTTPower.get("https://api.example.com") do
 end
 ```
 
+## PCI-Compliant Logging
+
+HTTPower automatically logs all HTTP requests and responses with PCI-compliant data sanitization. This helps with debugging and observability while maintaining security and compliance.
+
+### Automatic Sanitization
+
+Sensitive data is automatically redacted from logs:
+
+```elixir
+# Authorization headers are sanitized
+HTTPower.get("https://api.example.com/users",
+  headers: %{"Authorization" => "Bearer secret-token"}
+)
+# Logs: headers=%{"authorization" => "[REDACTED]"}
+
+# Credit card numbers are sanitized
+HTTPower.post("https://payment-api.com/charge",
+  body: ~s({"card": "4111111111111111", "amount": 100})
+)
+# Logs: body={"card": "[REDACTED]", "amount": 100}
+```
+
+### What Gets Sanitized
+
+**Headers:**
+- Authorization, API-Key, X-API-Key, Token, Cookie, Secret
+
+**Body Fields:**
+- password, api_key, token, credit_card, cvv, ssn, pin
+
+**Patterns:**
+- Credit card numbers (13-19 digits)
+- CVV codes (3-4 digits)
+
+### Correlation IDs
+
+Every request gets a unique correlation ID for tracing:
+
+```elixir
+# Example log output:
+[HTTPower] [req_a1b2c3d4e5f6g7h8] → GET https://api.example.com/users
+[HTTPower] [req_a1b2c3d4e5f6g7h8] ← 200 (245ms) body=%{"users" => [...]}
+```
+
+Use these IDs to correlate requests with responses in your logs.
+
+### Configuration
+
+Control logging behavior in your config:
+
+```elixir
+# config/config.exs
+config :httpower, :logging,
+  enabled: true,                    # Enable/disable logging (default: true)
+  level: :info,                     # Log level (default: :info)
+  sanitize_headers: ["X-Custom"],   # Additional headers to sanitize
+  sanitize_body_fields: ["secret"]  # Additional body fields to sanitize
+```
+
+### Disabling Logging
+
+For performance-critical code or when you don't want logging:
+
+```elixir
+# Disable globally in config
+config :httpower, :logging, enabled: false
+
+# Or use Logger configuration to filter HTTPower logs
+config :logger, :console,
+  format: "$time $metadata[$level] $message\n",
+  metadata: [:request_id]
+```
+
 ## Production Considerations
 
 HTTPower is designed for production use with:
@@ -213,11 +286,11 @@ HTTPower is designed for production use with:
 - **Req.Test integration** for easy mocking and stubbing
 - **Deterministic behavior** for reliable CI/CD pipelines
 
-### Observability (Coming Soon)
+### Observability
 
-- **Request/response logging** with PCI-compliant data sanitization
-- **Performance metrics** with request timing and correlation IDs
-- **Circuit breaker patterns** for failing services
+- **Request/response logging** with PCI-compliant data sanitization ✅
+- **Performance metrics** with request timing and correlation IDs ✅
+- **Circuit breaker patterns** for failing services (Coming Soon)
 
 ## Why HTTPower?
 

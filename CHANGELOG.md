@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2025-09-30
+
+### Added
+
+- **PCI-compliant HTTP request/response logging** with automatic data sanitization
+- `HTTPower.Logger` module for production-ready logging with security built-in
+- **Correlation IDs** for distributed tracing - every request gets a unique ID (format: `req_abc123...`)
+- **Request duration tracking** - logs include timing information in milliseconds
+- **Automatic sanitization** of sensitive data in logs:
+  - Credit card numbers (13-19 digits with optional spaces/dashes)
+  - CVV codes (3-4 digits)
+  - Authorization headers (Bearer tokens, Basic auth)
+  - API keys and secret tokens
+  - Password fields in JSON bodies
+  - Configurable custom fields via application config
+- **Configurable logging** via application config:
+  - `enabled` - Enable/disable logging globally (default: true)
+  - `level` - Log level: :debug, :info, :warning, :error (default: :info)
+  - `sanitize_headers` - Additional headers to sanitize
+  - `sanitize_body_fields` - Additional body fields to sanitize
+- Comprehensive test suite for logging (42 new tests, 98.67% module coverage)
+- Logging works consistently across all adapters (Req, Tesla)
+
+### Changed
+
+- Updated `HTTPower.Client` to integrate logging at request/response boundaries
+- Request flow now includes: correlation ID generation → request logging → execution → response/error logging
+- All HTTP operations now automatically log with sanitization (can be disabled via config)
+
+### Technical Details
+
+- Correlation IDs generated using cryptographically secure random bytes
+- Sanitization uses regex patterns for credit cards, CVV codes
+- JSON field sanitization supports nested maps and arrays
+- Headers normalized to lowercase for consistent sanitization
+- Large response bodies (>500 chars) are truncated in logs
+- Logging sits above adapter layer - works identically with Req or Tesla
+
 ## [0.3.0] - 2025-09-30
 
 ### Added
