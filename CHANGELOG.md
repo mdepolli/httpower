@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2025-09-30
+
+### Added
+
+- **Built-in rate limiting** with token bucket algorithm
+- `HTTPower.RateLimiter` GenServer for managing rate limit state
+- `HTTPower.Application` supervision tree for fault tolerance
+- **Two rate limiting strategies**:
+  - `:wait` - Blocks until tokens are available (up to `max_wait_time`)
+  - `:error` - Returns `{:error, :rate_limit_exceeded}` immediately
+- **Flexible rate limit configuration**:
+  - Global configuration via `config :httpower, :rate_limit`
+  - Per-client configuration via `HTTPower.new/1`
+  - Per-request configuration via request options
+  - Custom bucket keys for grouping requests
+- **ETS-based storage** for high performance and low latency
+- **Automatic bucket cleanup** removes inactive buckets after 5 minutes
+- **Time window support**: `:second`, `:minute`, `:hour`
+- Thread-safe rate limiting with atomic ETS operations
+- Comprehensive test suite (23 new tests covering token bucket algorithm, strategies, concurrent access)
+
+### Changed
+
+- Updated `HTTPower.Client` to check rate limits before each request
+- Rate limiting integrated into request flow (happens before logging)
+- Default bucket key uses URL host (can be overridden with `:rate_limit_key`)
+
+### Fixed
+
+- Fixed Plug.Conn undefined warnings by adding `@compile {:no_warn_undefined}` directive to `HTTPower.Test`
+
+### Technical Details
+
+- Token bucket algorithm: tokens refill continuously at configured rate
+- Refill rate calculated as: `max_tokens / time_window_ms`
+- Elapsed time since last refill determines available tokens
+- GenServer handles concurrent access with ETS atomic operations
+- Cleanup runs every 60 seconds, removes buckets inactive for 5+ minutes
+- Works consistently across all adapters (Req, Tesla)
+
 ## [0.3.1] - 2025-09-30
 
 ### Added

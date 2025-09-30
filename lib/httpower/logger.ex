@@ -177,7 +177,13 @@ defmodule HTTPower.Logger do
       sanitized_body = if sanitize, do: sanitize_body(body), else: body
 
       message =
-        format_response_log(correlation_id, status, sanitized_headers, sanitized_body, duration_ms)
+        format_response_log(
+          correlation_id,
+          status,
+          sanitized_headers,
+          sanitized_body,
+          duration_ms
+        )
 
       Logger.log(log_level, message)
     end
@@ -196,7 +202,9 @@ defmodule HTTPower.Logger do
   @spec log_error(correlation_id(), atom(), String.t()) :: :ok
   def log_error(correlation_id, reason, message) do
     if logging_enabled?() do
-      log_message = "[HTTPower] [#{correlation_id}] ERROR: #{message} (reason: #{inspect(reason)})"
+      log_message =
+        "[HTTPower] [#{correlation_id}] ERROR: #{message} (reason: #{inspect(reason)})"
+
       Logger.error(log_message)
     end
 

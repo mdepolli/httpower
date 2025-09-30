@@ -78,39 +78,50 @@ defmodule HTTPower.Client do
     # Get adapter (default to Req)
     adapter = get_adapter(opts)
 
-    # Generate correlation ID and log request
-    correlation_id =
-      HTTPowerLogger.log_request(method, url,
-        headers: headers,
-        body: body
-      )
+    # Check rate limit before proceeding
+    rate_limit_key = get_rate_limit_key(url, opts)
+    rate_limit_config = get_rate_limit_config(opts)
 
-    # Record start time for duration tracking
-    start_time = System.monotonic_time(:millisecond)
+    case HTTPower.RateLimiter.consume(rate_limit_key, rate_limit_config) do
+      :ok ->
+        # Generate correlation ID and log request
+        correlation_id =
+          HTTPowerLogger.log_request(method, url,
+            headers: headers,
+            body: body
+          )
 
-    # Build retry options
-    retry_opts = %{
-      max_retries: max_retries,
-      retry_safe: retry_safe,
-      base_delay: base_delay,
-      max_delay: max_delay,
-      jitter_factor: jitter_factor
-    }
+        # Record start time for duration tracking
+        start_time = System.monotonic_time(:millisecond)
 
-    # Build request parameters for adapter
-    request_params = %{
-      method: method,
-      url: url,
-      body: body,
-      headers: headers,
-      opts: opts,
-      adapter: adapter,
-      correlation_id: correlation_id,
-      start_time: start_time
-    }
+        # Build retry options
+        retry_opts = %{
+          max_retries: max_retries,
+          retry_safe: retry_safe,
+          base_delay: base_delay,
+          max_delay: max_delay,
+          jitter_factor: jitter_factor
+        }
 
-    # Execute with retry logic
-    do_request(request_params, retry_opts, 1)
+        # Build request parameters for adapter
+        request_params = %{
+          method: method,
+          url: url,
+          body: body,
+          headers: headers,
+          opts: opts,
+          adapter: adapter,
+          correlation_id: correlation_id,
+          start_time: start_time
+        }
+
+        # Execute with retry logic
+        do_request(request_params, retry_opts, 1)
+
+      {:error, reason} ->
+        # Rate limit exceeded
+        {:error, %Error{reason: reason, message: error_message(reason)}}
+    end
   end
 
   defp get_adapter(opts) do
@@ -306,5 +317,33 @@ defmodule HTTPower.Client do
   defp error_message(:econnreset), do: "Connection reset"
   defp error_message(:nxdomain), do: "Domain not found"
   defp error_message(:closed), do: "Connection closed"
+  defp error_message(:rate_limit_exceeded), do: "Rate limit exceeded"
+  defp error_message(:rate_limit_wait_timeout), do: "Rate limit wait timeout"
   defp error_message(reason), do: inspect(reason)
+
+  defp get_rate_limit_key(url, opts) do
+    # Use custom key if provided, otherwise use URL host
+    case Keyword.get(opts, :rate_limit_key) do
+      nil ->
+        # Extract host from URL for bucket key
+        uri = URI.parse(url)
+        uri.host || url
+
+      custom_key ->
+        custom_key
+    end
+  end
+
+  defp get_rate_limit_config(opts) do
+    # Extract rate limit options from opts
+    rate_limit_opts = Keyword.get(opts, :rate_limit, [])
+
+    # Convert to keyword list if needed
+    case rate_limit_opts do
+      opts when is_list(opts) -> opts
+      false -> [enabled: false]
+      true -> []
+      _ -> []
+    end
+  end
 end

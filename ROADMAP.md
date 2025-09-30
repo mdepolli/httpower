@@ -18,7 +18,9 @@ A reliable HTTP client that wraps Req with advanced features for production appl
 - ✅ PCI-compliant request/response logging with automatic sanitization
 - ✅ Request correlation IDs for distributed tracing
 - ✅ Request timing and duration tracking
-- ✅ Comprehensive test suite (92 tests, 62%+ coverage)
+- ✅ Built-in rate limiting with token bucket algorithm
+- ✅ Per-endpoint and per-client rate limit configuration
+- ✅ Comprehensive test suite (115 tests, 67%+ coverage)
 
 ## Phase 1: Production Reliability 🚧
 
@@ -32,13 +34,16 @@ A reliable HTTP client that wraps Req with advanced features for production appl
 - ✅ Automatic sanitization of credit cards, CVV, passwords, API keys, auth tokens
 - ✅ Configurable sanitization rules (custom headers and body fields)
 
-**Rate Limiting** 🎯 NEXT
+**Rate Limiting** ✅ COMPLETED
 
-- [ ] Built-in rate limiting to respect API limits
-- [ ] Per-endpoint rate limit configuration
-- [ ] Token bucket algorithm implementation
-- [ ] Rate limit headers parsing and respect
-- [ ] Automatic backoff when limits are hit
+- ✅ Built-in rate limiting to respect API limits
+- ✅ Per-endpoint rate limit configuration
+- ✅ Token bucket algorithm implementation
+- ✅ Two strategies: wait (with timeout) or error
+- ✅ ETS-based storage for high performance
+- ✅ Custom bucket keys for flexible grouping
+- [ ] Rate limit headers parsing and respect (Future)
+- [ ] Automatic backoff when limits are hit (Already implemented via strategy)
 
 **Circuit Breaker Pattern**
 
