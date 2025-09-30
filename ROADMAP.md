@@ -4,27 +4,35 @@ A reliable HTTP client that wraps Req with advanced features for production appl
 
 ## Current Status ✅
 
-**Core Foundation (v0.1.0)**
+**Core Foundation (v0.1.0 - v0.3.0)**
 
 - ✅ Basic HTTP methods (GET, POST, PUT, DELETE)
+- ✅ Adapter pattern supporting Req and Tesla HTTP clients
 - ✅ Test mode request blocking with Req.Test integration
-- ✅ Smart retry logic with configurable policies
+- ✅ Smart retry logic with exponential backoff and jitter
+- ✅ HTTP status code retry logic (408, 429, 500-504)
 - ✅ Clean error handling (never raises exceptions)
 - ✅ SSL/Proxy configuration support
 - ✅ Request timeout management
-- ✅ Comprehensive test suite (100% coverage)
+- ✅ Client configuration pattern with reusable configs
+- ✅ PCI-compliant request/response logging with automatic sanitization
+- ✅ Request correlation IDs for distributed tracing
+- ✅ Request timing and duration tracking
+- ✅ Comprehensive test suite (92 tests, 62%+ coverage)
 
 ## Phase 1: Production Reliability 🚧
 
-**Logging & Debugging Features**
+**Logging & Debugging Features** ✅ COMPLETED
 
-- [ ] HTTP request/response logging for debugging
-- [ ] Sanitized logging that scrubs sensitive data (PCI compliance)
-- [ ] Request timing and performance metrics
-- [ ] Configurable log levels (debug, info, warn, error)
-- [ ] Request/response ID correlation for tracing
+- ✅ HTTP request/response logging for debugging
+- ✅ Sanitized logging that scrubs sensitive data (PCI compliance)
+- ✅ Request timing and performance metrics (duration tracking)
+- ✅ Configurable log levels (debug, info, warn, error)
+- ✅ Request/response ID correlation for tracing (correlation IDs)
+- ✅ Automatic sanitization of credit cards, CVV, passwords, API keys, auth tokens
+- ✅ Configurable sanitization rules (custom headers and body fields)
 
-**Rate Limiting**
+**Rate Limiting** 🎯 NEXT
 
 - [ ] Built-in rate limiting to respect API limits
 - [ ] Per-endpoint rate limit configuration
@@ -37,7 +45,7 @@ A reliable HTTP client that wraps Req with advanced features for production appl
 - [ ] Circuit breaker for failing services
 - [ ] Configurable failure thresholds
 - [ ] Half-open state for health checks
-- [ ] Exponential backoff with jitter for retries
+- ✅ Exponential backoff with jitter for retries (already implemented)
 - [ ] Circuit state notifications/callbacks
 
 ## Phase 2: Advanced Features 🔮
@@ -52,9 +60,9 @@ A reliable HTTP client that wraps Req with advanced features for production appl
 
 **Security & Compliance**
 
-- [ ] Request/response sanitization
-- [ ] PCI DSS compliance features
-- [ ] Audit logging capabilities
+- ✅ Request/response sanitization (PCI-compliant logging)
+- ✅ PCI DSS compliance features (automatic data redaction)
+- ✅ Audit logging capabilities (correlation IDs + timing)
 - [ ] Request signature verification
 - [ ] HMAC authentication helpers
 
@@ -91,6 +99,26 @@ A reliable HTTP client that wraps Req with advanced features for production appl
 - [ ] Bulk operation batching
 - [ ] Webhook verification utilities
 
+## Version History
+
+**v0.3.0** (Current)
+- Added PCI-compliant request/response logging with automatic sanitization
+- Implemented correlation IDs for distributed tracing
+- Added request duration tracking and performance metrics
+- Configurable sanitization rules for headers and body fields
+
+**v0.2.0**
+- Implemented client configuration pattern with `HTTPower.new/1`
+- Added HTTP status code retry logic (408, 429, 500-504)
+- Implemented exponential backoff with jitter
+- Improved retry test performance by 70%
+
+**v0.1.0**
+- Initial release with basic HTTP methods
+- Test mode blocking with Req.Test integration
+- Smart retry logic and error handling
+- SSL/Proxy configuration support
+
 ## Design Principles
 
 1. **Production First**: Every feature must be production-ready with comprehensive tests
@@ -98,7 +126,7 @@ A reliable HTTP client that wraps Req with advanced features for production appl
 3. **Zero-Config Sensible Defaults**: Work great out of the box with Req adapter, configure when needed
 4. **Elixir Idiomatic**: Use proper Elixir patterns (GenServer, supervision, etc.)
 5. **Never Break**: Comprehensive backward compatibility and smooth upgrades
-6. **PCI Compliance**: Built-in security features for payment processing
+6. **PCI Compliance**: Built-in security features for payment processing ✅
 
 ## Target Use Cases
 
