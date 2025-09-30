@@ -401,9 +401,13 @@ defmodule HTTPower.CircuitBreakerTest do
       # Subsequent requests fail fast (no actual service calls)
       for _ <- 1..10 do
         result =
-          CircuitBreaker.call("failing_service", fn ->
-            flunk("Should not execute when circuit is open")
-          end, config)
+          CircuitBreaker.call(
+            "failing_service",
+            fn ->
+              flunk("Should not execute when circuit is open")
+            end,
+            config
+          )
 
         assert result == {:error, :circuit_breaker_open}
       end

@@ -118,7 +118,7 @@ defmodule HTTPower.CircuitBreaker do
       ...> end)
       {:ok, response}
   """
-  @spec call(circuit_key(), (() -> {:ok, term()} | {:error, term()}), circuit_breaker_config()) ::
+  @spec call(circuit_key(), (-> {:ok, term()} | {:error, term()}), circuit_breaker_config()) ::
           {:ok, term()} | {:error, term()}
   def call(circuit_key, fun, config \\ []) do
     if circuit_breaker_enabled?(config) do
