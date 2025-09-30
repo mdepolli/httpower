@@ -64,9 +64,7 @@ defmodule HTTPower.MixProject do
         "guides/migrating-from-tesla.md",
         "guides/migrating-from-req.md",
         "guides/configuration-reference.md",
-        "guides/production-deployment.md",
-        "guides/examples/tesla_example.exs",
-        "guides/examples/req_example.exs"
+        "guides/production-deployment.md"
       ],
       groups_for_extras: [
         "Migration Guides": [
@@ -76,10 +74,6 @@ defmodule HTTPower.MixProject do
         Guides: [
           "guides/configuration-reference.md",
           "guides/production-deployment.md"
-        ],
-        Examples: [
-          "guides/examples/tesla_example.exs",
-          "guides/examples/req_example.exs"
         ]
       ]
     ]
