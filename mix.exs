@@ -39,8 +39,9 @@ defmodule HTTPower.MixProject do
 
   defp description do
     """
-    Production-ready HTTP client with adapter support for Req and Tesla. Adds reliability patterns
-    (circuit breakers, rate limiting, smart retries) on top of your HTTP client choice.
+    HTTP client library with advanced reliability patterns built-in. Features circuit breaker, rate limiting,
+    PCI-compliant logging, and smart retries. Works with Req or Tesla adapters. Built for payment processing,
+    microservices, and high-volume APIs.
     """
   end
 
