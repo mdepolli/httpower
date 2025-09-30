@@ -569,4 +569,4 @@ config :httpower,
 
 - Read [Production Deployment Guide](production-deployment.md) for production setup
 - See [Migrating from Tesla](migrating-from-tesla.md) or [Migrating from Req](migrating-from-req.md)
-- Check [examples/](examples/) for runnable examples
+- Check `guides/examples/` for runnable examples
