@@ -143,6 +143,15 @@ defmodule HTTPower.Client do
   end
 
   defp get_default_adapter do
+    # Check for global adapter configuration
+    case Application.get_env(:httpower, :adapter) do
+      nil -> detect_adapter()
+      {_adapter_module, _config} = adapter -> adapter
+      adapter_module when is_atom(adapter_module) -> adapter_module
+    end
+  end
+
+  defp detect_adapter do
     cond do
       Code.ensure_loaded?(HTTPower.Adapter.Req) ->
         HTTPower.Adapter.Req
