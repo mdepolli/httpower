@@ -277,4 +277,37 @@ defmodule HTTPower.DedupTest do
       # (some might have gotten cached response if they came after completion)
     end
   end
+
+  describe "crash recovery" do
+    test "GenServer crash doesn't orphan ETS table" do
+      hash = Dedup.hash(:post, "https://api.com/crash-test", "data")
+
+      # Use deduplicator
+      assert {:ok, :execute} = Dedup.deduplicate(hash, enabled: true)
+
+      # Get GenServer pid and kill it
+      pid = Process.whereis(HTTPower.Dedup)
+      ref = Process.monitor(pid)
+      Process.exit(pid, :kill)
+
+      # Wait for process to die
+      receive do
+        {:DOWN, ^ref, :process, ^pid, :killed} -> :ok
+      after
+        1_000 -> flunk("GenServer didn't die")
+      end
+
+      # Wait for supervisor to restart
+      :timer.sleep(100)
+
+      # Should be able to use deduplicator again (new ETS table created)
+      hash2 = Dedup.hash(:post, "https://api.com/crash-test2", "data")
+      assert {:ok, :execute} = Dedup.deduplicate(hash2, enabled: true)
+
+      # New GenServer should be running
+      new_pid = Process.whereis(HTTPower.Dedup)
+      assert new_pid != nil
+      assert new_pid != pid
+    end
+  end
 end

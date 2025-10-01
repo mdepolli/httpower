@@ -478,4 +478,36 @@ defmodule HTTPower.RateLimiterTest do
       assert remaining > 10.0
     end
   end
+
+  describe "crash recovery" do
+    test "GenServer crash doesn't orphan ETS table" do
+      config = [enabled: true, requests: 10, per: :minute]
+
+      # Use rate limiter
+      assert :ok = RateLimiter.consume("crash_test", config)
+
+      # Get GenServer pid and kill it
+      pid = Process.whereis(HTTPower.RateLimiter)
+      ref = Process.monitor(pid)
+      Process.exit(pid, :kill)
+
+      # Wait for process to die
+      receive do
+        {:DOWN, ^ref, :process, ^pid, :killed} -> :ok
+      after
+        1_000 -> flunk("GenServer didn't die")
+      end
+
+      # Wait for supervisor to restart
+      :timer.sleep(100)
+
+      # Should be able to use rate limiter again (new ETS table created)
+      assert :ok = RateLimiter.consume("crash_test", config)
+
+      # New GenServer should be running
+      new_pid = Process.whereis(HTTPower.RateLimiter)
+      assert new_pid != nil
+      assert new_pid != pid
+    end
+  end
 end

@@ -149,7 +149,14 @@ defmodule HTTPower.Dedup do
     # ETS table for tracking requests
     # Format: {hash, state, data, timestamp}
     # States: {:in_flight, [waiters]} | {:completed, response}
-    table = :ets.new(__MODULE__, [:set, :public, :named_table])
+    # heir: :none ensures table dies with process (prevents orphaning on crash)
+    table =
+      :ets.new(__MODULE__, [
+        :set,
+        :public,
+        :named_table,
+        {:heir, :none}
+      ])
 
     # Schedule periodic cleanup
     schedule_cleanup()
