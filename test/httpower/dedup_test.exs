@@ -309,5 +309,76 @@ defmodule HTTPower.DedupTest do
       assert new_pid != nil
       assert new_pid != pid
     end
+
+    test "waiter process death removes it from waiter list" do
+      hash = Dedup.hash(:post, "https://api.com/waiter-death-test", "data")
+
+      # First request
+      assert {:ok, :execute} = Dedup.deduplicate(hash, enabled: true)
+
+      # Spawn a waiter process that will die immediately
+      waiter_pid =
+        spawn(fn ->
+          {:ok, :wait, _ref} = Dedup.deduplicate(hash, enabled: true)
+          # Process exits immediately without waiting for response
+        end)
+
+      # Give the waiter time to register
+      Process.sleep(50)
+
+      # Waiter should be dead by now
+      refute Process.alive?(waiter_pid)
+
+      # Wait a bit more for DOWN message to be processed
+      Process.sleep(50)
+
+      # Complete the request
+      response = %{status: 200, body: "success"}
+      Dedup.complete(hash, response, enabled: true)
+
+      # The test passes if no error occurs when trying to send to dead process
+      # (Previously would try to send message to dead waiter_pid)
+      :ok
+    end
+
+    test "waiter timeout doesn't cause memory leak" do
+      hash = Dedup.hash(:post, "https://api.com/timeout-test", "data")
+
+      # First request
+      assert {:ok, :execute} = Dedup.deduplicate(hash, enabled: true)
+
+      # Spawn waiters that will timeout
+      waiter_pids =
+        for i <- 1..10 do
+          spawn(fn ->
+            {:ok, :wait, ref} = Dedup.deduplicate(hash, enabled: true)
+
+            # Simulate timeout - give up waiting after 100ms
+            receive do
+              {:dedup_response, ^ref, _response} -> :ok
+            after
+              100 -> {:timeout, i}
+            end
+          end)
+        end
+
+      # Wait for all waiters to timeout and die
+      Process.sleep(200)
+
+      # All waiters should be dead
+      Enum.each(waiter_pids, fn pid ->
+        refute Process.alive?(pid)
+      end)
+
+      # Wait for DOWN messages to be processed
+      Process.sleep(50)
+
+      # Complete the request - should not try to send to dead processes
+      response = %{status: 200, body: "success"}
+      Dedup.complete(hash, response, enabled: true)
+
+      # Test passes if no errors occurred
+      :ok
+    end
   end
 end

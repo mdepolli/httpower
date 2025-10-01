@@ -175,6 +175,8 @@ defmodule HTTPower.Dedup do
 
       [{^hash, {:in_flight, waiters}, ref, _ts}] ->
         # Request already in-flight - add to waiters
+        # Monitor the waiter to detect if it dies/times out
+        Process.monitor(caller_pid)
         :ets.update_element(state.table, hash, {2, {:in_flight, [caller_pid | waiters]}})
         {:reply, {:ok, :wait, ref}, state}
 
@@ -208,6 +210,32 @@ defmodule HTTPower.Dedup do
   def handle_cast({:cancel, hash}, state) do
     # Remove in-flight request on error/timeout
     :ets.delete(state.table, hash)
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info({:DOWN, _ref, :process, pid, _reason}, state) do
+    # Remove dead waiter from all in-flight requests
+    # This prevents memory leaks when waiters timeout or crash
+    :ets.foldl(
+      fn
+        {hash, {:in_flight, waiters}, ref, ts}, acc ->
+          new_waiters = List.delete(waiters, pid)
+
+          if new_waiters != waiters do
+            :ets.insert(state.table, {hash, {:in_flight, new_waiters}, ref, ts})
+          end
+
+          acc
+
+        # Ignore completed requests
+        _other, acc ->
+          acc
+      end,
+      nil,
+      state.table
+    )
+
     {:noreply, state}
   end
 
