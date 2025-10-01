@@ -249,15 +249,18 @@ defmodule HTTPower.RateLimiter do
       {:heir, :none}
     ])
 
+    # Cache default config at startup to avoid repeated Application.get_env calls
+    default_config = Application.get_env(:httpower, :rate_limit, [])
+
     # Schedule periodic cleanup
     schedule_cleanup()
 
-    {:ok, %{}}
+    {:ok, %{default_config: default_config}}
   end
 
   @impl true
   def handle_call({:check_rate_limit, bucket_key, config}, _from, state) do
-    {max_tokens, refill_rate} = get_bucket_params(config)
+    {max_tokens, refill_rate} = get_bucket_params(config, state.default_config)
     now_ms = System.monotonic_time(:millisecond)
 
     # Get or initialize bucket state
@@ -286,7 +289,7 @@ defmodule HTTPower.RateLimiter do
 
   @impl true
   def handle_call({:consume_token, bucket_key, config}, _from, state) do
-    {max_tokens, refill_rate} = get_bucket_params(config)
+    {max_tokens, refill_rate} = get_bucket_params(config, state.default_config)
     now_ms = System.monotonic_time(:millisecond)
 
     # Get current bucket state
@@ -351,17 +354,15 @@ defmodule HTTPower.RateLimiter do
     end
   end
 
-  defp get_bucket_params(config) do
-    # Get configuration values
-    global_config = Application.get_env(:httpower, :rate_limit, [])
-
+  defp get_bucket_params(config, default_config) do
+    # Get configuration values - use cached default_config instead of Application.get_env
     requests =
       Keyword.get(config, :requests) ||
-        Keyword.get(global_config, :requests, 100)
+        Keyword.get(default_config, :requests, 100)
 
     per =
       Keyword.get(config, :per) ||
-        Keyword.get(global_config, :per, :second)
+        Keyword.get(default_config, :per, :second)
 
     # Calculate refill rate (tokens per millisecond)
     window_ms =
@@ -377,18 +378,28 @@ defmodule HTTPower.RateLimiter do
     {max_tokens, refill_rate}
   end
 
-  defp get_strategy(config) do
-    global_config = Application.get_env(:httpower, :rate_limit, [])
-
-    Keyword.get(config, :strategy) ||
-      Keyword.get(global_config, :strategy, :wait)
+  # Public-facing helper (loads config from Application.get_env)
+  defp get_strategy(config) when is_list(config) do
+    default_config = Application.get_env(:httpower, :rate_limit, [])
+    get_strategy(config, default_config)
   end
 
-  defp get_max_wait_time(config) do
-    global_config = Application.get_env(:httpower, :rate_limit, [])
+  # Optimized version for GenServer callbacks (uses cached default_config)
+  defp get_strategy(config, default_config) do
+    Keyword.get(config, :strategy) ||
+      Keyword.get(default_config, :strategy, :wait)
+  end
 
+  # Public-facing helper (loads config from Application.get_env)
+  defp get_max_wait_time(config) when is_list(config) do
+    default_config = Application.get_env(:httpower, :rate_limit, [])
+    get_max_wait_time(config, default_config)
+  end
+
+  # Optimized version for GenServer callbacks (uses cached default_config)
+  defp get_max_wait_time(config, default_config) do
     Keyword.get(config, :max_wait_time) ||
-      Keyword.get(global_config, :max_wait_time, 5000)
+      Keyword.get(default_config, :max_wait_time, 5000)
   end
 
   defp handle_rate_limit_exceeded(:error, _wait_time_ms, _config) do
