@@ -15,7 +15,18 @@ defmodule HTTPower.MixProject do
       package: package(),
       docs: docs(),
       name: "HTTPower",
-      source_url: @source_url
+      source_url: @source_url,
+      test_coverage: [
+        summary: [threshold: 75],
+        ignore_modules: [
+          # Adapters are thin wrappers around Req/Tesla with minimal logic.
+          # They're thoroughly tested via integration tests (see test/httpower/adapter/*_test.exs),
+          # but HTTPower.Test intercepts requests before adapter code executes in unit tests,
+          # resulting in low direct coverage metrics despite comprehensive testing.
+          HTTPower.Adapter.Req,
+          HTTPower.Adapter.Tesla
+        ]
+      ]
     ]
   end
 
