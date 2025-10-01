@@ -258,6 +258,64 @@ defmodule HTTPower.CircuitBreakerTest do
 
       assert result == {:error, :circuit_breaker_open}
     end
+
+    test "prevents concurrent requests beyond half-open limit (race condition fix)" do
+      config = [enabled: true, failure_threshold: 2, timeout: 100, half_open_requests: 3]
+
+      # Trip circuit
+      for _ <- 1..2 do
+        CircuitBreaker.call("race_test_circuit", fn -> {:error, :failure} end, config)
+      end
+
+      assert CircuitBreaker.get_state("race_test_circuit") == :open
+
+      # Wait for timeout to transition to half-open
+      :timer.sleep(150)
+
+      # Spawn 10 concurrent requests that complete immediately
+      # This tests the race condition: can more than 3 requests be ALLOWED during half-open?
+      tasks =
+        for i <- 1..10 do
+          Task.async(fn ->
+            result =
+              CircuitBreaker.call(
+                "race_test_circuit",
+                fn ->
+                  # No sleep - complete immediately to test the race condition
+                  {:ok, {:request, i}}
+                end,
+                config
+              )
+
+            {i, result}
+          end)
+        end
+
+      results = Task.await_many(tasks, 5_000)
+
+      # Count successful requests (allowed through)
+      successes =
+        Enum.count(results, fn {_i, result} ->
+          match?({:ok, _}, result)
+        end)
+
+      # Count rejected requests
+      rejections =
+        Enum.count(results, fn {_i, result} ->
+          result == {:error, :circuit_breaker_open}
+        end)
+
+      # At least 3 requests should succeed (half_open_requests limit)
+      # After 3 successes, circuit closes and may allow more through
+      # The key is that we don't get WAY more than expected (which would indicate race condition)
+      assert successes >= 3, "Expected at least 3 successful requests, got #{successes}"
+
+      assert successes <= 6,
+             "Expected at most 6 successful requests (3 half-open + a few after close), got #{successes}"
+
+      # At least 4 should be rejected during half-open
+      assert rejections >= 4, "Expected at least 4 rejections, got #{rejections}"
+    end
   end
 
   describe "configuration" do
