@@ -18,6 +18,7 @@ defmodule HTTPower.Client do
   require Logger
   alias HTTPower.{Response, Error}
   alias HTTPower.Logger, as: HTTPowerLogger
+  alias HTTPower.{RateLimiter, CircuitBreaker, Dedup}
 
   @default_max_retries 3
   @default_retry_safe false
@@ -68,10 +69,8 @@ defmodule HTTPower.Client do
   defp request(method, url, body, opts) do
     with {:ok, :allowed} <- check_test_mode_allows_request(opts),
          {:ok, :rate_limit_passed} <- check_rate_limit(url, opts),
-         {:ok, response} <-
-           execute_with_circuit_breaker(url, opts, fn ->
-             execute_request_with_retry(method, url, body, opts)
-           end) do
+         {:ok, dedup_action} <- check_deduplication(method, url, body, opts),
+         {:ok, response} <- execute_with_dedup(dedup_action, url, opts, method, body) do
       {:ok, response}
     else
       {:error, :network_blocked} ->
@@ -97,17 +96,65 @@ defmodule HTTPower.Client do
     rate_limit_key = get_rate_limit_key(url, opts)
     rate_limit_config = get_rate_limit_config(opts)
 
-    case HTTPower.RateLimiter.consume(rate_limit_key, rate_limit_config) do
+    case RateLimiter.consume(rate_limit_key, rate_limit_config) do
       :ok -> {:ok, :rate_limit_passed}
       {:error, _reason} = error -> error
     end
+  end
+
+  defp check_deduplication(method, url, body, opts) do
+    dedup_config = get_deduplication_config(opts)
+    dedup_hash = get_deduplication_hash(method, url, body, opts)
+
+    case Dedup.deduplicate(dedup_hash, dedup_config) do
+      {:ok, :execute} ->
+        {:ok, {:execute, dedup_hash, dedup_config}}
+
+      {:ok, :wait, ref} ->
+        {:ok, {:wait, ref}}
+
+      {:ok, response} ->
+        {:ok, {:cached, response}}
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp execute_with_dedup({:execute, dedup_hash, dedup_config}, url, opts, method, body) do
+    result =
+      execute_with_circuit_breaker(url, opts, fn ->
+        execute_request_with_retry(method, url, body, opts)
+      end)
+
+    case result do
+      {:ok, response} ->
+        Dedup.complete(dedup_hash, response, dedup_config)
+        {:ok, response}
+
+      {:error, _} = error ->
+        Dedup.cancel(dedup_hash)
+        error
+    end
+  end
+
+  defp execute_with_dedup({:wait, ref}, _url, _opts, _method, _body) do
+    receive do
+      {:dedup_response, ^ref, response} -> {:ok, response}
+    after
+      30_000 -> {:error, :dedup_timeout}
+    end
+  end
+
+  defp execute_with_dedup({:cached, response}, _url, _opts, _method, _body) do
+    {:ok, response}
   end
 
   defp execute_with_circuit_breaker(url, opts, request_fn) do
     circuit_breaker_key = get_circuit_breaker_key(url, opts)
     circuit_breaker_config = get_circuit_breaker_config(opts)
 
-    case HTTPower.CircuitBreaker.call(circuit_breaker_key, request_fn, circuit_breaker_config) do
+    case CircuitBreaker.call(circuit_breaker_key, request_fn, circuit_breaker_config) do
       {:ok, _} = success -> success
       {:error, _} = error -> error
     end
@@ -378,6 +425,32 @@ defmodule HTTPower.Client do
     end
   end
 
+  # Request Deduplication Configuration
+
+  defp get_deduplication_hash(method, url, body, opts) do
+    case Keyword.get(opts, :deduplicate) do
+      config when is_list(config) ->
+        case Keyword.get(config, :key) do
+          nil -> Dedup.hash(method, url, body)
+          custom_key -> custom_key
+        end
+
+      _ ->
+        Dedup.hash(method, url, body)
+    end
+  end
+
+  defp get_deduplication_config(opts) do
+    dedup_opts = Keyword.get(opts, :deduplicate, [])
+
+    case dedup_opts do
+      opts when is_list(opts) -> opts
+      true -> []
+      false -> [enabled: false]
+      _ -> [enabled: false]
+    end
+  end
+
   # Logging Helpers
 
   defp log_success_response(correlation_id, response, start_time) do
@@ -423,5 +496,6 @@ defmodule HTTPower.Client do
   defp error_message(:rate_limit_exceeded), do: "Rate limit exceeded"
   defp error_message(:rate_limit_wait_timeout), do: "Rate limit wait timeout"
   defp error_message(:circuit_breaker_open), do: "Circuit breaker is open"
+  defp error_message(:dedup_timeout), do: "Request deduplication timeout"
   defp error_message(reason), do: inspect(reason)
 end

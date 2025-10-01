@@ -38,6 +38,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Only applies to 429 (Too Many Requests) and 503 (Service Unavailable) status codes
   - Other retryable status codes (408, 500, 502, 504) continue using exponential backoff
 
+### Changed
+
+- **Code organization and readability improvements** in `HTTPower.Client`
+  - Reorganized file into logical sections: Public API, Main Pipeline, Retry Logic, Adapters, Test Mode, Rate Limit Config, Circuit Breaker Config, Logging, Error Handling
+  - Refactored request flow to use clean `with` pipelines instead of nested case statements
+  - All helper functions now return explicit `{:ok, value}` or `{:error, reason}` tuples for consistency
+  - Moved test mode check to beginning of request pipeline for fail-fast behavior
+  - Removed redundant code comments (kept only user-facing messages and section headers)
+  - Simplified parameter passing by extracting options at point of use
+  - Eliminated unnecessary wrapper functions for cleaner call stack
+  - Net reduction of 27 lines while improving code clarity
+
+### Technical Details
+
+- No performance changes - refactoring only improves maintainability
+- Rate limiter and circuit breaker already have early-exit optimizations when disabled
+- All 304 tests passing, 0 compile warnings
+- Renamed `do_http_request/3` → `execute_http_request/3` for clarity
+- Removed `do_request/3` wrapper that just delegated to `execute_http_request/3`
+
 ## [0.6.0] - 2025-09-30
 
 ### Added
