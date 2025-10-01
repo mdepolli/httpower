@@ -78,11 +78,11 @@ A reliable HTTP client library for Elixir with advanced reliability patterns for
 
 **Priority 3: Smart Rate Limiting**
 
-- [ ] **Rate limit headers parsing** - Automatic detection from server responses
-  - Support X-RateLimit-*, RateLimit-*, Retry-After headers
-  - Dynamic rate limit adjustment based on server responses
-  - Rate limit quota tracking and reporting
-  - Automatic backoff when server indicates limits
+- [x] **Rate limit headers parsing** ✅ - Automatic detection from server responses
+  - ✅ Support X-RateLimit-*, RateLimit-*, Retry-After headers
+  - ✅ Dynamic rate limit adjustment based on server responses
+  - ✅ Rate limit quota tracking and reporting
+  - ✅ Automatic backoff when server indicates limits (respects Retry-After on 429/503)
 
 **Priority 4: Circuit Breaker Enhancements**
 

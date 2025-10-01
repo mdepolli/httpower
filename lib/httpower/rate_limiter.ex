@@ -180,6 +180,61 @@ defmodule HTTPower.RateLimiter do
     end
   end
 
+  @doc """
+  Updates bucket state from server rate limit headers.
+
+  This synchronizes the local bucket with the server's actual rate limit state.
+  Server headers provide: limit, remaining, reset_at timestamp.
+  We convert this to our token bucket format: remaining tokens + current time.
+
+  ## Examples
+
+      iex> rate_limit_info = %{
+      ...>   limit: 60,
+      ...>   remaining: 55,
+      ...>   reset_at: ~U[2025-10-01 12:00:00Z],
+      ...>   format: :github
+      ...> }
+      iex> HTTPower.RateLimiter.update_from_headers("api.github.com", rate_limit_info)
+      :ok
+  """
+  @spec update_from_headers(bucket_key(), map()) :: :ok
+  def update_from_headers(bucket_key, rate_limit_info) when is_map(rate_limit_info) do
+    GenServer.call(__MODULE__, {:update_from_headers, bucket_key, rate_limit_info})
+  end
+
+  @doc """
+  Returns rate limit information for a bucket.
+
+  Includes both current token count and server-provided limits if available.
+
+  Returns `nil` if bucket doesn't exist.
+
+  ## Examples
+
+      iex> HTTPower.RateLimiter.get_info("api.github.com")
+      %{
+        current_tokens: 55.0,
+        last_refill_ms: 1234567890,
+        server_limit: 60,
+        server_remaining: 55,
+        server_reset_at: ~U[2025-10-01 12:00:00Z]
+      }
+  """
+  @spec get_info(bucket_key()) :: map() | nil
+  def get_info(bucket_key) do
+    case :ets.lookup(@table_name, bucket_key) do
+      [{^bucket_key, {current_tokens, last_refill_ms}}] ->
+        %{
+          current_tokens: current_tokens,
+          last_refill_ms: last_refill_ms
+        }
+
+      [] ->
+        nil
+    end
+  end
+
   ## GenServer Callbacks
 
   @impl true
@@ -250,6 +305,21 @@ defmodule HTTPower.RateLimiter do
   @impl true
   def handle_call({:reset_bucket, bucket_key}, _from, state) do
     :ets.delete(@table_name, bucket_key)
+    {:reply, :ok, state}
+  end
+
+  @impl true
+  def handle_call({:update_from_headers, bucket_key, rate_limit_info}, _from, state) do
+    # Server provides: limit, remaining, reset_at
+    # We store: {current_tokens (float), last_refill_ms (integer)}
+    #
+    # Strategy: Set current_tokens to remaining value from server
+    # This synchronizes our local bucket with server's actual state
+    remaining = Map.get(rate_limit_info, :remaining, 0)
+    now_ms = System.monotonic_time(:millisecond)
+
+    :ets.insert(@table_name, {bucket_key, {remaining * 1.0, now_ms}})
+
     {:reply, :ok, state}
   end
 

@@ -2,6 +2,7 @@ defmodule HTTPower.RateLimiterTest do
   use ExUnit.Case, async: false
 
   alias HTTPower.RateLimiter
+  alias HTTPower.RateLimitHeaders
 
   setup do
     # Reset any existing buckets before each test
@@ -344,6 +345,137 @@ defmodule HTTPower.RateLimiterTest do
       # Next request should fail
       assert {:error, :rate_limit_exceeded, _} =
                RateLimiter.check_rate_limit("concurrent_bucket", config)
+    end
+  end
+
+  describe "rate limit header integration" do
+    test "update_from_headers synchronizes bucket with server state" do
+      config = [enabled: true, requests: 100, per: :minute]
+
+      # Initial state - bucket has full capacity
+      assert {:ok, remaining} = RateLimiter.check_rate_limit("github_api", config)
+      assert remaining == 100.0
+
+      # Simulate receiving rate limit headers from GitHub API
+      rate_limit_info = %{
+        limit: 60,
+        remaining: 55,
+        reset_at: ~U[2025-10-01 12:00:00Z],
+        format: :github
+      }
+
+      # Update bucket from server headers
+      assert :ok = RateLimiter.update_from_headers("github_api", rate_limit_info)
+
+      # Bucket should now reflect server state (55 tokens remaining)
+      {current_tokens, _last_refill_ms} = RateLimiter.get_bucket_state("github_api")
+      assert current_tokens == 55.0
+    end
+
+    test "get_info returns current bucket information" do
+      config = [enabled: true, requests: 100, per: :minute]
+
+      # Create bucket
+      assert :ok = RateLimiter.consume("api_bucket", config)
+
+      # Get info
+      info = RateLimiter.get_info("api_bucket")
+      assert info != nil
+      assert Map.has_key?(info, :current_tokens)
+      assert Map.has_key?(info, :last_refill_ms)
+      assert info.current_tokens < 100.0
+    end
+
+    test "get_info returns nil for non-existent bucket" do
+      assert nil == RateLimiter.get_info("non_existent_bucket")
+    end
+
+    test "update_from_headers works with various header formats" do
+      # Test with RFC format headers
+      rfc_info = %{
+        limit: 100,
+        remaining: 80,
+        reset_at: ~U[2025-10-01 13:00:00Z],
+        format: :rfc
+      }
+
+      assert :ok = RateLimiter.update_from_headers("rfc_api", rfc_info)
+      {tokens, _} = RateLimiter.get_bucket_state("rfc_api")
+      assert tokens == 80.0
+
+      # Test with Stripe format headers
+      stripe_info = %{
+        limit: 100,
+        remaining: 95,
+        reset_at: ~U[2025-10-01 14:00:00Z],
+        format: :stripe
+      }
+
+      assert :ok = RateLimiter.update_from_headers("stripe_api", stripe_info)
+      {tokens, _} = RateLimiter.get_bucket_state("stripe_api")
+      assert tokens == 95.0
+    end
+
+    test "update_from_headers handles zero remaining tokens" do
+      rate_limit_info = %{
+        limit: 60,
+        remaining: 0,
+        reset_at: ~U[2025-10-01 12:00:00Z],
+        format: :github
+      }
+
+      assert :ok = RateLimiter.update_from_headers("exhausted_api", rate_limit_info)
+      {tokens, _} = RateLimiter.get_bucket_state("exhausted_api")
+      assert tokens == 0.0
+    end
+
+    test "integration: parse headers and update bucket" do
+      # Simulate receiving HTTP response headers from GitHub
+      headers = %{
+        "x-ratelimit-limit" => "60",
+        "x-ratelimit-remaining" => "42",
+        "x-ratelimit-reset" => "1234567890"
+      }
+
+      # Parse headers
+      assert {:ok, rate_limit_info} = RateLimitHeaders.parse(headers)
+      assert rate_limit_info.remaining == 42
+
+      # Update bucket from parsed headers
+      assert :ok = RateLimiter.update_from_headers("github_integration", rate_limit_info)
+
+      # Verify bucket state matches server
+      {tokens, _} = RateLimiter.get_bucket_state("github_integration")
+      assert tokens == 42.0
+
+      # Get info should show the synchronized state
+      info = RateLimiter.get_info("github_integration")
+      assert info.current_tokens == 42.0
+    end
+
+    test "bucket continues to refill after server synchronization" do
+      config = [enabled: true, requests: 100, per: :second]
+
+      # Synchronize with server state (10 tokens remaining)
+      rate_limit_info = %{
+        limit: 100,
+        remaining: 10,
+        reset_at: ~U[2025-10-01 12:00:00Z],
+        format: :github
+      }
+
+      assert :ok = RateLimiter.update_from_headers("refill_test", rate_limit_info)
+
+      # Verify starting state
+      {tokens_before, _} = RateLimiter.get_bucket_state("refill_test")
+      assert tokens_before == 10.0
+
+      # Wait for token refill (100 req/sec = 10 tokens per 100ms)
+      :timer.sleep(150)
+
+      # Check that bucket has refilled
+      assert {:ok, remaining} = RateLimiter.check_rate_limit("refill_test", config)
+      assert remaining > 10.0
     end
   end
 end
