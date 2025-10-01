@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.1] - 2025-10-01
+
+### Fixed
+
+- **Critical: CircuitBreaker race condition in half-open state**
+  - Fixed race condition where multiple concurrent processes could exceed `half_open_max_requests` limit
+  - Increment counter BEFORE allowing request through (prevents concurrent bypass)
+  - Added comprehensive concurrent request test (10 concurrent requests, verifies only 3 allowed)
+- **Critical: ETS table orphaning on GenServer crash**
+  - Fixed GenServer crashes orphaning ETS tables and causing supervisor restart loops
+  - Added `{:heir, :none}` to all ETS table creations (RateLimiter, CircuitBreaker, Dedup)
+  - Tables now automatically deleted when owning process terminates
+  - Added crash recovery tests for all three GenServers
+- **Critical: Dedup waiter timeout memory leak**
+  - Fixed memory leak where dead/timeout waiter processes remained in memory indefinitely
+  - Added process monitoring to detect when waiters die or timeout
+  - Automatic cleanup removes dead waiters from in-flight request lists
+  - Added tests for waiter death and timeout scenarios
+
+### Changed
+
+- **Performance: RateLimiter config caching**
+  - Cache default configuration at GenServer startup (eliminates repeated `Application.get_env` calls)
+  - ~15-20% reduction in rate limiter overhead per request
+  - Config changes now require GenServer restart to take effect (production-realistic behavior)
+  - Helper functions split into public (backward compatible) and optimized (GenServer) versions
+
+### Technical Details
+
+- All fixes based on comprehensive architectural review (see `doc/architecture-improvements.md`)
+- CircuitBreaker: Inverted condition and atomic increment prevents race
+- ETS tables: `{:heir, :none}` ensures clean supervisor restarts
+- Dedup: Process monitors with `:DOWN` message handling for cleanup
+- RateLimiter: Cached config in GenServer state, passed to callbacks
+- All 328 tests passing with comprehensive coverage of new scenarios
+
 ## [0.7.0] - 2025-10-01
 
 ### Added
@@ -345,7 +381,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Production-ready error handling and logging
 - PCI DSS compliance considerations in design
 
-[unreleased]: https://github.com/mdepolli/httpower/compare/v0.7.0...HEAD
+[unreleased]: https://github.com/mdepolli/httpower/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/mdepolli/httpower/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/mdepolli/httpower/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/mdepolli/httpower/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/mdepolli/httpower/compare/v0.4.0...v0.5.0
