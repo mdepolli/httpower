@@ -185,47 +185,62 @@ defmodule HTTPower.Client do
   end
 
   defp do_request(request_params, retry_opts, attempt) do
+    %{opts: opts, correlation_id: correlation_id} = request_params
+
+    # Check if we can make the request (test mode blocking)
+    if not can_do_request?(opts) do
+      error = %Error{reason: :network_blocked, message: "Network access blocked in test mode"}
+      HTTPowerLogger.log_error(correlation_id, :network_blocked, error.message)
+      {:error, error}
+    else
+      #  Make the HTTP request and handle retries
+      do_http_request(request_params, retry_opts, attempt)
+    end
+  end
+
+  defp do_http_request(request_params, retry_opts, attempt) do
     %{
+      adapter: adapter,
       method: method,
       url: url,
       body: body,
       headers: headers,
       opts: opts,
-      adapter: adapter,
       correlation_id: correlation_id,
       start_time: start_time
     } = request_params
 
-    with true <- can_do_request?(opts),
-         {:ok, response} <- call_adapter(adapter, method, url, body, headers, opts),
-         false <- retryable_status?(response.status) and attempt < retry_opts.max_retries do
-      # Calculate duration and log successful response
-      duration_ms = System.monotonic_time(:millisecond) - start_time
+    # Make the HTTP request
+    case call_adapter(adapter, method, url, body, headers, opts) do
+      {:ok, response} ->
+        # Check if response has retryable status and we have retries left
+        if retryable_status?(response.status) and attempt < retry_opts.max_retries do
+          # Retry this request
+          handle_retry(
+            request_params,
+            retry_opts,
+            attempt,
+            {:http_status, response.status, response}
+          )
+        else
+          # Success - log and return
+          duration_ms = System.monotonic_time(:millisecond) - start_time
 
-      HTTPowerLogger.log_response(correlation_id, response.status,
-        headers: response.headers,
-        body: response.body,
-        duration_ms: duration_ms
-      )
+          HTTPowerLogger.log_response(correlation_id, response.status,
+            headers: response.headers,
+            body: response.body,
+            duration_ms: duration_ms
+          )
 
-      {:ok, response}
-    else
-      false ->
-        # Log blocked request
-        error = %Error{reason: :network_blocked, message: "Network access blocked in test mode"}
-        HTTPowerLogger.log_error(correlation_id, :network_blocked, error.message)
-        {:error, error}
-
-      true ->
-        # Response has retryable status and we have retries left
-        {:ok, response} = call_adapter(adapter, method, url, body, headers, opts)
-        handle_retry(request_params, retry_opts, attempt, {:http_status, response.status})
+          {:ok, response}
+        end
 
       {:error, reason} when attempt < retry_opts.max_retries ->
+        # Error that might be retryable
         handle_retry(request_params, retry_opts, attempt, reason)
 
       {:error, reason} ->
-        # Log final error after all retries exhausted
+        # Final error after all retries exhausted
         error = wrap_error(reason)
 
         case error do
@@ -269,18 +284,61 @@ defmodule HTTPower.Client do
     if retryable_error?(reason, retry_opts.retry_safe) do
       log_retry_attempt(attempt, reason, retry_opts.max_retries)
 
-      # Apply exponential backoff with jitter
-      delay = calculate_backoff_delay(attempt, retry_opts)
+      # Calculate delay - prefer server's Retry-After header if available
+      delay = calculate_retry_delay(reason, attempt, retry_opts)
       :timer.sleep(delay)
 
       do_request(request_params, retry_opts, attempt + 1)
     else
-      wrap_error(reason)
+      # Not retryable - check if it's actually a successful response
+      case reason do
+        {:http_status, status, response} when status >= 200 and status < 300 ->
+          # Successful response after retry - log and return success
+          correlation_id = request_params.correlation_id
+          start_time = request_params.start_time
+          duration_ms = System.monotonic_time(:millisecond) - start_time
+
+          HTTPowerLogger.log_response(correlation_id, status,
+            headers: response.headers,
+            body: response.body,
+            duration_ms: duration_ms
+          )
+
+          {:ok, response}
+
+        _ ->
+          wrap_error(reason)
+      end
     end
   end
 
   defp wrap_error(%Error{} = error), do: {:error, error}
   defp wrap_error(reason), do: {:error, %Error{reason: reason, message: error_message(reason)}}
+
+  # Calculate retry delay, preferring server's Retry-After header if available
+  defp calculate_retry_delay({:http_status, status, response}, attempt, retry_opts)
+       when status in [429, 503] do
+    # For 429 (Too Many Requests) or 503 (Service Unavailable),
+    # check if server provided Retry-After header
+    case HTTPower.RateLimitHeaders.parse_retry_after(response.headers) do
+      {:ok, seconds} ->
+        # Server told us exactly when to retry - respect that
+        Logger.info(
+          "Retry-After header found: waiting #{seconds} seconds as instructed by server"
+        )
+
+        seconds * 1000
+
+      {:error, :not_found} ->
+        # No Retry-After header, fall back to exponential backoff
+        calculate_backoff_delay(attempt, retry_opts)
+    end
+  end
+
+  defp calculate_retry_delay(_reason, attempt, retry_opts) do
+    # For all other errors, use exponential backoff
+    calculate_backoff_delay(attempt, retry_opts)
+  end
 
   def calculate_backoff_delay(attempt, retry_opts) do
     # Exponential backoff: 2^attempt
@@ -306,7 +364,8 @@ defmodule HTTPower.Client do
     )
   end
 
-  def retryable_error?({:http_status, status}, _retry_safe) do
+  def retryable_error?({:http_status, status, _response}, _retry_safe) do
+    # Status code with response (includes headers for Retry-After parsing)
     retryable_status?(status)
   end
 
@@ -330,7 +389,7 @@ defmodule HTTPower.Client do
   defp retryable_transport_error?(_, _), do: false
 
   defp error_message(%Mint.TransportError{reason: reason}), do: error_message(reason)
-  defp error_message({:http_status, status}), do: "HTTP #{status} error"
+  defp error_message({:http_status, status, _response}), do: "HTTP #{status} error"
   defp error_message(:timeout), do: "Request timeout"
   defp error_message(:econnrefused), do: "Connection refused"
   defp error_message(:econnreset), do: "Connection reset"

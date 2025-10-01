@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Rate limit headers parsing** - Automatic detection and parsing of server rate limits from HTTP response headers
+  - `HTTPower.RateLimitHeaders.parse/2` - Parses rate limit headers from responses
+  - Supports multiple common formats:
+    - GitHub/Twitter style: `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`
+    - RFC 6585/IETF style: `RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset`
+    - Stripe style: `X-Stripe-RateLimit-*` headers
+    - `Retry-After` header (integer seconds format)
+  - Auto-detection with `:auto` format (default), or explicit format specification
+  - Case-insensitive header matching
+  - Handles header values as strings, lists, or integers (adapter-agnostic)
+- **Rate limiter integration with server headers** - Synchronize local rate limiter with server state
+  - `HTTPower.RateLimiter.update_from_headers/2` - Updates bucket state from parsed headers
+  - `HTTPower.RateLimiter.get_info/1` - Returns current bucket information
+  - Server-provided limits synchronize with token bucket algorithm
+  - Buckets continue to refill after synchronization
+
+### Technical Details
+
+- Header parser uses format auto-detection, trying GitHub → RFC → Stripe formats in order
+- Parser handles all adapter header formats (Req's list of tuples, Tesla's various formats)
+- Integration updates token bucket state to match server's remaining count
+- Comprehensive test coverage: 38 tests for parser, 7 tests for integration, 5 tests for Retry-After
+- HTTP date format in `Retry-After` not yet supported (only integer seconds)
+- **Automatic backoff** - Retry logic respects `Retry-After` header on 429/503 responses
+  - When server provides `Retry-After` header (integer seconds), HTTPower uses that exact wait time
+  - Falls back to exponential backoff when header is missing
+  - Only applies to 429 (Too Many Requests) and 503 (Service Unavailable) status codes
+  - Other retryable status codes (408, 500, 502, 504) continue using exponential backoff
+
 ## [0.6.0] - 2025-09-30
 
 ### Added

@@ -511,4 +511,183 @@ defmodule HTTPowerTest do
       assert response.status == 200
     end
   end
+
+  describe "Retry-After header respect" do
+    test "respects Retry-After header on 429 responses" do
+      # Track call count to verify retry behavior
+      call_count = Agent.start_link(fn -> 0 end)
+      {:ok, agent} = call_count
+
+      HTTPower.Test.stub(fn conn ->
+        count = Agent.get_and_update(agent, fn n -> {n, n + 1} end)
+
+        if count == 0 do
+          # First call: return 429 with Retry-After header
+          conn
+          |> Plug.Conn.put_resp_header("retry-after", "2")
+          |> Plug.Conn.resp(429, "Too Many Requests")
+        else
+          # Subsequent calls: success
+          HTTPower.Test.json(conn, %{success: true})
+        end
+      end)
+
+      start_time = System.monotonic_time(:millisecond)
+
+      assert {:ok, response} =
+               HTTPower.get("https://api.example.com/rate-limited",
+                 base_delay: 1000,
+                 max_delay: 30_000
+               )
+
+      end_time = System.monotonic_time(:millisecond)
+      duration = end_time - start_time
+
+      assert response.status == 200
+      # Should wait ~2 seconds (2000ms) as instructed by Retry-After
+      # Allow margin for test execution time + request processing
+      assert duration >= 1800 and duration <= 2700
+
+      # Verify we made 2 calls (first 429, then success)
+      assert Agent.get(agent, & &1) == 2
+    end
+
+    test "respects Retry-After header on 503 responses" do
+      call_count = Agent.start_link(fn -> 0 end)
+      {:ok, agent} = call_count
+
+      HTTPower.Test.stub(fn conn ->
+        count = Agent.get_and_update(agent, fn n -> {n, n + 1} end)
+
+        if count == 0 do
+          # First call: return 503 with Retry-After header
+          conn
+          |> Plug.Conn.put_resp_header("retry-after", "1")
+          |> Plug.Conn.resp(503, "Service Unavailable")
+        else
+          # Second call: success
+          HTTPower.Test.json(conn, %{recovered: true})
+        end
+      end)
+
+      start_time = System.monotonic_time(:millisecond)
+
+      assert {:ok, response} =
+               HTTPower.get("https://api.example.com/service-unavailable")
+
+      end_time = System.monotonic_time(:millisecond)
+      duration = end_time - start_time
+
+      assert response.status == 200
+      # Should wait ~1 second (1000ms) as instructed by Retry-After
+      assert duration >= 900 and duration <= 1500
+
+      assert Agent.get(agent, & &1) == 2
+    end
+
+    test "falls back to exponential backoff when Retry-After header missing on 429" do
+      call_count = Agent.start_link(fn -> 0 end)
+      {:ok, agent} = call_count
+
+      HTTPower.Test.stub(fn conn ->
+        count = Agent.get_and_update(agent, fn n -> {n, n + 1} end)
+
+        if count == 0 do
+          # First call: return 429 WITHOUT Retry-After header
+          conn
+          |> Plug.Conn.resp(429, "Too Many Requests")
+        else
+          # Second call: success
+          HTTPower.Test.json(conn, %{success: true})
+        end
+      end)
+
+      start_time = System.monotonic_time(:millisecond)
+
+      assert {:ok, response} =
+               HTTPower.get("https://api.example.com/rate-limited-no-header",
+                 base_delay: 500,
+                 max_delay: 30_000
+               )
+
+      end_time = System.monotonic_time(:millisecond)
+      duration = end_time - start_time
+
+      assert response.status == 200
+      # Should use exponential backoff (~500ms for first retry, attempt 1)
+      # With jitter, expect 400-500ms
+      assert duration >= 400 and duration <= 700
+
+      assert Agent.get(agent, & &1) == 2
+    end
+
+    test "respects large Retry-After values" do
+      call_count = Agent.start_link(fn -> 0 end)
+      {:ok, agent} = call_count
+
+      HTTPower.Test.stub(fn conn ->
+        count = Agent.get_and_update(agent, fn n -> {n, n + 1} end)
+
+        if count == 0 do
+          # First call: return 429 with large Retry-After (3 seconds)
+          conn
+          |> Plug.Conn.put_resp_header("retry-after", "3")
+          |> Plug.Conn.resp(429, "Too Many Requests")
+        else
+          HTTPower.Test.json(conn, %{success: true})
+        end
+      end)
+
+      start_time = System.monotonic_time(:millisecond)
+
+      assert {:ok, response} =
+               HTTPower.get("https://api.example.com/rate-limited-large")
+
+      end_time = System.monotonic_time(:millisecond)
+      duration = end_time - start_time
+
+      assert response.status == 200
+      # Should wait ~3 seconds (3000ms)
+      # Allow margin for test execution time + request processing
+      assert duration >= 2800 and duration <= 3700
+
+      assert Agent.get(agent, & &1) == 2
+    end
+
+    test "uses exponential backoff for non-429/503 retryable status codes" do
+      call_count = Agent.start_link(fn -> 0 end)
+      {:ok, agent} = call_count
+
+      HTTPower.Test.stub(fn conn ->
+        count = Agent.get_and_update(agent, fn n -> {n, n + 1} end)
+
+        if count == 0 do
+          # First call: return 500 (retryable, but not 429/503)
+          conn
+          |> Plug.Conn.put_resp_header("retry-after", "10")
+          |> Plug.Conn.resp(500, "Internal Server Error")
+        else
+          HTTPower.Test.json(conn, %{recovered: true})
+        end
+      end)
+
+      start_time = System.monotonic_time(:millisecond)
+
+      assert {:ok, response} =
+               HTTPower.get("https://api.example.com/server-error",
+                 base_delay: 500,
+                 max_delay: 30_000
+               )
+
+      end_time = System.monotonic_time(:millisecond)
+      duration = end_time - start_time
+
+      assert response.status == 200
+      # Should use exponential backoff, NOT the Retry-After header
+      # 500ms base delay for first retry, with jitter
+      assert duration >= 350 and duration <= 750
+
+      assert Agent.get(agent, & &1) == 2
+    end
+  end
 end

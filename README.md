@@ -372,6 +372,35 @@ case HTTPower.get(url, rate_limit: [strategy: :error]) do
 end
 ```
 
+### Rate Limit Headers Parsing
+
+HTTPower can automatically parse rate limit information from HTTP response headers and synchronize with the local rate limiter:
+
+```elixir
+# Parse rate limit headers from response
+headers = %{
+  "x-ratelimit-limit" => "60",
+  "x-ratelimit-remaining" => "42",
+  "x-ratelimit-reset" => "1234567890"
+}
+
+{:ok, rate_limit_info} = HTTPower.RateLimitHeaders.parse(headers)
+# => %{limit: 60, remaining: 42, reset_at: ~U[2009-02-13 23:31:30Z], format: :github}
+
+# Update rate limiter bucket from server headers
+HTTPower.RateLimiter.update_from_headers("api.github.com", rate_limit_info)
+
+# Get current bucket information
+HTTPower.RateLimiter.get_info("api.github.com")
+# => %{current_tokens: 42.0, last_refill_ms: 1234567890}
+```
+
+Supported header formats:
+- **GitHub/Twitter**: `X-RateLimit-*` headers
+- **RFC 6585/IETF**: `RateLimit-*` headers
+- **Stripe**: `X-Stripe-RateLimit-*` headers
+- **Retry-After**: Integer seconds format (on 429/503 responses)
+
 ### Configuration Options
 
 ```elixir
