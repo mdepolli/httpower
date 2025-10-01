@@ -519,6 +519,40 @@ defmodule HTTPower.CircuitBreakerTest do
     end
   end
 
+  describe "crash recovery" do
+    test "GenServer crash doesn't orphan ETS table" do
+      config = [enabled: true, failure_threshold: 2]
+
+      # Use circuit breaker
+      CircuitBreaker.call("crash_test", fn -> {:ok, :success} end, config)
+      assert CircuitBreaker.get_state("crash_test") == :closed
+
+      # Get GenServer pid and kill it
+      pid = Process.whereis(HTTPower.CircuitBreaker)
+      ref = Process.monitor(pid)
+      Process.exit(pid, :kill)
+
+      # Wait for process to die
+      receive do
+        {:DOWN, ^ref, :process, ^pid, :killed} -> :ok
+      after
+        1_000 -> flunk("GenServer didn't die")
+      end
+
+      # Wait for supervisor to restart
+      :timer.sleep(100)
+
+      # Should be able to use circuit breaker again (new ETS table created)
+      result = CircuitBreaker.call("crash_test", fn -> {:ok, :recovered} end, config)
+      assert result == {:ok, :recovered}
+
+      # New GenServer should be running
+      new_pid = Process.whereis(HTTPower.CircuitBreaker)
+      assert new_pid != nil
+      assert new_pid != pid
+    end
+  end
+
   describe "edge cases" do
     test "handles zero failures gracefully" do
       config = [enabled: true, failure_threshold: 5]

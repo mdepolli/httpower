@@ -216,7 +216,14 @@ defmodule HTTPower.CircuitBreaker do
   @impl true
   def init(_opts) do
     # Create ETS table for storing circuit states
-    :ets.new(@table_name, [:named_table, :public, :set, read_concurrency: true])
+    # heir: :none ensures table dies with process (prevents orphaning on crash)
+    :ets.new(@table_name, [
+      :named_table,
+      :public,
+      :set,
+      {:read_concurrency, true},
+      {:heir, :none}
+    ])
 
     {:ok, %{}}
   end
