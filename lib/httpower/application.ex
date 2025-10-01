@@ -9,7 +9,9 @@ defmodule HTTPower.Application do
       # Rate limiter GenServer
       HTTPower.RateLimiter,
       # Circuit breaker GenServer
-      HTTPower.CircuitBreaker
+      HTTPower.CircuitBreaker,
+      # Request deduplicator GenServer
+      HTTPower.Dedup
     ]
 
     opts = [strategy: :one_for_one, name: HTTPower.Supervisor]
