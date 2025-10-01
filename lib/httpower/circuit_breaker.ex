@@ -317,8 +317,11 @@ defmodule HTTPower.CircuitBreaker do
           # Allow limited test requests
           half_open_requests = get_half_open_requests(config)
 
-          if circuit_state.half_open_attempts < half_open_requests do
-            # Increment attempt counter
+          if circuit_state.half_open_attempts >= half_open_requests do
+            {:error, :circuit_breaker_open}
+          else
+            # Increment BEFORE allowing request to prevent race condition
+            # where multiple processes check and pass before increment happens
             new_circuit_state = %{
               circuit_state
               | half_open_attempts: circuit_state.half_open_attempts + 1
@@ -326,8 +329,6 @@ defmodule HTTPower.CircuitBreaker do
 
             :ets.insert(@table_name, {circuit_key, new_circuit_state})
             {:ok, :allowed}
-          else
-            {:error, :circuit_breaker_open}
           end
       end
 
