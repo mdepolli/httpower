@@ -20,13 +20,6 @@ HTTPower is a production-ready HTTP client library for Elixir that provides bull
 - **SSL/Proxy support**: Full SSL verification and proxy configuration
 - **Request timeout management**: Configurable timeouts with sensible defaults
 
-### 🔧 **Developer-Friendly**
-
-- **HTTPower.Test**: Adapter-agnostic mocking for tests
-- **Comprehensive error messages**: Human-readable error descriptions
-- **Zero-config defaults**: Works great out of the box
-- **Elixir-idiomatic**: Proper pattern matching and result tuples
-
 ### 🎯 **Perfect For**
 
 - **API integrations** - Rate limiting and circuit breakers for third-party APIs
