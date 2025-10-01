@@ -20,15 +20,14 @@ defmodule HTTPower.Client do
   alias HTTPower.Logger, as: HTTPowerLogger
 
   @default_max_retries 3
-  # 1 second base delay
+  @default_retry_safe false
   @default_base_delay 1000
-  # 30 seconds max delay
   @default_max_delay 30_000
-  # 20% jitter
   @default_jitter_factor 0.2
 
-  # 408: Request Timeout, 429: Too Many Requests, 500-504: Server errors
   @retryable_status_codes [408, 429, 500, 502, 503, 504]
+
+  # Public API
 
   @doc """
   Makes an HTTP GET request.
@@ -64,75 +63,202 @@ defmodule HTTPower.Client do
     request(:delete, url, nil, opts)
   end
 
-  # Private implementation
+  # Main Request Pipeline
 
   defp request(method, url, body, opts) do
-    # Extract HTTPower-specific options
-    headers = Keyword.get(opts, :headers, %{})
-    max_retries = Keyword.get(opts, :max_retries, @default_max_retries)
-    retry_safe = Keyword.get(opts, :retry_safe, false)
-    base_delay = Keyword.get(opts, :base_delay, @default_base_delay)
-    max_delay = Keyword.get(opts, :max_delay, @default_max_delay)
-    jitter_factor = Keyword.get(opts, :jitter_factor, @default_jitter_factor)
+    with {:ok, :allowed} <- check_test_mode_allows_request(opts),
+         {:ok, :rate_limit_passed} <- check_rate_limit(url, opts),
+         {:ok, response} <-
+           execute_with_circuit_breaker(url, opts, fn ->
+             execute_request_with_retry(method, url, body, opts)
+           end) do
+      {:ok, response}
+    else
+      {:error, :network_blocked} ->
+        {:error, %Error{reason: :network_blocked, message: "Network access blocked in test mode"}}
 
-    # Get adapter (default to Req)
-    adapter = get_adapter(opts)
+      {:error, %Error{}} = error ->
+        error
 
-    # Check rate limit before proceeding
+      {:error, reason} ->
+        {:error, %Error{reason: reason, message: error_message(reason)}}
+    end
+  end
+
+  defp check_test_mode_allows_request(opts) do
+    if can_do_request?(opts) do
+      {:ok, :allowed}
+    else
+      {:error, :network_blocked}
+    end
+  end
+
+  defp check_rate_limit(url, opts) do
     rate_limit_key = get_rate_limit_key(url, opts)
     rate_limit_config = get_rate_limit_config(opts)
 
     case HTTPower.RateLimiter.consume(rate_limit_key, rate_limit_config) do
-      :ok ->
-        # Check circuit breaker
-        circuit_breaker_key = get_circuit_breaker_key(url, opts)
-        circuit_breaker_config = get_circuit_breaker_config(opts)
-
-        HTTPower.CircuitBreaker.call(
-          circuit_breaker_key,
-          fn ->
-            # Generate correlation ID and log request
-            correlation_id =
-              HTTPowerLogger.log_request(method, url,
-                headers: headers,
-                body: body
-              )
-
-            # Record start time for duration tracking
-            start_time = System.monotonic_time(:millisecond)
-
-            # Build retry options
-            retry_opts = %{
-              max_retries: max_retries,
-              retry_safe: retry_safe,
-              base_delay: base_delay,
-              max_delay: max_delay,
-              jitter_factor: jitter_factor
-            }
-
-            # Build request parameters for adapter
-            request_params = %{
-              method: method,
-              url: url,
-              body: body,
-              headers: headers,
-              opts: opts,
-              adapter: adapter,
-              correlation_id: correlation_id,
-              start_time: start_time
-            }
-
-            # Execute with retry logic
-            do_request(request_params, retry_opts, 1)
-          end,
-          circuit_breaker_config
-        )
-
-      {:error, reason} ->
-        # Rate limit exceeded
-        {:error, %Error{reason: reason, message: error_message(reason)}}
+      :ok -> {:ok, :rate_limit_passed}
+      {:error, _reason} = error -> error
     end
   end
+
+  defp execute_with_circuit_breaker(url, opts, request_fn) do
+    circuit_breaker_key = get_circuit_breaker_key(url, opts)
+    circuit_breaker_config = get_circuit_breaker_config(opts)
+
+    case HTTPower.CircuitBreaker.call(circuit_breaker_key, request_fn, circuit_breaker_config) do
+      {:ok, _} = success -> success
+      {:error, _} = error -> error
+    end
+  end
+
+  defp execute_request_with_retry(method, url, body, opts) do
+    headers = Keyword.get(opts, :headers, %{})
+    adapter = get_adapter(opts)
+
+    retry_opts = %{
+      max_retries: Keyword.get(opts, :max_retries, @default_max_retries),
+      retry_safe: Keyword.get(opts, :retry_safe, @default_retry_safe),
+      base_delay: Keyword.get(opts, :base_delay, @default_base_delay),
+      max_delay: Keyword.get(opts, :max_delay, @default_max_delay),
+      jitter_factor: Keyword.get(opts, :jitter_factor, @default_jitter_factor)
+    }
+
+    correlation_id = HTTPowerLogger.log_request(method, url, headers: headers, body: body)
+    start_time = System.monotonic_time(:millisecond)
+
+    request_params = %{
+      method: method,
+      url: url,
+      body: body,
+      headers: headers,
+      opts: opts,
+      adapter: adapter,
+      correlation_id: correlation_id,
+      start_time: start_time
+    }
+
+    execute_http_request(request_params, retry_opts, 1)
+  end
+
+  defp execute_http_request(request_params, retry_opts, attempt) do
+    %{
+      adapter: adapter,
+      method: method,
+      url: url,
+      body: body,
+      headers: headers,
+      opts: opts,
+      correlation_id: correlation_id,
+      start_time: start_time
+    } = request_params
+
+    with {:ok, response} <- call_adapter(adapter, method, url, body, headers, opts),
+         {:ok, :final_response} <- check_if_response_is_retryable(response, attempt, retry_opts) do
+      log_success_response(correlation_id, response, start_time)
+      {:ok, response}
+    else
+      {:error, :should_retry, reason} ->
+        handle_retry(request_params, retry_opts, attempt, reason)
+
+      {:error, reason} when attempt < retry_opts.max_retries ->
+        handle_retry(request_params, retry_opts, attempt, reason)
+
+      {:error, reason} ->
+        log_final_error(correlation_id, reason)
+        wrap_error(reason)
+    end
+  end
+
+  # Retry Logic
+
+  defp handle_retry(request_params, retry_opts, attempt, reason) do
+    if retryable_error?(reason, retry_opts.retry_safe) do
+      log_retry_attempt(attempt, reason, retry_opts.max_retries)
+      delay = calculate_retry_delay(reason, attempt, retry_opts)
+      :timer.sleep(delay)
+      execute_http_request(request_params, retry_opts, attempt + 1)
+    else
+      case reason do
+        {:http_status, status, response} when status >= 200 and status < 300 ->
+          correlation_id = request_params.correlation_id
+          start_time = request_params.start_time
+          duration_ms = System.monotonic_time(:millisecond) - start_time
+
+          HTTPowerLogger.log_response(correlation_id, status,
+            headers: response.headers,
+            body: response.body,
+            duration_ms: duration_ms
+          )
+
+          {:ok, response}
+
+        _ ->
+          wrap_error(reason)
+      end
+    end
+  end
+
+  defp check_if_response_is_retryable(response, attempt, retry_opts) do
+    if retryable_status?(response.status) and attempt < retry_opts.max_retries do
+      {:error, :should_retry, {:http_status, response.status, response}}
+    else
+      {:ok, :final_response}
+    end
+  end
+
+  defp calculate_retry_delay({:http_status, status, response}, attempt, retry_opts)
+       when status in [429, 503] do
+    case HTTPower.RateLimitHeaders.parse_retry_after(response.headers) do
+      {:ok, seconds} ->
+        Logger.info(
+          "Retry-After header found: waiting #{seconds} seconds as instructed by server"
+        )
+
+        seconds * 1000
+
+      {:error, :not_found} ->
+        calculate_backoff_delay(attempt, retry_opts)
+    end
+  end
+
+  defp calculate_retry_delay(_reason, attempt, retry_opts) do
+    calculate_backoff_delay(attempt, retry_opts)
+  end
+
+  def calculate_backoff_delay(attempt, retry_opts) do
+    factor = Integer.pow(2, attempt - 1)
+    delay_before_cap = retry_opts.base_delay * factor
+    max_delay = min(retry_opts.max_delay, delay_before_cap)
+    jitter = 1 - retry_opts.jitter_factor * :rand.uniform()
+    trunc(max_delay * jitter)
+  end
+
+  def retryable_error?({:http_status, status, _response}, _retry_safe) do
+    retryable_status?(status)
+  end
+
+  def retryable_error?(%Mint.TransportError{reason: reason}, retry_safe) do
+    retryable_transport_error?(reason, retry_safe)
+  end
+
+  def retryable_error?(reason, retry_safe) when is_atom(reason) do
+    retryable_transport_error?(reason, retry_safe)
+  end
+
+  def retryable_error?(_, _), do: false
+
+  def retryable_status?(status) when status in @retryable_status_codes, do: true
+  def retryable_status?(_), do: false
+
+  defp retryable_transport_error?(:timeout, _), do: true
+  defp retryable_transport_error?(:closed, _), do: true
+  defp retryable_transport_error?(:econnrefused, _), do: true
+  defp retryable_transport_error?(:econnreset, retry_safe), do: retry_safe
+  defp retryable_transport_error?(_, _), do: false
+
+  # Adapter Management
 
   defp get_adapter(opts) do
     case Keyword.get(opts, :adapter) do
@@ -143,7 +269,6 @@ defmodule HTTPower.Client do
   end
 
   defp get_default_adapter do
-    # Check for global adapter configuration
     case Application.get_env(:httpower, :adapter) do
       nil -> detect_adapter()
       {_adapter_module, _config} = adapter -> adapter
@@ -184,76 +309,17 @@ defmodule HTTPower.Client do
     """
   end
 
-  defp do_request(request_params, retry_opts, attempt) do
-    %{opts: opts, correlation_id: correlation_id} = request_params
-
-    # Check if we can make the request (test mode blocking)
-    if not can_do_request?(opts) do
-      error = %Error{reason: :network_blocked, message: "Network access blocked in test mode"}
-      HTTPowerLogger.log_error(correlation_id, :network_blocked, error.message)
-      {:error, error}
-    else
-      #  Make the HTTP request and handle retries
-      do_http_request(request_params, retry_opts, attempt)
-    end
+  defp call_adapter({adapter_module, config}, method, url, body, headers, opts) do
+    adapter_opts = Keyword.put(opts, :adapter_config, config)
+    adapter_module.request(method, url, body, headers, adapter_opts)
   end
 
-  defp do_http_request(request_params, retry_opts, attempt) do
-    %{
-      adapter: adapter,
-      method: method,
-      url: url,
-      body: body,
-      headers: headers,
-      opts: opts,
-      correlation_id: correlation_id,
-      start_time: start_time
-    } = request_params
-
-    # Make the HTTP request
-    case call_adapter(adapter, method, url, body, headers, opts) do
-      {:ok, response} ->
-        # Check if response has retryable status and we have retries left
-        if retryable_status?(response.status) and attempt < retry_opts.max_retries do
-          # Retry this request
-          handle_retry(
-            request_params,
-            retry_opts,
-            attempt,
-            {:http_status, response.status, response}
-          )
-        else
-          # Success - log and return
-          duration_ms = System.monotonic_time(:millisecond) - start_time
-
-          HTTPowerLogger.log_response(correlation_id, response.status,
-            headers: response.headers,
-            body: response.body,
-            duration_ms: duration_ms
-          )
-
-          {:ok, response}
-        end
-
-      {:error, reason} when attempt < retry_opts.max_retries ->
-        # Error that might be retryable
-        handle_retry(request_params, retry_opts, attempt, reason)
-
-      {:error, reason} ->
-        # Final error after all retries exhausted
-        error = wrap_error(reason)
-
-        case error do
-          {:error, %Error{} = err} ->
-            HTTPowerLogger.log_error(correlation_id, err.reason, err.message)
-
-          _ ->
-            nil
-        end
-
-        error
-    end
+  defp call_adapter(adapter_module, method, url, body, headers, opts)
+       when is_atom(adapter_module) do
+    adapter_module.request(method, url, body, headers, opts)
   end
+
+  # Test Mode
 
   defp can_do_request?(opts) do
     test_mode = Application.get_env(:httpower, :test_mode, false)
@@ -261,99 +327,77 @@ defmodule HTTPower.Client do
     has_adapter_with_config = match?({_module, _config}, Keyword.get(opts, :adapter))
     httpower_test_enabled = HTTPower.Test.mock_enabled?()
 
-    # Allow request if:
-    # 1. Test mode is disabled, OR
-    # 2. HTTPower.Test mocking is enabled (adapter-agnostic mocking), OR
-    # 3. Adapter-specific mocking is configured (plug or adapter config)
     not test_mode or httpower_test_enabled or has_plug or has_adapter_with_config
   end
 
-  defp call_adapter({adapter_module, config}, method, url, body, headers, opts) do
-    # Adapter with configuration (e.g., {HTTPower.Adapter.Tesla, tesla_client})
-    adapter_opts = Keyword.put(opts, :adapter_config, config)
-    adapter_module.request(method, url, body, headers, adapter_opts)
-  end
+  # Rate Limit Configuration
 
-  defp call_adapter(adapter_module, method, url, body, headers, opts)
-       when is_atom(adapter_module) do
-    # Simple adapter module
-    adapter_module.request(method, url, body, headers, opts)
-  end
+  defp get_rate_limit_key(url, opts) do
+    case Keyword.get(opts, :rate_limit_key) do
+      nil ->
+        uri = URI.parse(url)
+        uri.host || url
 
-  defp handle_retry(request_params, retry_opts, attempt, reason) do
-    if retryable_error?(reason, retry_opts.retry_safe) do
-      log_retry_attempt(attempt, reason, retry_opts.max_retries)
-
-      # Calculate delay - prefer server's Retry-After header if available
-      delay = calculate_retry_delay(reason, attempt, retry_opts)
-      :timer.sleep(delay)
-
-      do_request(request_params, retry_opts, attempt + 1)
-    else
-      # Not retryable - check if it's actually a successful response
-      case reason do
-        {:http_status, status, response} when status >= 200 and status < 300 ->
-          # Successful response after retry - log and return success
-          correlation_id = request_params.correlation_id
-          start_time = request_params.start_time
-          duration_ms = System.monotonic_time(:millisecond) - start_time
-
-          HTTPowerLogger.log_response(correlation_id, status,
-            headers: response.headers,
-            body: response.body,
-            duration_ms: duration_ms
-          )
-
-          {:ok, response}
-
-        _ ->
-          wrap_error(reason)
-      end
+      custom_key ->
+        custom_key
     end
   end
 
-  defp wrap_error(%Error{} = error), do: {:error, error}
-  defp wrap_error(reason), do: {:error, %Error{reason: reason, message: error_message(reason)}}
+  defp get_rate_limit_config(opts) do
+    rate_limit_opts = Keyword.get(opts, :rate_limit, [])
 
-  # Calculate retry delay, preferring server's Retry-After header if available
-  defp calculate_retry_delay({:http_status, status, response}, attempt, retry_opts)
-       when status in [429, 503] do
-    # For 429 (Too Many Requests) or 503 (Service Unavailable),
-    # check if server provided Retry-After header
-    case HTTPower.RateLimitHeaders.parse_retry_after(response.headers) do
-      {:ok, seconds} ->
-        # Server told us exactly when to retry - respect that
-        Logger.info(
-          "Retry-After header found: waiting #{seconds} seconds as instructed by server"
-        )
-
-        seconds * 1000
-
-      {:error, :not_found} ->
-        # No Retry-After header, fall back to exponential backoff
-        calculate_backoff_delay(attempt, retry_opts)
+    case rate_limit_opts do
+      opts when is_list(opts) -> opts
+      false -> [enabled: false]
+      true -> []
+      _ -> []
     end
   end
 
-  defp calculate_retry_delay(_reason, attempt, retry_opts) do
-    # For all other errors, use exponential backoff
-    calculate_backoff_delay(attempt, retry_opts)
+  # Circuit Breaker Configuration
+
+  defp get_circuit_breaker_key(url, opts) do
+    case Keyword.get(opts, :circuit_breaker_key) do
+      nil ->
+        uri = URI.parse(url)
+        uri.host || url
+
+      custom_key ->
+        custom_key
+    end
   end
 
-  def calculate_backoff_delay(attempt, retry_opts) do
-    # Exponential backoff: 2^attempt
-    factor = Integer.pow(2, attempt - 1)
-    delay_before_cap = retry_opts.base_delay * factor
+  defp get_circuit_breaker_config(opts) do
+    circuit_breaker_opts = Keyword.get(opts, :circuit_breaker, [])
 
-    # Apply maximum delay cap
-    max_delay = min(retry_opts.max_delay, delay_before_cap)
+    case circuit_breaker_opts do
+      opts when is_list(opts) -> opts
+      false -> [enabled: false]
+      true -> []
+      _ -> []
+    end
+  end
 
-    # Apply jitter to prevent thundering herd
-    # Generates jitter between (1 - jitter_factor) and 1
-    jitter = 1 - retry_opts.jitter_factor * :rand.uniform()
+  # Logging Helpers
 
-    # Calculate final delay with jitter
-    trunc(max_delay * jitter)
+  defp log_success_response(correlation_id, response, start_time) do
+    duration_ms = System.monotonic_time(:millisecond) - start_time
+
+    HTTPowerLogger.log_response(correlation_id, response.status,
+      headers: response.headers,
+      body: response.body,
+      duration_ms: duration_ms
+    )
+  end
+
+  defp log_final_error(correlation_id, reason) do
+    case wrap_error(reason) do
+      {:error, %Error{} = err} ->
+        HTTPowerLogger.log_error(correlation_id, err.reason, err.message)
+
+      _ ->
+        :ok
+    end
   end
 
   defp log_retry_attempt(attempt, reason, max_retries) do
@@ -364,29 +408,10 @@ defmodule HTTPower.Client do
     )
   end
 
-  def retryable_error?({:http_status, status, _response}, _retry_safe) do
-    # Status code with response (includes headers for Retry-After parsing)
-    retryable_status?(status)
-  end
+  # Error Handling
 
-  def retryable_error?(%Mint.TransportError{reason: reason}, retry_safe) do
-    retryable_transport_error?(reason, retry_safe)
-  end
-
-  def retryable_error?(reason, retry_safe) when is_atom(reason) do
-    retryable_transport_error?(reason, retry_safe)
-  end
-
-  def retryable_error?(_, _), do: false
-
-  def retryable_status?(status) when status in @retryable_status_codes, do: true
-  def retryable_status?(_), do: false
-
-  defp retryable_transport_error?(:timeout, _), do: true
-  defp retryable_transport_error?(:closed, _), do: true
-  defp retryable_transport_error?(:econnrefused, _), do: true
-  defp retryable_transport_error?(:econnreset, retry_safe), do: retry_safe
-  defp retryable_transport_error?(_, _), do: false
+  defp wrap_error(%Error{} = error), do: {:error, error}
+  defp wrap_error(reason), do: {:error, %Error{reason: reason, message: error_message(reason)}}
 
   defp error_message(%Mint.TransportError{reason: reason}), do: error_message(reason)
   defp error_message({:http_status, status, _response}), do: "HTTP #{status} error"
@@ -399,56 +424,4 @@ defmodule HTTPower.Client do
   defp error_message(:rate_limit_wait_timeout), do: "Rate limit wait timeout"
   defp error_message(:circuit_breaker_open), do: "Circuit breaker is open"
   defp error_message(reason), do: inspect(reason)
-
-  defp get_rate_limit_key(url, opts) do
-    # Use custom key if provided, otherwise use URL host
-    case Keyword.get(opts, :rate_limit_key) do
-      nil ->
-        # Extract host from URL for bucket key
-        uri = URI.parse(url)
-        uri.host || url
-
-      custom_key ->
-        custom_key
-    end
-  end
-
-  defp get_rate_limit_config(opts) do
-    # Extract rate limit options from opts
-    rate_limit_opts = Keyword.get(opts, :rate_limit, [])
-
-    # Convert to keyword list if needed
-    case rate_limit_opts do
-      opts when is_list(opts) -> opts
-      false -> [enabled: false]
-      true -> []
-      _ -> []
-    end
-  end
-
-  defp get_circuit_breaker_key(url, opts) do
-    # Use custom key if provided, otherwise use URL host
-    case Keyword.get(opts, :circuit_breaker_key) do
-      nil ->
-        # Extract host from URL for circuit key
-        uri = URI.parse(url)
-        uri.host || url
-
-      custom_key ->
-        custom_key
-    end
-  end
-
-  defp get_circuit_breaker_config(opts) do
-    # Extract circuit breaker options from opts
-    circuit_breaker_opts = Keyword.get(opts, :circuit_breaker, [])
-
-    # Convert to keyword list if needed
-    case circuit_breaker_opts do
-      opts when is_list(opts) -> opts
-      false -> [enabled: false]
-      true -> []
-      _ -> []
-    end
-  end
 end
