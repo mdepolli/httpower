@@ -11,6 +11,7 @@ HTTPower is a production-ready HTTP client library for Elixir that provides bull
 
 - **Circuit breaker**: Automatic failure detection and recovery with state tracking
 - **Built-in rate limiting**: Token bucket algorithm with per-endpoint configuration
+- **Request deduplication**: Prevent duplicate operations from double-clicks or race conditions
 - **PCI-compliant logging**: Automatic sanitization of sensitive data in logs
 - **Request/response correlation**: Trace requests with unique correlation IDs
 - **Test mode blocking**: Prevents real HTTP requests during testing
@@ -32,6 +33,23 @@ HTTPower is a production-ready HTTP client library for Elixir that provides bull
 - **Payment processing** - PCI-compliant logging and audit trails
 - **Microservices** - Reliability patterns across service boundaries
 - **Financial services** - Compliance and observability requirements
+
+## Table of Contents
+
+- [Adapter Support](#adapter-support)
+- [Quick Start](#quick-start)
+  - [Installation](#installation)
+  - [Basic Usage](#basic-usage)
+- [Test Mode Integration](#test-mode-integration)
+- [Configuration Options](#configuration-options)
+- [PCI-Compliant Logging](#pci-compliant-logging)
+- [Correlation IDs](#correlation-ids)
+- [Rate Limiting](#rate-limiting)
+- [Circuit Breaker](#circuit-breaker)
+- [Request Deduplication](#request-deduplication)
+- [Development](#development)
+- [Documentation](#documentation)
+- [License](#license)
 
 ## Adapter Support
 
@@ -616,6 +634,116 @@ Circuit breaker complements exponential backoff:
 - **Exponential backoff**: Handles transient failures (timeouts, temporary errors)
 - **Circuit breaker**: Handles persistent failures (service down, deployment issues)
 - Together they provide comprehensive failure handling
+
+## Request Deduplication
+
+HTTPower provides in-flight request deduplication to prevent duplicate side effects from double-clicks, race conditions, or concurrent identical requests.
+
+### How Deduplication Works
+
+When deduplication is enabled, HTTPower:
+
+1. **Fingerprints each request** using a hash of method + URL + body
+2. **Tracks in-flight requests** - first occurrence executes normally
+3. **Shares responses** - duplicate requests wait and receive the same response
+4. **Auto-cleanup** - tracking data is removed after 500ms
+
+This is **client-side deduplication** that prevents duplicate requests from ever leaving your application.
+
+### Basic Usage
+
+```elixir
+# Enable deduplication for a request
+HTTPower.post("https://api.example.com/charge",
+  body: Jason.encode!(%{amount: 100}),
+  deduplicate: true  # Prevents double-clicks from sending duplicate charges
+)
+```
+
+### Global Configuration
+
+```elixir
+# config/config.exs
+config :httpower, :deduplication,
+  enabled: true
+
+# All requests now use deduplication
+HTTPower.post("https://api.example.com/order", body: order_data)
+```
+
+### Custom Deduplication Keys
+
+By default, deduplication uses `method + URL + body` as the fingerprint. You can override this:
+
+```elixir
+# Use a custom key (e.g., user action ID)
+HTTPower.post("https://api.example.com/charge",
+  body: payment_data,
+  deduplicate: [
+    enabled: true,
+    key: "user:#{user_id}:action:#{action_id}"
+  ]
+)
+```
+
+### Use Cases
+
+**Prevent Double-Clicks**
+```elixir
+def process_payment(user_id, amount) do
+  # Even if user clicks "Pay" button multiple times,
+  # only one charge request is sent
+  HTTPower.post("https://api.payment.com/charge",
+    body: Jason.encode!(%{user_id: user_id, amount: amount}),
+    deduplicate: true
+  )
+end
+```
+
+**Prevent Race Conditions**
+```elixir
+# Multiple processes trying to create the same resource
+# Only one request executes, others wait and share the response
+Task.async(fn ->
+  HTTPower.post("/api/users", body: user_data, deduplicate: true)
+end)
+
+Task.async(fn ->
+  HTTPower.post("/api/users", body: user_data, deduplicate: true)
+end)
+```
+
+### Deduplication vs Idempotency Keys
+
+**Request Deduplication (Client-Side)**
+- Prevents duplicate requests from leaving the client
+- Works with any API
+- Scope: Single HTTPower instance
+- Duration: Very short (seconds)
+
+**Idempotency Keys (Server-Side)**
+- Server prevents duplicate processing
+- Requires API support
+- Scope: Cross-instance, persistent
+- Duration: Hours/days
+
+**Best Practice: Use Both**
+
+```elixir
+# Generate idempotency key for server-side deduplication
+idem_key = UUID.uuid4()
+
+HTTPower.post("/charge",
+  headers: %{"Idempotency-Key" => idem_key},  # Server-side
+  body: payment_data,
+  deduplicate: true,    # Client-side - prevents unnecessary network calls
+  max_retries: 3        # Safe to retry with same idem key
+)
+```
+
+**Defense in Depth:**
+- **Client deduplication** = First line of defense (no network call)
+- **Idempotency key** = Second line of defense (server deduplication)
 
 ## Development
 

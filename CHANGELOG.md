@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Request deduplication** - Prevent duplicate operations from double-clicks and race conditions
+  - `HTTPower.Dedup` GenServer for tracking in-flight requests
+  - Hash-based fingerprinting using method + URL + body
+  - Response sharing: duplicate requests wait for first request to complete
+  - Automatic cleanup of completed requests after 500ms TTL
+  - Global configuration: `config :httpower, :deduplication, enabled: true`
+  - Per-request control: `deduplicate: true` or `deduplicate: [key: custom_key]`
+  - Custom deduplication keys for fine-grained control
+  - Client-side protection that complements server-side idempotency keys
+  - Integrated into request pipeline (after rate limit check, before circuit breaker)
+  - 18 comprehensive tests covering hash generation, in-flight tracking, response sharing, cleanup, and high concurrency
 - **Rate limit headers parsing** - Automatic detection and parsing of server rate limits from HTTP response headers
   - `HTTPower.RateLimitHeaders.parse/2` - Parses rate limit headers from responses
   - Supports multiple common formats:
