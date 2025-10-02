@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2025-10-01
+
+### Changed
+
+- **BREAKING: Plug-compatible error atoms for Phoenix integration**
+  - Changed `:rate_limit_exceeded` → `:too_many_requests` (HTTP 429)
+  - Changed `:circuit_breaker_open` → `:service_unavailable` (HTTP 503)
+  - Enables seamless Phoenix/Plug integration without manual error mapping
+  - HTTPower-specific atoms preserved: `:rate_limit_wait_timeout`, `:dedup_timeout`, transport errors
+  - All error handling code must be updated to use new atoms
+
+**Migration Guide:**
+```elixir
+# Update error pattern matching:
+{:error, %{reason: :rate_limit_exceeded}}    # OLD
+{:error, %{reason: :too_many_requests}}      # NEW
+
+{:error, %{reason: :circuit_breaker_open}}   # OLD
+{:error, %{reason: :service_unavailable}}    # NEW
+```
+
 ## [0.7.1] - 2025-10-01
 
 ### Fixed
@@ -381,7 +402,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Production-ready error handling and logging
 - PCI DSS compliance considerations in design
 
-[unreleased]: https://github.com/mdepolli/httpower/compare/v0.7.1...HEAD
+[unreleased]: https://github.com/mdepolli/httpower/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/mdepolli/httpower/compare/v0.7.1...v0.8.0
 [0.7.1]: https://github.com/mdepolli/httpower/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/mdepolli/httpower/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/mdepolli/httpower/compare/v0.5.0...v0.6.0
