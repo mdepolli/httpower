@@ -78,7 +78,8 @@ defmodule HTTPower.RateLimiterTest do
 
       # Restart GenServer to pick up new config (config is cached at startup)
       GenServer.stop(RateLimiter)
-      Process.sleep(50)  # Wait for supervisor to restart
+      # Wait for supervisor to restart
+      Process.sleep(50)
 
       # Should use global config
       assert :ok = RateLimiter.consume("test_bucket")
