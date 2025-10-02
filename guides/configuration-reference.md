@@ -16,27 +16,45 @@ HTTPower supports three levels of configuration with clear precedence:
 
 This table shows which options are supported at each configuration level:
 
+### Adapter Selection
 | Option | Global Config | Per-Client | Per-Request | Notes |
 |--------|---------------|------------|-------------|-------|
-| **Adapter Selection** |
 | `adapter` | ✅ | ✅ | ✅ | Global: `config :httpower, adapter:` |
-| **Testing** |
+
+### Testing
+| Option | Global Config | Per-Client | Per-Request | Notes |
+|--------|---------------|------------|-------------|-------|
 | `test_mode` | ✅ | ❌ | ❌ | Global only |
-| **Retry Configuration** |
+
+### Retry Configuration
+| Option | Global Config | Per-Client | Per-Request | Notes |
+|--------|---------------|------------|-------------|-------|
 | `max_retries` | ✅ | ✅ | ✅ | |
 | `retry_safe` | ✅ | ✅ | ✅ | |
 | `base_delay` | ✅ | ✅ | ✅ | |
 | `max_delay` | ✅ | ✅ | ✅ | |
 | `jitter_factor` | ✅ | ✅ | ✅ | |
-| **Rate Limiting** |
+
+### Rate Limiting
+| Option | Global Config | Per-Client | Per-Request | Notes |
+|--------|---------------|------------|-------------|-------|
 | `rate_limit` | ✅ | ✅ | ✅ | Global: nested config |
 | `rate_limit_key` | ❌ | ✅ | ✅ | Per-client/request only |
-| **Circuit Breaker** |
+
+### Circuit Breaker
+| Option | Global Config | Per-Client | Per-Request | Notes |
+|--------|---------------|------------|-------------|-------|
 | `circuit_breaker` | ✅ | ✅ | ✅ | Global: nested config |
 | `circuit_breaker_key` | ❌ | ✅ | ✅ | Per-client/request only |
-| **Logging** |
+
+### Logging
+| Option | Global Config | Per-Client | Per-Request | Notes |
+|--------|---------------|------------|-------------|-------|
 | `logging` | ✅ | ✅ | ✅ | Global: nested config |
-| **Request Options** |
+
+### Request Options
+| Option | Global Config | Per-Client | Per-Request | Notes |
+|--------|---------------|------------|-------------|-------|
 | `base_url` | ❌ | ✅ | ❌ | Per-client only |
 | `headers` | ❌ | ✅ | ✅ | Merged across levels |
 | `body` | ❌ | ❌ | ✅ | Per-request only (POST/PUT) |
