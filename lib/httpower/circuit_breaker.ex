@@ -15,7 +15,7 @@ defmodule HTTPower.CircuitBreaker do
      failures in a sliding window. If failures exceed the threshold, it transitions
      to Open.
 
-  2. **Open State**: All requests fail immediately with `:circuit_breaker_open`.
+  2. **Open State**: All requests fail immediately with `:service_unavailable`.
      After a timeout period, the circuit transitions to Half-Open.
 
   3. **Half-Open State**: A limited number of test requests are allowed through.
@@ -60,7 +60,7 @@ defmodule HTTPower.CircuitBreaker do
       end
 
       # Subsequent requests fail immediately
-      {:error, %{reason: :circuit_breaker_open}} =
+      {:error, %{reason: :service_unavailable}} =
         HTTPower.get("https://failing-api.com/endpoint")
 
       # After 60 seconds, circuit enters half-open
@@ -108,7 +108,7 @@ defmodule HTTPower.CircuitBreaker do
 
   Returns:
   - `{:ok, :allowed}` if request can proceed
-  - `{:error, :circuit_breaker_open}` if circuit is open
+  - `{:error, :service_unavailable}` if circuit is open
   - `{:ok, :disabled}` if circuit breaker is disabled
 
   ## Examples
@@ -137,8 +137,8 @@ defmodule HTTPower.CircuitBreaker do
 
           result
 
-        {:error, :circuit_breaker_open} ->
-          {:error, :circuit_breaker_open}
+        {:error, :service_unavailable} ->
+          {:error, :service_unavailable}
       end
     else
       # Circuit breaker disabled, just execute
@@ -317,7 +317,7 @@ defmodule HTTPower.CircuitBreaker do
 
             {:ok, :allowed}
           else
-            {:error, :circuit_breaker_open}
+            {:error, :service_unavailable}
           end
 
         :half_open ->
@@ -325,7 +325,7 @@ defmodule HTTPower.CircuitBreaker do
           half_open_requests = get_half_open_requests(config)
 
           if circuit_state.half_open_attempts >= half_open_requests do
-            {:error, :circuit_breaker_open}
+            {:error, :service_unavailable}
           else
             # Increment BEFORE allowing request to prevent race condition
             # where multiple processes check and pass before increment happens
