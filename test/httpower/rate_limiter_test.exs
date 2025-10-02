@@ -35,7 +35,7 @@ defmodule HTTPower.RateLimiterTest do
       assert :ok = RateLimiter.consume("test_bucket", config)
 
       # Next check should fail
-      assert {:error, :rate_limit_exceeded, wait_time} =
+      assert {:error, :too_many_requests, wait_time} =
                RateLimiter.check_rate_limit("test_bucket", config)
 
       assert wait_time > 0
@@ -86,7 +86,7 @@ defmodule HTTPower.RateLimiterTest do
       assert :ok = RateLimiter.consume("test_bucket")
 
       # Next one should be rate limited
-      assert {:error, :rate_limit_exceeded, _} =
+      assert {:error, :too_many_requests, _} =
                RateLimiter.check_rate_limit("test_bucket")
     end
 
@@ -104,7 +104,7 @@ defmodule HTTPower.RateLimiterTest do
       assert :ok = RateLimiter.consume("test_bucket", config)
 
       # Should hit the per-request limit, not global
-      assert {:error, :rate_limit_exceeded, _} =
+      assert {:error, :too_many_requests, _} =
                RateLimiter.check_rate_limit("test_bucket", config)
     end
 
@@ -146,7 +146,7 @@ defmodule HTTPower.RateLimiterTest do
       assert :ok = RateLimiter.consume("test_bucket", config)
 
       # Second request fails immediately
-      assert {:error, :rate_limit_exceeded} = RateLimiter.consume("test_bucket", config)
+      assert {:error, :too_many_requests} = RateLimiter.consume("test_bucket", config)
     end
 
     test ":wait strategy waits for tokens" do
@@ -192,7 +192,7 @@ defmodule HTTPower.RateLimiterTest do
       # Exhaust bucket 1
       assert :ok = RateLimiter.consume("bucket_1", config)
       assert :ok = RateLimiter.consume("bucket_1", config)
-      assert {:error, :rate_limit_exceeded, _} = RateLimiter.check_rate_limit("bucket_1", config)
+      assert {:error, :too_many_requests, _} = RateLimiter.check_rate_limit("bucket_1", config)
 
       # Bucket 2 should still have tokens
       assert {:ok, _} = RateLimiter.check_rate_limit("bucket_2", config)
@@ -209,7 +209,7 @@ defmodule HTTPower.RateLimiterTest do
       assert :ok = RateLimiter.consume(key, config)
 
       # Should hit limit
-      assert {:error, :rate_limit_exceeded, _} = RateLimiter.check_rate_limit(key, config)
+      assert {:error, :too_many_requests, _} = RateLimiter.check_rate_limit(key, config)
     end
   end
 
@@ -221,7 +221,7 @@ defmodule HTTPower.RateLimiterTest do
       assert :ok = RateLimiter.consume("test_bucket", config)
       assert :ok = RateLimiter.consume("test_bucket", config)
 
-      assert {:error, :rate_limit_exceeded, _} =
+      assert {:error, :too_many_requests, _} =
                RateLimiter.check_rate_limit("test_bucket", config)
 
       # Reset bucket
@@ -278,7 +278,7 @@ defmodule HTTPower.RateLimiterTest do
       end
 
       # Next request should be rate limited
-      assert {:error, :rate_limit_exceeded, _} =
+      assert {:error, :too_many_requests, _} =
                RateLimiter.check_rate_limit("burst_api", config)
 
       # Wait for refill (200ms = 2 tokens at 10 per second)
@@ -299,7 +299,7 @@ defmodule HTTPower.RateLimiterTest do
         assert :ok = RateLimiter.consume("api.example.com/search", search_config)
       end
 
-      assert {:error, :rate_limit_exceeded} =
+      assert {:error, :too_many_requests} =
                RateLimiter.consume("api.example.com/search", search_config)
 
       # API endpoint should still work
@@ -323,7 +323,7 @@ defmodule HTTPower.RateLimiterTest do
       assert :ok = RateLimiter.consume("low_rate", config)
 
       # Second request should be heavily rate limited
-      assert {:error, :rate_limit_exceeded, wait_time} =
+      assert {:error, :too_many_requests, wait_time} =
                RateLimiter.check_rate_limit("low_rate", config)
 
       # Wait time should be close to 1 hour (3600000ms)
@@ -347,7 +347,7 @@ defmodule HTTPower.RateLimiterTest do
       assert Enum.all?(results, &(&1 == :ok))
 
       # Next request should fail
-      assert {:error, :rate_limit_exceeded, _} =
+      assert {:error, :too_many_requests, _} =
                RateLimiter.check_rate_limit("concurrent_bucket", config)
     end
   end

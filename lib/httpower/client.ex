@@ -488,14 +488,18 @@ defmodule HTTPower.Client do
 
   defp error_message(%Mint.TransportError{reason: reason}), do: error_message(reason)
   defp error_message({:http_status, status, _response}), do: "HTTP #{status} error"
+
+  # Plug-compatible error atoms
+  defp error_message(:too_many_requests), do: "Too many requests"
+  defp error_message(:service_unavailable), do: "Service unavailable"
+
+  # HTTPower-specific error atoms (transport/network errors)
   defp error_message(:timeout), do: "Request timeout"
   defp error_message(:econnrefused), do: "Connection refused"
   defp error_message(:econnreset), do: "Connection reset"
   defp error_message(:nxdomain), do: "Domain not found"
   defp error_message(:closed), do: "Connection closed"
-  defp error_message(:rate_limit_exceeded), do: "Rate limit exceeded"
-  defp error_message(:rate_limit_wait_timeout), do: "Rate limit wait timeout"
-  defp error_message(:circuit_breaker_open), do: "Circuit breaker is open"
   defp error_message(:dedup_timeout), do: "Request deduplication timeout"
+
   defp error_message(reason), do: inspect(reason)
 end

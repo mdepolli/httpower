@@ -48,7 +48,7 @@ defmodule HTTPower.RateLimiter do
   3. Each request consumes one or more tokens
   4. If no tokens available:
      - :wait strategy - waits until tokens are available (up to max_wait_time)
-     - :error strategy - returns {:error, :rate_limit_exceeded}
+     - :error strategy - returns {:error, :too_many_requests}
 
   ## Implementation Details
 
@@ -94,7 +94,7 @@ defmodule HTTPower.RateLimiter do
 
   Returns:
   - `{:ok, remaining_tokens}` if request is allowed
-  - `{:error, :rate_limit_exceeded, wait_time_ms}` if rate limit exceeded
+  - `{:error, :too_many_requests, wait_time_ms}` if rate limit exceeded
   - `{:ok, :disabled}` if rate limiting is disabled
 
   ## Examples
@@ -103,10 +103,10 @@ defmodule HTTPower.RateLimiter do
       {:ok, 99.0}
 
       iex> HTTPower.RateLimiter.check_rate_limit("api.example.com", requests: 5, per: :second)
-      {:error, :rate_limit_exceeded, 200}
+      {:error, :too_many_requests, 200}
   """
   @spec check_rate_limit(bucket_key(), rate_limit_config()) ::
-          {:ok, float()} | {:ok, :disabled} | {:error, :rate_limit_exceeded, integer()}
+          {:ok, float()} | {:ok, :disabled} | {:error, :too_many_requests, integer()}
   def check_rate_limit(bucket_key, config \\ []) do
     if rate_limiting_enabled?(config) do
       GenServer.call(__MODULE__, {:check_rate_limit, bucket_key, config})
@@ -123,8 +123,8 @@ defmodule HTTPower.RateLimiter do
 
   Returns:
   - `:ok` if request can proceed
-  - `{:error, :rate_limit_exceeded}` if rate limit exceeded and strategy is :error
-  - `{:error, :rate_limit_wait_timeout}` if wait time exceeds max_wait_time
+  - `{:error, :too_many_requests}` if rate limit exceeded and strategy is :error
+  - `{:error, :too_many_requests}` if wait time exceeds max_wait_time
 
   ## Examples
 
@@ -132,10 +132,10 @@ defmodule HTTPower.RateLimiter do
       :ok
 
       iex> HTTPower.RateLimiter.consume("api.example.com", strategy: :error)
-      {:error, :rate_limit_exceeded}
+      {:error, :too_many_requests}
   """
   @spec consume(bucket_key(), rate_limit_config()) ::
-          :ok | {:error, :rate_limit_exceeded | :rate_limit_wait_timeout}
+          :ok | {:error, :too_many_requests}
   def consume(bucket_key, config \\ []) do
     if rate_limiting_enabled?(config) do
       strategy = get_strategy(config)
@@ -149,7 +149,7 @@ defmodule HTTPower.RateLimiter do
           GenServer.call(__MODULE__, {:consume_token, bucket_key, config})
           :ok
 
-        {:error, :rate_limit_exceeded, wait_time_ms} ->
+        {:error, :too_many_requests, wait_time_ms} ->
           handle_rate_limit_exceeded(strategy, wait_time_ms, config)
       end
     else
@@ -283,7 +283,7 @@ defmodule HTTPower.RateLimiter do
       # Calculate wait time until next token
       tokens_needed = 1.0 - refilled_tokens
       wait_time_ms = trunc(Float.ceil(tokens_needed / refill_rate))
-      {:reply, {:error, :rate_limit_exceeded, wait_time_ms}, state}
+      {:reply, {:error, :too_many_requests, wait_time_ms}, state}
     end
   end
 
@@ -403,7 +403,7 @@ defmodule HTTPower.RateLimiter do
   end
 
   defp handle_rate_limit_exceeded(:error, _wait_time_ms, _config) do
-    {:error, :rate_limit_exceeded}
+    {:error, :too_many_requests}
   end
 
   defp handle_rate_limit_exceeded(:wait, wait_time_ms, config) do

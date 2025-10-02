@@ -65,7 +65,7 @@ defmodule HTTPower.CircuitBreakerTest do
       result =
         CircuitBreaker.call("test_circuit", fn -> {:ok, :should_not_execute} end, config)
 
-      assert result == {:error, :circuit_breaker_open}
+      assert result == {:error, :service_unavailable}
     end
 
     test "transitions to half-open after timeout" do
@@ -256,7 +256,7 @@ defmodule HTTPower.CircuitBreakerTest do
       # Second request blocked
       result = CircuitBreaker.call("test_circuit", fn -> {:ok, :should_not_execute} end, config)
 
-      assert result == {:error, :circuit_breaker_open}
+      assert result == {:error, :service_unavailable}
     end
 
     test "prevents concurrent requests beyond half-open limit (race condition fix)" do
@@ -302,7 +302,7 @@ defmodule HTTPower.CircuitBreakerTest do
       # Count rejected requests
       rejections =
         Enum.count(results, fn {_i, result} ->
-          result == {:error, :circuit_breaker_open}
+          result == {:error, :service_unavailable}
         end)
 
       # At least 3 requests should succeed (half_open_requests limit)
@@ -386,7 +386,7 @@ defmodule HTTPower.CircuitBreakerTest do
       # Requests should be rejected
       result = CircuitBreaker.call("test_circuit", fn -> {:ok, :should_not_execute} end, config)
 
-      assert result == {:error, :circuit_breaker_open}
+      assert result == {:error, :service_unavailable}
     end
 
     test "can manually close circuit" do
@@ -467,7 +467,7 @@ defmodule HTTPower.CircuitBreakerTest do
             config
           )
 
-        assert result == {:error, :circuit_breaker_open}
+        assert result == {:error, :service_unavailable}
       end
 
       # Wait for recovery period
