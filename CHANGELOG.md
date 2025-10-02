@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.1] - 2025-10-01
+
+### Fixed
+
+- **Documentation updates for v0.8.0 breaking changes**
+  - Updated all error atom references in README examples
+  - Updated configuration reference with new error atoms
+  - Updated migration guides (Tesla and Req)
+  - Updated production deployment guide examples
+  - Restructured Configuration Availability Matrix for better HTML rendering
+  - All documentation now correctly references `:too_many_requests` and `:service_unavailable`
+
 ## [0.8.0] - 2025-10-01
 
 ### Changed
@@ -402,7 +414,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Production-ready error handling and logging
 - PCI DSS compliance considerations in design
 
-[unreleased]: https://github.com/mdepolli/httpower/compare/v0.8.0...HEAD
+[unreleased]: https://github.com/mdepolli/httpower/compare/v0.8.1...HEAD
+[0.8.1]: https://github.com/mdepolli/httpower/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/mdepolli/httpower/compare/v0.7.1...v0.8.0
 [0.7.1]: https://github.com/mdepolli/httpower/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/mdepolli/httpower/compare/v0.6.0...v0.7.0
