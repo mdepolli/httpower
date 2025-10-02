@@ -371,14 +371,14 @@ config :httpower, :rate_limit,
 
 **`:error` Strategy**
 
-- Returns `{:error, :rate_limit_exceeded}` immediately
+- Returns `{:error, :too_many_requests}` immediately
 - Lets your application decide how to handle rate limits
 - Good for user-facing requests
 
 ```elixir
 case HTTPower.get(url, rate_limit: [strategy: :error]) do
   {:ok, response} -> handle_success(response)
-  {:error, %{reason: :rate_limit_exceeded}} -> handle_rate_limit()
+  {:error, %{reason: :too_many_requests}} -> handle_rate_limit()
   {:error, error} -> handle_error(error)
 end
 ```
@@ -458,7 +458,7 @@ The circuit breaker has three states:
    - Transitions to Open when failure threshold is exceeded
 
 2. **Open** (failing service)
-   - Requests fail immediately with `:circuit_breaker_open`
+   - Requests fail immediately with `:service_unavailable`
    - No actual service calls are made
    - After a timeout period, transitions to Half-Open
 
@@ -577,7 +577,7 @@ case HTTPower.post(payment, "/charges", body: charge_data) do
   {:ok, response} ->
     handle_payment(response)
 
-  {:error, %{reason: :circuit_breaker_open}} ->
+  {:error, %{reason: :service_unavailable}} ->
     # Circuit is open, use fallback payment method
     use_fallback_payment_method()
 
@@ -595,7 +595,7 @@ for _ <- 1..5 do
 end
 
 # Subsequent requests fail immediately (no cascading failures)
-{:error, %{reason: :circuit_breaker_open}} =
+{:error, %{reason: :service_unavailable}} =
   HTTPower.get("https://failing-api.com/endpoint")
 
 # After 60 seconds, circuit enters half-open

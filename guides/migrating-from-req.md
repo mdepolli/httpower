@@ -388,7 +388,7 @@ defmodule MyApp.PaymentClient do
   def charge(amount) do
     case HTTPower.post("https://api.stripe.com/v1/charges", body: amount) do
       {:ok, response} -> {:ok, response}
-      {:error, %{reason: :circuit_breaker_open}} -> {:error, :service_unavailable}
+      {:error, %{reason: :service_unavailable}} -> {:error, :service_unavailable}
       {:error, error} -> {:error, error}
     end
   end

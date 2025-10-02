@@ -231,7 +231,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `HTTPower.Application` supervision tree for fault tolerance
 - **Two rate limiting strategies**:
   - `:wait` - Blocks until tokens are available (up to `max_wait_time`)
-  - `:error` - Returns `{:error, :rate_limit_exceeded}` immediately
+  - `:error` - Returns `{:error, :too_many_requests}` immediately
 - **Flexible rate limit configuration**:
   - Global configuration via `config :httpower, :rate_limit`
   - Per-client configuration via `HTTPower.new/1`

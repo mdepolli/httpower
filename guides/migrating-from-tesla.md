@@ -469,7 +469,7 @@ HTTPower.CircuitBreaker.get_state("my_api")
 
 ### Issue: Rate limiting too aggressive
 
-**Symptom:** Getting `:rate_limit_exceeded` errors.
+**Symptom:** Getting `:too_many_requests` errors.
 
 **Solutions:**
 1. Increase rate limit: `rate_limit: [requests: 200, per: :minute]`

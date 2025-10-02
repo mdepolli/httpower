@@ -210,7 +210,7 @@ Track rate limiting hits:
 defmodule MyApp.RateLimitMonitor do
   def track_rate_limit_result(result) do
     case result do
-      {:error, %{reason: :rate_limit_exceeded}} ->
+      {:error, %{reason: :too_many_requests}} ->
         :telemetry.execute(
           [:myapp, :http, :rate_limit_exceeded],
           %{count: 1},
@@ -420,12 +420,12 @@ defmodule MyApp.PaymentService do
       {:ok, response} ->
         {:ok, response}
 
-      {:error, %{reason: :circuit_breaker_open}} ->
+      {:error, %{reason: :service_unavailable}} ->
         # Circuit is open - payment service is down
         Logger.error("Payment service unavailable (circuit open)")
         {:error, :service_unavailable}
 
-      {:error, %{reason: :rate_limit_exceeded}} ->
+      {:error, %{reason: :too_many_requests}} ->
         # Hit rate limit
         Logger.warning("Payment service rate limited")
         {:error, :rate_limited}
