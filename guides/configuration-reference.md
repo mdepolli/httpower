@@ -219,7 +219,7 @@ HTTPower retries on:
 - **Default:** `:wait`
 - **Description:** How to handle rate limit exceeded:
   - `:wait` - Block until tokens available (up to `max_wait_time`)
-  - `:error` - Return `{:error, :rate_limit_exceeded}` immediately
+  - `:error` - Return `{:error, :too_many_requests}` immediately
 - **Example:**
   ```elixir
   config :httpower, rate_limit: [strategy: :error]
