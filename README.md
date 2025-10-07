@@ -206,7 +206,7 @@ config :httpower,
 
 ## PCI-Compliant Logging
 
-HTTPower provides opt-in telemetry-based logging with automatic PCI-compliant data sanitization. Simply attach the logger to start logging all HTTP requests and responses.
+HTTPower provides opt-in telemetry-based logging with automatic PCI-compliant data sanitization and **structured metadata** for log aggregation systems. Simply attach the logger to start logging all HTTP requests and responses.
 
 ### Quick Start
 
@@ -220,7 +220,7 @@ def start(_type, _args) do
 end
 ```
 
-Now all HTTP requests will be logged with automatic sanitization:
+Now all HTTP requests will be logged with automatic sanitization and structured metadata:
 
 ```elixir
 HTTPower.get("https://api.example.com/users",
@@ -230,6 +230,36 @@ HTTPower.get("https://api.example.com/users",
 # [HTTPower] [req_a1b2c3...] → GET https://api.example.com/users headers=%{"authorization" => "[REDACTED]"}
 # [HTTPower] [req_a1b2c3...] ← 200 (45ms) body=%{"users" => [...]}
 ```
+
+### Structured Logging with Metadata
+
+All log entries include machine-readable metadata via `Logger.metadata()`, enabling powerful querying in log aggregation systems like Datadog, Splunk, ELK, or Loki:
+
+```elixir
+# Query slow requests
+httpower_duration_ms:>1000
+
+# Find all 5xx errors
+httpower_status:>=500
+
+# Trace a specific request
+httpower_correlation_id:"req_abc123"
+
+# Filter by HTTP method
+httpower_method:post
+```
+
+**Available metadata:**
+- `httpower_correlation_id` - Unique request identifier
+- `httpower_event` - Event type (`:request`, `:response`, `:exception`)
+- `httpower_method` - HTTP method (`:get`, `:post`, etc.)
+- `httpower_url` - Request URL
+- `httpower_status` - HTTP status code (responses only)
+- `httpower_duration_ms` - Request duration in milliseconds (responses only)
+- `httpower_headers` / `httpower_response_headers` - Sanitized headers (if enabled)
+- `httpower_body` / `httpower_response_body` - Sanitized body (if enabled)
+
+All metadata respects your logging configuration and sanitizes sensitive data automatically.
 
 ### Automatic Sanitization
 

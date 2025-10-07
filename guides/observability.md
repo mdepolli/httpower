@@ -299,7 +299,7 @@ metadata: %{dedup_key: "2cdff299ad44f172e45a54feaafdac27f230a63471469182a6404968
 
 **Built-in PCI-Compliant Logger (Recommended)**
 
-HTTPower includes a built-in logger with automatic PCI-compliant data sanitization:
+HTTPower includes a built-in logger with automatic PCI-compliant data sanitization and **structured metadata** for log aggregation:
 
 ```elixir
 # In your application.ex
@@ -315,7 +315,38 @@ def start(_type, _args) do
 end
 ```
 
-The built-in logger automatically sanitizes sensitive data (credit cards, passwords, API keys, etc.) and includes correlation IDs for request tracing.
+The built-in logger automatically:
+- Sanitizes sensitive data (credit cards, passwords, API keys, etc.)
+- Includes correlation IDs for request tracing
+- Sets structured metadata on all log entries via `Logger.metadata()`
+
+**Structured Metadata for Log Aggregation**
+
+All logs include machine-readable metadata that can be queried in systems like Datadog, Splunk, ELK, or Loki:
+
+```elixir
+# Query slow requests
+httpower_duration_ms:>1000
+
+# Find all 5xx errors
+httpower_status:>=500
+
+# Trace a specific request
+httpower_correlation_id:"req_abc123"
+
+# Filter by method
+httpower_method:post
+```
+
+Available metadata fields:
+- `httpower_correlation_id` - Unique request ID
+- `httpower_event` - `:request`, `:response`, or `:exception`
+- `httpower_method` - HTTP method (`:get`, `:post`, etc.)
+- `httpower_url` - Request URL
+- `httpower_status` - HTTP status code
+- `httpower_duration_ms` - Request duration
+- `httpower_headers` / `httpower_response_headers` - Sanitized headers
+- `httpower_body` / `httpower_response_body` - Sanitized body
 
 **Custom Logger**
 
