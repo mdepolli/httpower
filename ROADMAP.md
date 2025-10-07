@@ -74,12 +74,16 @@ A reliable HTTP client library for Elixir with advanced reliability patterns for
 
 **Priority 2: Observability & Monitoring**
 
-- [ ] **Telemetry integration** - OpenTelemetry support for distributed tracing
-  - Instrument all HTTP requests with spans
-  - Track circuit breaker state changes
-  - Monitor rate limiter consumption
-  - Request/response timing metrics
-  - Integration with existing observability tools
+- [x] **Telemetry integration** ✅ - Complete observability with Elixir's :telemetry
+  - ✅ HTTP request lifecycle events (start, stop, exception)
+  - ✅ Retry attempt tracking with delay and reason
+  - ✅ Rate limiter events (ok, wait, exceeded)
+  - ✅ Circuit breaker state transitions and open events
+  - ✅ Deduplication events (execute, wait, cache_hit)
+  - ✅ Rich measurements and metadata for all events
+  - ✅ URL sanitization for low cardinality metrics
+  - ✅ Integration examples for Prometheus, OpenTelemetry, LiveDashboard
+  - ✅ Comprehensive observability guide
 
 **Priority 3: Smart Rate Limiting**
 
@@ -96,104 +100,48 @@ A reliable HTTP client library for Elixir with advanced reliability patterns for
   - Configurable notification handlers
   - Integration with monitoring systems
 
-**Priority 5: Developer Experience**
+**Priority 5: Middleware & Extensibility**
+
+- [ ] **Request/response middleware pipeline** - Composable request/response transformations
+  - Middleware chain execution (pre-request, post-response)
+  - Built-in middleware: logging, caching, authentication
+  - Custom middleware support (user-defined transformations)
+  - Per-client and per-request middleware configuration
+  - Compatible with existing adapter system (Req, Tesla)
+
+- [ ] **Plugin/hook system** - Extensibility points for custom behavior
+  - Pre-request hooks (modify request before execution)
+  - Post-response hooks (transform response data)
+  - Error hooks (custom error handling/recovery)
+  - Lifecycle hooks (on_success, on_failure, on_retry)
+  - Plug-style composability
+
+**Priority 6: Authentication & Caching**
+
+- [ ] **OAuth 2.0 token management** - Automatic token refresh and management
+  - Automatic token refresh before expiry
+  - Token storage and retrieval
+  - Multiple auth provider support
+  - Thread-safe token access
+
+- [ ] **Response caching** - Intelligent HTTP caching
+  - Cache-Control header respect
+  - ETags and conditional requests (304 Not Modified)
+  - Configurable cache backends (memory/Redis)
+  - Per-request cache configuration
+  - Automatic cache invalidation
+
+**Future Enhancements**
 
 - [ ] **Automatic pagination handling** - Simplify paginated API consumption
   - Common pagination patterns (offset, cursor, page number)
   - Lazy enumeration of all pages
   - Configurable page size and limits
   - Works with existing retry and rate limiting
-
-**Future Enhancements**
-
-- [ ] Request/response middleware pipeline
-- [ ] Pre/post request hooks
 - [ ] Response validation helpers
 - [ ] Bulk operation batching
 
 ## Phase 3: Ecosystem Integration 🌐
-
-**Authentication & Caching**
-
-- [ ] OAuth 2.0 token management with automatic refresh
-- [ ] Response caching (memory/Redis)
-  - Cache-Control header respect
-  - ETags and conditional requests
-  - Configurable cache backends
-
-**Monitoring & Metrics**
-
-- [ ] Prometheus metrics export
-- [ ] Health check endpoints
-- [ ] Performance benchmarking tools
-- [ ] Request/response size tracking
-
-## Version History
-
-**v0.8.1** (Current) - Documentation Fixes
-- Updated all documentation for v0.8.0 breaking changes
-- Restructured Configuration Availability Matrix for better HTML rendering
-- All docs reference Plug-compatible error atoms
-
-**v0.8.0** - Phoenix Integration
-- **BREAKING:** Plug-compatible error atoms for seamless Phoenix integration
-- Changed `:rate_limit_exceeded` → `:too_many_requests` (HTTP 429)
-- Changed `:circuit_breaker_open` → `:service_unavailable` (HTTP 503)
-- HTTPower-specific atoms preserved for unique conditions
-
-**v0.7.1** - Critical Bug Fixes
-- Fixed CircuitBreaker race condition in half-open state
-- Fixed ETS table orphaning on GenServer crash
-- Fixed Dedup waiter timeout memory leak
-- Performance: RateLimiter config caching (~15-20% overhead reduction)
-
-**v0.7.0** - Deduplication & Rate Limit Headers
-- Request deduplication with hash-based fingerprinting
-- Rate limit headers parsing (GitHub, RFC, Stripe formats)
-- Automatic backoff respecting Retry-After headers
-- Code organization improvements in HTTPower.Client
-
-**v0.6.0** - Configuration & Documentation
-- Global adapter configuration support
-- Comprehensive documentation structure in guides/
-- Migration guides for Tesla and Req users
-- Configuration reference with availability matrix
-
-**v0.5.0** - Circuit Breaker
-- Circuit breaker pattern with three states (closed, open, half-open)
-- Sliding window failure tracking with unified request history
-- Dual threshold strategies (absolute and percentage)
-- Manual circuit control and state inspection
-- Phase 1 complete: All production reliability features shipped
-
-**v0.4.0** - Rate Limiting
-- Built-in rate limiting with token bucket algorithm
-- Two strategies: wait (with timeout) or error
-- Per-endpoint and per-client configuration
-- ETS-based storage for high performance
-
-**v0.3.1** - PCI-Compliant Logging
-- PCI-compliant request/response logging with automatic sanitization
-- Request correlation IDs for distributed tracing
-- Request duration tracking and performance metrics
-- Configurable sanitization rules for headers and body fields
-
-**v0.3.0** - Adapter Pattern
-- Adapter pattern supporting Req and Tesla HTTP clients
-- Both adapters are optional dependencies
-- Fixed critical double retry bug
-
-**v0.2.0** - Smart Retries
-- Client configuration pattern with `HTTPower.new/1`
-- HTTP status code retry logic (408, 429, 500-504)
-- Exponential backoff with jitter
-- Improved retry test performance by 70%
-
-**v0.1.0** - Initial Release
-- Basic HTTP methods (GET, POST, PUT, DELETE)
-- Test mode blocking with Req.Test integration
-- Smart retry logic and clean error handling
-- SSL/Proxy configuration support
 
 ## Design Principles
 
