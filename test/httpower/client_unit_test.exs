@@ -428,7 +428,8 @@ defmodule HTTPower.ClientUnitTest do
       # Should see 2 retry events
       assert_received {:telemetry, [:httpower, :retry, :attempt], measurements, metadata}
       assert measurements.attempt_number == 2
-      assert measurements.delay_ms > 0  # Jitter can reduce below base_delay
+      # Jitter can reduce below base_delay
+      assert measurements.delay_ms > 0
       assert metadata.method == :get
       assert metadata.reason == {:http_status, 500}
 

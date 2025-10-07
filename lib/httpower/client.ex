@@ -87,7 +87,8 @@ defmodule HTTPower.Client do
             {:ok, response}
           else
             {:error, :network_blocked} ->
-              {:error, %Error{reason: :network_blocked, message: "Network access blocked in test mode"}}
+              {:error,
+               %Error{reason: :network_blocked, message: "Network access blocked in test mode"}}
 
             {:error, %Error{}} = error ->
               error
@@ -99,10 +100,20 @@ defmodule HTTPower.Client do
         extra_metadata =
           case result do
             {:ok, response} ->
-              %{status: response.status, headers: response.headers, body: response.body, retry_count: Keyword.get(opts, :retry_count, 0)}
+              %{
+                status: response.status,
+                headers: response.headers,
+                body: response.body,
+                retry_count: Keyword.get(opts, :retry_count, 0)
+              }
 
             {:error, %Error{reason: {:http_status, status, response}}} ->
-              %{status: status, headers: response.headers, body: response.body, error_type: :http_error}
+              %{
+                status: status,
+                headers: response.headers,
+                body: response.body,
+                error_type: :http_error
+              }
 
             {:error, %Error{reason: reason}} ->
               %{error_type: reason}
