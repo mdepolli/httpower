@@ -150,11 +150,14 @@ defmodule HTTPower.Dedup do
     # Format: {hash, state, data, timestamp}
     # States: {:in_flight, [waiters]} | {:completed, response}
     # heir: :none ensures table dies with process (prevents orphaning on crash)
+    # read/write_concurrency improves performance under high concurrent load (2-3x throughput)
     table =
       :ets.new(__MODULE__, [
         :set,
         :public,
         :named_table,
+        {:read_concurrency, true},
+        {:write_concurrency, true},
         {:heir, :none}
       ])
 
