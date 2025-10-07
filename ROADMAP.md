@@ -4,14 +4,16 @@ A reliable HTTP client library for Elixir with advanced reliability patterns for
 
 ## Current Status ✅
 
-**Core Foundation (v0.1.0 - v0.3.0)**
+**Core Foundation (v0.1.0 - v0.8.1)**
 
 - ✅ Basic HTTP methods (GET, POST, PUT, DELETE)
 - ✅ Adapter pattern supporting Req and Tesla HTTP clients
 - ✅ Test mode request blocking with Req.Test integration
 - ✅ Smart retry logic with exponential backoff and jitter
 - ✅ HTTP status code retry logic (408, 429, 500-504)
+- ✅ Automatic backoff respecting Retry-After headers (429/503)
 - ✅ Clean error handling (never raises exceptions)
+- ✅ Plug-compatible error atoms for Phoenix integration
 - ✅ SSL/Proxy configuration support
 - ✅ Request timeout management
 - ✅ Client configuration pattern with reusable configs
@@ -19,14 +21,16 @@ A reliable HTTP client library for Elixir with advanced reliability patterns for
 - ✅ Request correlation IDs for distributed tracing
 - ✅ Request timing and duration tracking
 - ✅ Built-in rate limiting with token bucket algorithm
+- ✅ Rate limit headers parsing and synchronization
 - ✅ Per-endpoint and per-client rate limit configuration
 - ✅ Circuit breaker pattern with three states (closed, open, half-open)
 - ✅ Failure threshold tracking with sliding window
-- ✅ Comprehensive test suite (141 tests, 67%+ coverage)
+- ✅ Request deduplication with hash-based fingerprinting
+- ✅ Comprehensive test suite (328 tests, 98%+ coverage)
 
-## Phase 1: Production Reliability 🚧
+## Phase 1: Production Reliability ✅ COMPLETED
 
-**Logging & Debugging Features** ✅ COMPLETED
+**Logging & Debugging Features** ✅
 
 - ✅ HTTP request/response logging for debugging
 - ✅ Sanitized logging that scrubs sensitive data (PCI compliance)
@@ -61,11 +65,12 @@ A reliable HTTP client library for Elixir with advanced reliability patterns for
 
 **Priority 1: Core Reliability Enhancements**
 
-- [ ] **Request deduplication** - Prevent duplicate requests from double-clicks, retries, or race conditions
-  - Hash-based deduplication (method + URL + body)
-  - Configurable time window
-  - Option to return cached response or wait for in-flight request
-  - Critical for payment processing and order creation
+- [x] **Request deduplication** ✅ - Prevent duplicate requests from double-clicks, retries, or race conditions
+  - ✅ Hash-based deduplication (method + URL + body)
+  - ✅ Response sharing - duplicate requests wait for in-flight request
+  - ✅ Automatic cleanup with 500ms TTL
+  - ✅ Custom deduplication keys for fine-grained control
+  - ✅ Critical for payment processing and order creation
 
 **Priority 2: Observability & Monitoring**
 
@@ -125,8 +130,37 @@ A reliable HTTP client library for Elixir with advanced reliability patterns for
 
 ## Version History
 
-**v0.5.0** (Current) - Circuit Breaker
-- Added circuit breaker pattern with three states (closed, open, half-open)
+**v0.8.1** (Current) - Documentation Fixes
+- Updated all documentation for v0.8.0 breaking changes
+- Restructured Configuration Availability Matrix for better HTML rendering
+- All docs reference Plug-compatible error atoms
+
+**v0.8.0** - Phoenix Integration
+- **BREAKING:** Plug-compatible error atoms for seamless Phoenix integration
+- Changed `:rate_limit_exceeded` → `:too_many_requests` (HTTP 429)
+- Changed `:circuit_breaker_open` → `:service_unavailable` (HTTP 503)
+- HTTPower-specific atoms preserved for unique conditions
+
+**v0.7.1** - Critical Bug Fixes
+- Fixed CircuitBreaker race condition in half-open state
+- Fixed ETS table orphaning on GenServer crash
+- Fixed Dedup waiter timeout memory leak
+- Performance: RateLimiter config caching (~15-20% overhead reduction)
+
+**v0.7.0** - Deduplication & Rate Limit Headers
+- Request deduplication with hash-based fingerprinting
+- Rate limit headers parsing (GitHub, RFC, Stripe formats)
+- Automatic backoff respecting Retry-After headers
+- Code organization improvements in HTTPower.Client
+
+**v0.6.0** - Configuration & Documentation
+- Global adapter configuration support
+- Comprehensive documentation structure in guides/
+- Migration guides for Tesla and Req users
+- Configuration reference with availability matrix
+
+**v0.5.0** - Circuit Breaker
+- Circuit breaker pattern with three states (closed, open, half-open)
 - Sliding window failure tracking with unified request history
 - Dual threshold strategies (absolute and percentage)
 - Manual circuit control and state inspection
