@@ -340,11 +340,14 @@ config :httpower, ssl_verify: true  # Default
 
 ### 2. Sensitive Data Logging
 
-Configure comprehensive sanitization:
+Configure comprehensive sanitization and structured logging for production observability:
 
 ```elixir
 config :httpower,
   logging: [
+    level: :info,
+    log_headers: true,
+    log_body: true,
     sanitize_headers: [
       "authorization", "api-key", "x-api-key",
       "cookie", "set-cookie", "x-auth-token"
@@ -360,6 +363,23 @@ config :httpower,
     ]
   ]
 ```
+
+**Structured Metadata for Log Aggregation:**
+
+All logs include structured metadata accessible via `Logger.metadata()`, enabling powerful queries in production log systems (Datadog, Splunk, ELK):
+
+```elixir
+# Find slow requests in production
+httpower_duration_ms:>1000 AND httpower_event:response
+
+# Alert on error rates
+httpower_status:>=500 AND httpower_method:post
+
+# Trace customer requests
+httpower_correlation_id:"req_abc123"
+```
+
+Metadata fields: `httpower_correlation_id`, `httpower_event`, `httpower_method`, `httpower_url`, `httpower_status`, `httpower_duration_ms`, and more.
 
 ### 3. API Keys
 
