@@ -3,6 +3,30 @@ defmodule HTTPower.CircuitBreakerTest do
 
   alias HTTPower.CircuitBreaker
 
+  # Helper function to wait for async state changes (cast-based recording)
+  defp await_state(circuit_key, expected_state, timeout \\ 100) do
+    deadline = System.monotonic_time(:millisecond) + timeout
+
+    Stream.repeatedly(fn ->
+      case CircuitBreaker.get_state(circuit_key) do
+        ^expected_state -> {:ok, expected_state}
+        other -> {:waiting, other}
+      end
+    end)
+    |> Enum.reduce_while(nil, fn
+      {:ok, state}, _acc ->
+        {:halt, state}
+
+      {:waiting, _}, _acc ->
+        if System.monotonic_time(:millisecond) < deadline do
+          Process.sleep(5)
+          {:cont, nil}
+        else
+          {:halt, CircuitBreaker.get_state(circuit_key)}
+        end
+    end)
+  end
+
   setup do
     # Reset any existing circuits before each test
     :ets.delete_all_objects(:httpower_circuit_breaker)
@@ -23,7 +47,7 @@ defmodule HTTPower.CircuitBreakerTest do
       config = [enabled: true, failure_threshold: 5]
 
       # Circuit doesn't exist yet
-      assert CircuitBreaker.get_state("test_circuit") == nil
+      assert await_state("test_circuit", nil) == nil
 
       # First request creates circuit in closed state
       result =
@@ -50,7 +74,7 @@ defmodule HTTPower.CircuitBreakerTest do
       end
 
       # Circuit should be open
-      assert CircuitBreaker.get_state("test_circuit") == :open
+      assert await_state("test_circuit", :open) == :open
     end
 
     test "open circuit rejects requests immediately" do
@@ -76,7 +100,7 @@ defmodule HTTPower.CircuitBreakerTest do
         CircuitBreaker.call("test_circuit", fn -> {:error, :failure} end, config)
       end
 
-      assert CircuitBreaker.get_state("test_circuit") == :open
+      assert await_state("test_circuit", :open) == :open
 
       # Wait for timeout
       :timer.sleep(150)
@@ -85,7 +109,7 @@ defmodule HTTPower.CircuitBreakerTest do
       result = CircuitBreaker.call("test_circuit", fn -> {:ok, :success} end, config)
 
       assert result == {:ok, :success}
-      assert CircuitBreaker.get_state("test_circuit") == :closed
+      assert await_state("test_circuit", :closed) == :closed
     end
 
     test "half-open transitions to closed on success" do
@@ -103,7 +127,7 @@ defmodule HTTPower.CircuitBreakerTest do
       result = CircuitBreaker.call("test_circuit", fn -> {:ok, :recovered} end, config)
 
       assert result == {:ok, :recovered}
-      assert CircuitBreaker.get_state("test_circuit") == :closed
+      assert await_state("test_circuit", :closed) == :closed
     end
 
     test "half-open transitions back to open on failure" do
@@ -120,7 +144,7 @@ defmodule HTTPower.CircuitBreakerTest do
       # Failed request should open the circuit again
       CircuitBreaker.call("test_circuit", fn -> {:error, :still_failing} end, config)
 
-      assert CircuitBreaker.get_state("test_circuit") == :open
+      assert await_state("test_circuit", :open) == :open
     end
   end
 
@@ -138,7 +162,7 @@ defmodule HTTPower.CircuitBreakerTest do
 
       # 5th failure - should open
       CircuitBreaker.call("test_circuit", fn -> {:error, :failure} end, config)
-      assert CircuitBreaker.get_state("test_circuit") == :open
+      assert await_state("test_circuit", :open) == :open
     end
 
     test "respects percentage failure threshold" do
@@ -161,7 +185,7 @@ defmodule HTTPower.CircuitBreakerTest do
       end
 
       # Should open due to percentage
-      assert CircuitBreaker.get_state("test_circuit") == :open
+      assert await_state("test_circuit", :open) == :open
     end
 
     test "percentage threshold requires minimum window size" do
@@ -197,7 +221,7 @@ defmodule HTTPower.CircuitBreakerTest do
         CircuitBreaker.call("test_circuit", fn -> {:error, :failure} end, config)
       end
 
-      assert CircuitBreaker.get_state("test_circuit") == :open
+      assert await_state("test_circuit", :open) == :open
     end
 
     test "old failures slide out of window" do
@@ -267,7 +291,7 @@ defmodule HTTPower.CircuitBreakerTest do
         CircuitBreaker.call("race_test_circuit", fn -> {:error, :failure} end, config)
       end
 
-      assert CircuitBreaker.get_state("race_test_circuit") == :open
+      assert await_state("race_test_circuit", :open) == :open
 
       # Wait for timeout to transition to half-open
       :timer.sleep(150)
@@ -330,7 +354,7 @@ defmodule HTTPower.CircuitBreakerTest do
         CircuitBreaker.call("test_circuit", fn -> {:error, :failure} end)
       end
 
-      assert CircuitBreaker.get_state("test_circuit") == :open
+      assert await_state("test_circuit", :open) == :open
     end
 
     test "per-request config overrides global config" do
@@ -347,7 +371,7 @@ defmodule HTTPower.CircuitBreakerTest do
       end
 
       # Should hit the per-request limit
-      assert CircuitBreaker.get_state("test_circuit") == :open
+      assert await_state("test_circuit", :open) == :open
     end
 
     test "circuit breaker disabled by default" do
@@ -358,7 +382,7 @@ defmodule HTTPower.CircuitBreakerTest do
       assert result == {:ok, :success}
 
       # Should not track state when disabled
-      assert CircuitBreaker.get_state("test_circuit") == nil
+      assert await_state("test_circuit", nil) == nil
     end
 
     test "can explicitly disable circuit breaker" do
@@ -381,7 +405,7 @@ defmodule HTTPower.CircuitBreakerTest do
       # Manually open
       CircuitBreaker.open_circuit("test_circuit")
 
-      assert CircuitBreaker.get_state("test_circuit") == :open
+      assert await_state("test_circuit", :open) == :open
 
       # Requests should be rejected
       result = CircuitBreaker.call("test_circuit", fn -> {:ok, :should_not_execute} end, config)
@@ -397,12 +421,12 @@ defmodule HTTPower.CircuitBreakerTest do
         CircuitBreaker.call("test_circuit", fn -> {:error, :failure} end, config)
       end
 
-      assert CircuitBreaker.get_state("test_circuit") == :open
+      assert await_state("test_circuit", :open) == :open
 
       # Manually close
       CircuitBreaker.close_circuit("test_circuit")
 
-      assert CircuitBreaker.get_state("test_circuit") == :closed
+      assert await_state("test_circuit", :closed) == :closed
 
       # Requests should work
       result = CircuitBreaker.call("test_circuit", fn -> {:ok, :success} end, config)
@@ -417,13 +441,13 @@ defmodule HTTPower.CircuitBreakerTest do
         CircuitBreaker.call("test_circuit", fn -> {:error, :failure} end, config)
       end
 
-      assert CircuitBreaker.get_state("test_circuit") == :open
+      assert await_state("test_circuit", :open) == :open
 
       # Reset
       CircuitBreaker.reset_circuit("test_circuit")
 
       # Circuit should be gone
-      assert CircuitBreaker.get_state("test_circuit") == nil
+      assert await_state("test_circuit", nil) == nil
     end
   end
 
@@ -436,7 +460,7 @@ defmodule HTTPower.CircuitBreakerTest do
         CircuitBreaker.call("circuit_1", fn -> {:error, :failure} end, config)
       end
 
-      assert CircuitBreaker.get_state("circuit_1") == :open
+      assert await_state("circuit_1", :open) == :open
 
       # Circuit 2 should still work
       result = CircuitBreaker.call("circuit_2", fn -> {:ok, :success} end, config)
@@ -454,7 +478,7 @@ defmodule HTTPower.CircuitBreakerTest do
       end
 
       # Circuit opens
-      assert CircuitBreaker.get_state("failing_service") == :open
+      assert await_state("failing_service", :open) == :open
 
       # Subsequent requests fail fast (no actual service calls)
       for _ <- 1..10 do
@@ -478,7 +502,7 @@ defmodule HTTPower.CircuitBreakerTest do
         CircuitBreaker.call("failing_service", fn -> {:ok, :service_recovered} end, config)
 
       assert result == {:ok, :service_recovered}
-      assert CircuitBreaker.get_state("failing_service") == :closed
+      assert await_state("failing_service", :closed) == :closed
     end
 
     test "handles mixed success/failure patterns" do
@@ -504,7 +528,7 @@ defmodule HTTPower.CircuitBreakerTest do
         CircuitBreaker.call("recovering_service", fn -> {:error, :down} end, config)
       end
 
-      assert CircuitBreaker.get_state("recovering_service") == :open
+      assert await_state("recovering_service", :open) == :open
 
       # Wait for timeout
       :timer.sleep(150)
@@ -515,7 +539,7 @@ defmodule HTTPower.CircuitBreakerTest do
       CircuitBreaker.call("recovering_service", fn -> {:error, :still_flaky} end, config)
 
       # Circuit should reopen due to failure
-      assert CircuitBreaker.get_state("recovering_service") == :open
+      assert await_state("recovering_service", :open) == :open
     end
   end
 
@@ -525,7 +549,7 @@ defmodule HTTPower.CircuitBreakerTest do
 
       # Use circuit breaker
       CircuitBreaker.call("crash_test", fn -> {:ok, :success} end, config)
-      assert CircuitBreaker.get_state("crash_test") == :closed
+      assert await_state("crash_test", :closed) == :closed
 
       # Get GenServer pid and kill it
       pid = Process.whereis(HTTPower.CircuitBreaker)
@@ -564,8 +588,8 @@ defmodule HTTPower.CircuitBreakerTest do
       end
 
       # Circuit should stay closed
-      assert CircuitBreaker.get_state("perfect_service") == :closed ||
-               CircuitBreaker.get_state("perfect_service") == nil
+      state = CircuitBreaker.get_state("perfect_service")
+      assert state == :closed || state == nil
     end
 
     test "handles rapid state transitions" do
@@ -576,20 +600,20 @@ defmodule HTTPower.CircuitBreakerTest do
         CircuitBreaker.call("rapid_service", fn -> {:error, :failure} end, config)
       end
 
-      assert CircuitBreaker.get_state("rapid_service") == :open
+      assert await_state("rapid_service", :open) == :open
 
       # Quick recovery
       :timer.sleep(60)
 
       CircuitBreaker.call("rapid_service", fn -> {:ok, :recovered} end, config)
-      assert CircuitBreaker.get_state("rapid_service") == :closed
+      assert await_state("rapid_service", :closed) == :closed
 
       # Trip again
       for _ <- 1..2 do
         CircuitBreaker.call("rapid_service", fn -> {:error, :failure} end, config)
       end
 
-      assert CircuitBreaker.get_state("rapid_service") == :open
+      assert await_state("rapid_service", :open) == :open
     end
   end
 
@@ -634,6 +658,9 @@ defmodule HTTPower.CircuitBreakerTest do
         CircuitBreaker.call("test_circuit", fn -> {:error, :failure} end, config)
       end
 
+      # Wait for async cast to process and emit telemetry
+      Process.sleep(10)
+
       assert_received {:telemetry, [:httpower, :circuit_breaker, :state_change], measurements,
                        metadata}
 
@@ -675,6 +702,9 @@ defmodule HTTPower.CircuitBreakerTest do
 
       # This should transition to half-open then to closed
       CircuitBreaker.call("test_circuit", fn -> {:ok, :success} end, config)
+
+      # Wait for async cast to process and emit telemetry
+      Process.sleep(10)
 
       # Should see open -> half_open transition
       assert_received {:telemetry, [:httpower, :circuit_breaker, :state_change], _, metadata}
