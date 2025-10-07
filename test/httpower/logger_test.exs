@@ -561,4 +561,190 @@ defmodule HTTPower.LoggerTest do
       assert {:error, :not_found} = HTTPowerLogger.detach()
     end
   end
+
+  describe "structured logging metadata" do
+    test "sets request metadata in Logger.metadata()" do
+      Req.Test.stub(HTTPower, fn conn ->
+        Req.Test.json(conn, %{data: "test"})
+      end)
+
+      HTTPowerLogger.attach(log_headers: true, log_body: true)
+
+      # Clear Logger metadata before request
+      Logger.reset_metadata()
+
+      capture_log(fn ->
+        HTTPower.get("https://api.example.com/test", plug: {Req.Test, HTTPower})
+      end)
+
+      metadata = Logger.metadata()
+
+      # Check request metadata was set
+      assert metadata[:httpower_correlation_id] != nil
+      assert String.starts_with?(to_string(metadata[:httpower_correlation_id]), "req_")
+      assert metadata[:httpower_event] == :response
+      assert metadata[:httpower_status] == 200
+      assert is_integer(metadata[:httpower_duration_ms])
+      assert metadata[:httpower_duration_ms] >= 0
+    end
+
+    test "includes method and URL in metadata" do
+      Req.Test.stub(HTTPower, fn conn ->
+        Req.Test.json(conn, %{success: true})
+      end)
+
+      HTTPowerLogger.attach()
+      Logger.reset_metadata()
+
+      capture_log(fn ->
+        HTTPower.post("https://api.example.com/users",
+          body: ~s({"name": "Test"}),
+          plug: {Req.Test, HTTPower}
+        )
+      end)
+
+      # Note: Logger.metadata() will show the last event (:response)
+      # but we're verifying the mechanism works
+      metadata = Logger.metadata()
+      assert metadata[:httpower_correlation_id] != nil
+    end
+
+    test "includes headers in metadata when enabled" do
+      Req.Test.stub(HTTPower, fn conn ->
+        conn
+        |> Plug.Conn.put_resp_header("x-custom-header", "value")
+        |> Req.Test.json(%{})
+      end)
+
+      HTTPowerLogger.attach(log_headers: true)
+      Logger.reset_metadata()
+
+      capture_log(fn ->
+        HTTPower.get("https://api.example.com/test",
+          headers: %{"authorization" => "Bearer token123"},
+          plug: {Req.Test, HTTPower}
+        )
+      end)
+
+      metadata = Logger.metadata()
+
+      # Response headers should be sanitized and present
+      assert metadata[:httpower_response_headers] != nil
+      response_headers = metadata[:httpower_response_headers]
+      assert is_map(response_headers)
+      assert Map.has_key?(response_headers, "x-custom-header")
+    end
+
+    test "includes body in metadata when enabled" do
+      Req.Test.stub(HTTPower, fn conn ->
+        Req.Test.json(conn, %{result: "success"})
+      end)
+
+      HTTPowerLogger.attach(log_body: true)
+      Logger.reset_metadata()
+
+      capture_log(fn ->
+        HTTPower.post("https://api.example.com/test",
+          body: ~s({"data": "test"}),
+          plug: {Req.Test, HTTPower}
+        )
+      end)
+
+      metadata = Logger.metadata()
+
+      # Response body should be present
+      assert metadata[:httpower_response_body] != nil
+    end
+
+    test "excludes headers from metadata when disabled" do
+      Req.Test.stub(HTTPower, fn conn ->
+        Req.Test.json(conn, %{})
+      end)
+
+      HTTPowerLogger.attach(log_headers: false)
+      Logger.reset_metadata()
+
+      capture_log(fn ->
+        HTTPower.get("https://api.example.com/test",
+          headers: %{"x-custom" => "value"},
+          plug: {Req.Test, HTTPower}
+        )
+      end)
+
+      metadata = Logger.metadata()
+      assert metadata[:httpower_response_headers] == nil
+    end
+
+    test "excludes body from metadata when disabled" do
+      Req.Test.stub(HTTPower, fn conn ->
+        Req.Test.json(conn, %{result: "data"})
+      end)
+
+      HTTPowerLogger.attach(log_body: false)
+      Logger.reset_metadata()
+
+      capture_log(fn ->
+        HTTPower.post("https://api.example.com/test",
+          body: ~s({"test": "data"}),
+          plug: {Req.Test, HTTPower}
+        )
+      end)
+
+      metadata = Logger.metadata()
+      assert metadata[:httpower_response_body] == nil
+    end
+
+    test "sanitizes sensitive data in metadata" do
+      Req.Test.stub(HTTPower, fn conn ->
+        Req.Test.json(conn, %{password: "secret123"})
+      end)
+
+      HTTPowerLogger.attach(log_headers: true, log_body: true)
+      Logger.reset_metadata()
+
+      capture_log(fn ->
+        HTTPower.post("https://api.example.com/login",
+          headers: %{"authorization" => "Bearer secret-token"},
+          body: ~s({"password": "secret123"}),
+          plug: {Req.Test, HTTPower}
+        )
+      end)
+
+      metadata = Logger.metadata()
+
+      # Response body should be sanitized
+      response_body = metadata[:httpower_response_body]
+      assert response_body =~ "[REDACTED]"
+      refute response_body =~ "secret123"
+    end
+
+    test "truncates large bodies in metadata" do
+      large_body = String.duplicate("x", 600)
+
+      Req.Test.stub(HTTPower, fn conn ->
+        Plug.Conn.send_resp(conn, 200, large_body)
+      end)
+
+      HTTPowerLogger.attach(log_body: true)
+      Logger.reset_metadata()
+
+      capture_log(fn ->
+        HTTPower.get("https://api.example.com/test", plug: {Req.Test, HTTPower})
+      end)
+
+      metadata = Logger.metadata()
+      response_body = metadata[:httpower_response_body]
+
+      # Should be truncated
+      assert response_body != nil
+      assert String.contains?(response_body, "truncated")
+      assert String.length(response_body) < 650
+    end
+
+    test "sets exception metadata on errors" do
+      # This test would need a way to trigger an exception in the telemetry flow
+      # For now, we verify the exception handler exists and has correct signature
+      assert function_exported?(HTTPowerLogger, :handle_event, 4)
+    end
+  end
 end

@@ -9,11 +9,51 @@ defmodule HTTPower.Logger do
   ## Features
 
   - Telemetry-based logging (opt-in by attaching)
+  - **Structured logging with metadata** - All logs include machine-readable metadata
   - Automatic PCI-compliant data sanitization
   - Correlation IDs for request tracing
   - Header and body sanitization
   - Performance timing information
   - Configurable log levels and format
+
+  ## Structured Logging
+
+  All log entries include structured metadata accessible via `Logger.metadata()`:
+
+  **Request metadata:**
+  - `httpower_correlation_id` - Unique request identifier
+  - `httpower_event` - Event type (`:request`, `:response`, or `:exception`)
+  - `httpower_method` - HTTP method (`:get`, `:post`, etc.)
+  - `httpower_url` - Request URL
+  - `httpower_headers` - Sanitized request headers (if enabled)
+  - `httpower_body` - Sanitized request body (if enabled)
+
+  **Response metadata:**
+  - `httpower_correlation_id` - Matches request correlation ID
+  - `httpower_event` - `:response`
+  - `httpower_status` - HTTP status code
+  - `httpower_duration_ms` - Request duration in milliseconds
+  - `httpower_response_headers` - Sanitized response headers (if enabled)
+  - `httpower_response_body` - Sanitized response body (if enabled)
+
+  **Exception metadata:**
+  - `httpower_correlation_id` - Request correlation ID
+  - `httpower_event` - `:exception`
+  - `httpower_duration_ms` - Time until exception
+  - `httpower_exception_kind` - Exception kind (`:error`, `:exit`, `:throw`)
+  - `httpower_exception_reason` - Exception reason
+
+  This structured metadata enables powerful querying in log aggregation systems
+  like Datadog, Splunk, ELK, or Loki:
+
+      # Query all slow requests
+      httpower_duration_ms:>1000
+
+      # Find all 5xx errors
+      httpower_status:>=500
+
+      # Trace a specific request
+      httpower_correlation_id:"req_abc123"
 
   ## Sanitization Rules
 
@@ -253,6 +293,12 @@ defmodule HTTPower.Logger do
     # Store correlation_id in process dictionary for :stop event
     Process.put(:httpower_correlation_id, correlation_id)
 
+    # Build structured metadata
+    log_metadata = build_request_metadata(correlation_id, metadata, config)
+
+    # Set Logger metadata for structured logging
+    Logger.metadata(log_metadata)
+
     message =
       format_request_log(
         correlation_id,
@@ -272,6 +318,12 @@ defmodule HTTPower.Logger do
 
     status = Map.get(metadata, :status, "error")
 
+    # Build structured metadata for response
+    log_metadata = build_response_metadata(correlation_id, status, duration_ms, metadata, config)
+
+    # Update Logger metadata
+    Logger.metadata(log_metadata)
+
     message =
       format_response_log(
         correlation_id,
@@ -289,6 +341,18 @@ defmodule HTTPower.Logger do
     correlation_id = Process.get(:httpower_correlation_id) || "req_unknown"
     duration_ms = System.convert_time_unit(measurements.duration, :native, :millisecond)
 
+    # Build structured metadata for exception
+    log_metadata = [
+      httpower_correlation_id: correlation_id,
+      httpower_duration_ms: duration_ms,
+      httpower_event: :exception,
+      httpower_exception_kind: metadata.kind,
+      httpower_exception_reason: inspect(metadata.reason)
+    ]
+
+    # Update Logger metadata
+    Logger.metadata(log_metadata)
+
     message =
       format_exception_log(
         correlation_id,
@@ -301,6 +365,105 @@ defmodule HTTPower.Logger do
   end
 
   ## Private Functions
+
+  defp build_request_metadata(correlation_id, metadata, config) do
+    base_metadata = [
+      httpower_correlation_id: correlation_id,
+      httpower_event: :request,
+      httpower_method: metadata.method,
+      httpower_url: metadata.url
+    ]
+
+    headers_metadata =
+      if config.log_headers do
+        headers = Map.get(metadata, :headers, %{})
+
+        if map_size(headers) > 0 do
+          sanitized_headers = sanitize_headers(headers)
+          [httpower_headers: sanitized_headers]
+        else
+          []
+        end
+      else
+        []
+      end
+
+    body_metadata =
+      if config.log_body do
+        body = Map.get(metadata, :body)
+
+        if body do
+          sanitized_body = sanitize_body(body)
+          [httpower_body: truncate_for_metadata(sanitized_body)]
+        else
+          []
+        end
+      else
+        []
+      end
+
+    base_metadata ++ headers_metadata ++ body_metadata
+  end
+
+  defp build_response_metadata(correlation_id, status, duration_ms, metadata, config) do
+    base_metadata = [
+      httpower_correlation_id: correlation_id,
+      httpower_event: :response,
+      httpower_status: status,
+      httpower_duration_ms: duration_ms
+    ]
+
+    headers_metadata =
+      if config.log_headers do
+        headers = Map.get(metadata, :headers, %{})
+
+        if map_size(headers) > 0 do
+          sanitized_headers = sanitize_headers(headers)
+          [httpower_response_headers: sanitized_headers]
+        else
+          []
+        end
+      else
+        []
+      end
+
+    body_metadata =
+      if config.log_body do
+        body = Map.get(metadata, :body)
+
+        if body do
+          sanitized_body = sanitize_body(body)
+          [httpower_response_body: truncate_for_metadata(sanitized_body)]
+        else
+          []
+        end
+      else
+        []
+      end
+
+    base_metadata ++ headers_metadata ++ body_metadata
+  end
+
+  defp truncate_for_metadata(body) when is_binary(body) do
+    if String.length(body) > 500 do
+      String.slice(body, 0, 500) <> "... (truncated)"
+    else
+      body
+    end
+  end
+
+  defp truncate_for_metadata(body) when is_map(body) do
+    # Convert to string representation and truncate
+    inspected = inspect(body, limit: 50, printable_limit: 500)
+
+    if String.length(inspected) > 500 do
+      String.slice(inspected, 0, 500) <> "... (truncated)"
+    else
+      inspected
+    end
+  end
+
+  defp truncate_for_metadata(body), do: inspect(body, limit: 50)
 
   defp build_config(opts) do
     defaults = Application.get_env(:httpower, :logging, [])
