@@ -253,14 +253,15 @@ defmodule HTTPower.Logger do
     # Store correlation_id in process dictionary for :stop event
     Process.put(:httpower_correlation_id, correlation_id)
 
-    message = format_request_log(
-      correlation_id,
-      metadata.method,
-      metadata.url,
-      Map.get(metadata, :headers, %{}),
-      Map.get(metadata, :body),
-      config
-    )
+    message =
+      format_request_log(
+        correlation_id,
+        metadata.method,
+        metadata.url,
+        Map.get(metadata, :headers, %{}),
+        Map.get(metadata, :body),
+        config
+      )
 
     log(message, config)
   end
@@ -271,14 +272,15 @@ defmodule HTTPower.Logger do
 
     status = Map.get(metadata, :status, "error")
 
-    message = format_response_log(
-      correlation_id,
-      status,
-      Map.get(metadata, :headers, %{}),
-      Map.get(metadata, :body),
-      duration_ms,
-      config
-    )
+    message =
+      format_response_log(
+        correlation_id,
+        status,
+        Map.get(metadata, :headers, %{}),
+        Map.get(metadata, :body),
+        duration_ms,
+        config
+      )
 
     log(message, config)
   end
@@ -287,12 +289,13 @@ defmodule HTTPower.Logger do
     correlation_id = Process.get(:httpower_correlation_id) || "req_unknown"
     duration_ms = System.convert_time_unit(measurements.duration, :native, :millisecond)
 
-    message = format_exception_log(
-      correlation_id,
-      metadata.kind,
-      metadata.reason,
-      duration_ms
-    )
+    message =
+      format_exception_log(
+        correlation_id,
+        metadata.kind,
+        metadata.reason,
+        duration_ms
+      )
 
     Logger.error(message)
   end
@@ -306,8 +309,10 @@ defmodule HTTPower.Logger do
       level: Keyword.get(opts, :level, Keyword.get(defaults, :level, :info)),
       log_headers: Keyword.get(opts, :log_headers, Keyword.get(defaults, :log_headers, true)),
       log_body: Keyword.get(opts, :log_body, Keyword.get(defaults, :log_body, true)),
-      sanitize_headers: Keyword.get(opts, :sanitize_headers, Keyword.get(defaults, :sanitize_headers, [])),
-      sanitize_body_fields: Keyword.get(opts, :sanitize_body_fields, Keyword.get(defaults, :sanitize_body_fields, []))
+      sanitize_headers:
+        Keyword.get(opts, :sanitize_headers, Keyword.get(defaults, :sanitize_headers, [])),
+      sanitize_body_fields:
+        Keyword.get(opts, :sanitize_body_fields, Keyword.get(defaults, :sanitize_body_fields, []))
     }
   end
 
@@ -323,37 +328,41 @@ defmodule HTTPower.Logger do
   defp format_request_log(correlation_id, method, url, headers, body, config) do
     method_str = method |> to_string() |> String.upcase()
 
-    headers_str = if config.log_headers && map_size(headers) > 0 do
-      sanitized = sanitize_headers(headers)
-      " headers=#{inspect(sanitized)}"
-    else
-      ""
-    end
+    headers_str =
+      if config.log_headers && map_size(headers) > 0 do
+        sanitized = sanitize_headers(headers)
+        " headers=#{inspect(sanitized)}"
+      else
+        ""
+      end
 
-    body_str = if config.log_body && body do
-      sanitized = sanitize_body(body)
-      " body=#{inspect_body(sanitized)}"
-    else
-      ""
-    end
+    body_str =
+      if config.log_body && body do
+        sanitized = sanitize_body(body)
+        " body=#{inspect_body(sanitized)}"
+      else
+        ""
+      end
 
     "[HTTPower] [#{correlation_id}] → #{method_str} #{url}#{headers_str}#{body_str}"
   end
 
   defp format_response_log(correlation_id, status, headers, body, duration_ms, config) do
-    headers_str = if config.log_headers && map_size(headers) > 0 do
-      sanitized = sanitize_headers(headers)
-      " headers=#{inspect(sanitized)}"
-    else
-      ""
-    end
+    headers_str =
+      if config.log_headers && map_size(headers) > 0 do
+        sanitized = sanitize_headers(headers)
+        " headers=#{inspect(sanitized)}"
+      else
+        ""
+      end
 
-    body_str = if config.log_body && body do
-      sanitized = sanitize_body(body)
-      " body=#{inspect_body(sanitized)}"
-    else
-      ""
-    end
+    body_str =
+      if config.log_body && body do
+        sanitized = sanitize_body(body)
+        " body=#{inspect_body(sanitized)}"
+      else
+        ""
+      end
 
     "[HTTPower] [#{correlation_id}] ← #{status} (#{duration_ms}ms)#{headers_str}#{body_str}"
   end
