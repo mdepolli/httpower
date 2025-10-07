@@ -138,6 +138,12 @@ defmodule HTTPower.CircuitBreaker do
           result
 
         {:error, :service_unavailable} ->
+          :telemetry.execute(
+            [:httpower, :circuit_breaker, :open],
+            %{},
+            %{circuit_key: circuit_key}
+          )
+
           {:error, :service_unavailable}
       end
     else
@@ -315,6 +321,7 @@ defmodule HTTPower.CircuitBreaker do
               "Circuit breaker for #{circuit_key} transitioning from :open to :half_open"
             )
 
+            emit_state_change_event(circuit_state, new_circuit_state, config, circuit_key)
             {:ok, :allowed}
           else
             {:error, :service_unavailable}
@@ -396,13 +403,16 @@ defmodule HTTPower.CircuitBreaker do
         "Circuit breaker transitioning from :half_open to :closed after #{successful_attempts} successful attempts"
       )
 
-      %{
+      new_state = %{
         circuit_state
         | state: :closed,
           requests: [],
           opened_at: nil,
           half_open_attempts: 0
       }
+
+      emit_state_change_event(circuit_state, new_state, config)
+      new_state
     else
       _ -> circuit_state
     end
@@ -414,23 +424,29 @@ defmodule HTTPower.CircuitBreaker do
       circuit_state.state == :half_open ->
         Logger.warning("Circuit breaker reopening from half-open due to failure")
 
-        %{
+        new_state = %{
           circuit_state
           | state: :open,
             opened_at: now,
             half_open_attempts: 0
         }
+
+        emit_state_change_event(circuit_state, new_state, config)
+        new_state
 
       # Closed with threshold exceeded -> open
       circuit_state.state == :closed && should_open?(circuit_state, config) ->
         Logger.warning("Circuit breaker opening due to failure threshold")
 
-        %{
+        new_state = %{
           circuit_state
           | state: :open,
             opened_at: now,
             half_open_attempts: 0
         }
+
+        emit_state_change_event(circuit_state, new_state, config)
+        new_state
 
       true ->
         circuit_state
@@ -496,5 +512,34 @@ defmodule HTTPower.CircuitBreaker do
     Keyword.get(config, :half_open_requests) ||
       Application.get_env(:httpower, :circuit_breaker, [])
       |> Keyword.get(:half_open_requests, 1)
+  end
+
+  # Telemetry Helpers
+
+  defp emit_state_change_event(old_state, new_state, config, circuit_key \\ nil) do
+    # Extract circuit_key from config or use provided value
+    key = circuit_key || Keyword.get(config, :circuit_key, "unknown")
+
+    failure_count = count_failures(new_state.requests)
+    total_count = length(new_state.requests)
+
+    failure_rate =
+      if total_count > 0 do
+        failure_count / total_count
+      else
+        nil
+      end
+
+    :telemetry.execute(
+      [:httpower, :circuit_breaker, :state_change],
+      %{timestamp: System.system_time()},
+      %{
+        circuit_key: key,
+        from_state: old_state.state,
+        to_state: new_state.state,
+        failure_count: failure_count,
+        failure_rate: failure_rate
+      }
+    )
   end
 end

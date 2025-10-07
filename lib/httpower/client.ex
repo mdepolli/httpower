@@ -67,21 +67,47 @@ defmodule HTTPower.Client do
   # Main Request Pipeline
 
   defp request(method, url, body, opts) do
-    with {:ok, :allowed} <- check_test_mode_allows_request(opts),
-         {:ok, :rate_limit_passed} <- check_rate_limit(url, opts),
-         {:ok, dedup_action} <- check_deduplication(method, url, body, opts),
-         {:ok, response} <- execute_with_dedup(dedup_action, url, opts, method, body) do
-      {:ok, response}
-    else
-      {:error, :network_blocked} ->
-        {:error, %Error{reason: :network_blocked, message: "Network access blocked in test mode"}}
+    metadata = %{
+      method: method,
+      url: sanitize_url_for_telemetry(url)
+    }
 
-      {:error, %Error{}} = error ->
-        error
+    :telemetry.span(
+      [:httpower, :request],
+      metadata,
+      fn ->
+        result =
+          with {:ok, :allowed} <- check_test_mode_allows_request(opts),
+               {:ok, :rate_limit_passed} <- check_rate_limit(url, opts),
+               {:ok, dedup_action} <- check_deduplication(method, url, body, opts),
+               {:ok, response} <- execute_with_dedup(dedup_action, url, opts, method, body) do
+            {:ok, response}
+          else
+            {:error, :network_blocked} ->
+              {:error, %Error{reason: :network_blocked, message: "Network access blocked in test mode"}}
 
-      {:error, reason} ->
-        {:error, %Error{reason: reason, message: error_message(reason)}}
-    end
+            {:error, %Error{}} = error ->
+              error
+
+            {:error, reason} ->
+              {:error, %Error{reason: reason, message: error_message(reason)}}
+          end
+
+        extra_metadata =
+          case result do
+            {:ok, response} ->
+              %{status: response.status, retry_count: Keyword.get(opts, :retry_count, 0)}
+
+            {:error, %Error{reason: reason}} ->
+              %{error_type: reason}
+
+            {:error, reason} ->
+              %{error_type: reason}
+          end
+
+        {result, Map.merge(metadata, extra_metadata)}
+      end
+    )
   end
 
   defp check_test_mode_allows_request(opts) do
@@ -108,12 +134,24 @@ defmodule HTTPower.Client do
 
     case Dedup.deduplicate(dedup_hash, dedup_config) do
       {:ok, :execute} ->
+        :telemetry.execute(
+          [:httpower, :dedup, :execute],
+          %{},
+          %{dedup_key: dedup_hash}
+        )
+
         {:ok, {:execute, dedup_hash, dedup_config}}
 
       {:ok, :wait, ref} ->
-        {:ok, {:wait, ref}}
+        {:ok, {:wait, ref, dedup_hash}}
 
       {:ok, response} ->
+        :telemetry.execute(
+          [:httpower, :dedup, :cache_hit],
+          %{},
+          %{dedup_key: dedup_hash}
+        )
+
         {:ok, {:cached, response}}
 
       {:error, _} = error ->
@@ -138,12 +176,25 @@ defmodule HTTPower.Client do
     end
   end
 
-  defp execute_with_dedup({:wait, ref}, _url, _opts, _method, _body) do
-    receive do
-      {:dedup_response, ^ref, response} -> {:ok, response}
-    after
-      30_000 -> {:error, :dedup_timeout}
-    end
+  defp execute_with_dedup({:wait, ref, dedup_hash}, _url, _opts, _method, _body) do
+    start_time = System.monotonic_time(:millisecond)
+
+    result =
+      receive do
+        {:dedup_response, ^ref, response} -> {:ok, response}
+      after
+        30_000 -> {:error, :dedup_timeout}
+      end
+
+    wait_time_ms = System.monotonic_time(:millisecond) - start_time
+
+    :telemetry.execute(
+      [:httpower, :dedup, :wait],
+      %{wait_time_ms: wait_time_ms},
+      %{dedup_key: dedup_hash}
+    )
+
+    result
   end
 
   defp execute_with_dedup({:cached, response}, _url, _opts, _method, _body) do
@@ -224,6 +275,17 @@ defmodule HTTPower.Client do
     if retryable_error?(reason, retry_opts.retry_safe) do
       log_retry_attempt(attempt, reason, retry_opts.max_retries)
       delay = calculate_retry_delay(reason, attempt, retry_opts)
+
+      :telemetry.execute(
+        [:httpower, :retry, :attempt],
+        %{attempt_number: attempt + 1, delay_ms: delay},
+        %{
+          method: request_params.method,
+          url: sanitize_url_for_telemetry(request_params.url),
+          reason: extract_retry_reason(reason)
+        }
+      )
+
       :timer.sleep(delay)
       execute_http_request(request_params, retry_opts, attempt + 1)
     else
@@ -450,6 +512,33 @@ defmodule HTTPower.Client do
       _ -> [enabled: false]
     end
   end
+
+  # Telemetry Helpers
+
+  defp sanitize_url_for_telemetry(url) when is_binary(url) do
+    # Strip query params and fragments for lower cardinality in telemetry
+    case URI.parse(url) do
+      %URI{scheme: scheme, host: host, port: port, path: path} ->
+        # Only include port if it's not the default for the scheme
+        port_part =
+          case {scheme, port} do
+            {"https", 443} -> ""
+            {"http", 80} -> ""
+            {_, nil} -> ""
+            {_, p} -> ":#{p}"
+          end
+
+        path_part = path || ""
+        "#{scheme}://#{host}#{port_part}#{path_part}"
+
+      _ ->
+        url
+    end
+  end
+
+  defp extract_retry_reason({:http_status, status, _response}), do: {:http_status, status}
+  defp extract_retry_reason(reason) when is_atom(reason), do: reason
+  defp extract_retry_reason(_reason), do: :unknown
 
   # Logging Helpers
 

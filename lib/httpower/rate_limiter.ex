@@ -144,13 +144,20 @@ defmodule HTTPower.RateLimiter do
         {:ok, :disabled} ->
           :ok
 
-        {:ok, _remaining} ->
+        {:ok, remaining} ->
           # Consume token
           GenServer.call(__MODULE__, {:consume_token, bucket_key, config})
+
+          :telemetry.execute(
+            [:httpower, :rate_limit, :ok],
+            %{tokens_remaining: remaining, wait_time_ms: 0},
+            %{bucket_key: bucket_key}
+          )
+
           :ok
 
         {:error, :too_many_requests, wait_time_ms} ->
-          handle_rate_limit_exceeded(strategy, wait_time_ms, config)
+          handle_rate_limit_exceeded(strategy, wait_time_ms, config, bucket_key)
       end
     else
       :ok
@@ -402,15 +409,28 @@ defmodule HTTPower.RateLimiter do
       Keyword.get(default_config, :max_wait_time, 5000)
   end
 
-  defp handle_rate_limit_exceeded(:error, _wait_time_ms, _config) do
+  defp handle_rate_limit_exceeded(:error, _wait_time_ms, _config, bucket_key) do
+    :telemetry.execute(
+      [:httpower, :rate_limit, :exceeded],
+      %{tokens_remaining: 0},
+      %{bucket_key: bucket_key, strategy: :error}
+    )
+
     {:error, :too_many_requests}
   end
 
-  defp handle_rate_limit_exceeded(:wait, wait_time_ms, config) do
+  defp handle_rate_limit_exceeded(:wait, wait_time_ms, config, bucket_key) do
     max_wait_time = get_max_wait_time(config)
 
     if wait_time_ms <= max_wait_time do
       Logger.debug("Rate limit reached, waiting #{wait_time_ms}ms")
+
+      :telemetry.execute(
+        [:httpower, :rate_limit, :wait],
+        %{wait_time_ms: wait_time_ms},
+        %{bucket_key: bucket_key, strategy: :wait}
+      )
+
       :timer.sleep(wait_time_ms)
       :ok
     else
