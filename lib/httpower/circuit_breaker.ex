@@ -77,7 +77,11 @@ defmodule HTTPower.CircuitBreaker do
   # Compile-time config caching for performance (avoids repeated Application.get_env calls)
   @default_config Application.compile_env(:httpower, :circuit_breaker, [])
   @default_failure_threshold Keyword.get(@default_config, :failure_threshold, 5)
-  @default_failure_threshold_percentage Keyword.get(@default_config, :failure_threshold_percentage, nil)
+  @default_failure_threshold_percentage Keyword.get(
+                                          @default_config,
+                                          :failure_threshold_percentage,
+                                          nil
+                                        )
   @default_window_size Keyword.get(@default_config, :window_size, 10)
   @default_timeout Keyword.get(@default_config, :timeout, 60_000)
   @default_half_open_requests Keyword.get(@default_config, :half_open_requests, 1)
@@ -523,7 +527,12 @@ defmodule HTTPower.CircuitBreaker do
 
   defp get_window_size(config) do
     runtime_config = Application.get_env(:httpower, :circuit_breaker, [])
-    Keyword.get(config, :window_size, Keyword.get(runtime_config, :window_size, @default_window_size))
+
+    Keyword.get(
+      config,
+      :window_size,
+      Keyword.get(runtime_config, :window_size, @default_window_size)
+    )
   end
 
   defp get_timeout(config) do
