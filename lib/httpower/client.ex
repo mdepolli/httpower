@@ -19,6 +19,10 @@ defmodule HTTPower.Client do
   alias HTTPower.{Response, Error}
   alias HTTPower.{RateLimiter, CircuitBreaker, Dedup}
 
+  # Compile-time config caching for performance (avoids repeated Application.get_env calls)
+  # Note: test_mode MUST be runtime to allow tests to enable it dynamically
+  @default_adapter Application.compile_env(:httpower, :adapter, nil)
+
   @default_max_retries 3
   @default_retry_safe false
   @default_base_delay 1000
@@ -376,7 +380,7 @@ defmodule HTTPower.Client do
   end
 
   defp get_default_adapter do
-    case Application.get_env(:httpower, :adapter) do
+    case @default_adapter do
       nil -> detect_adapter()
       {_adapter_module, _config} = adapter -> adapter
       adapter_module when is_atom(adapter_module) -> adapter_module

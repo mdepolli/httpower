@@ -55,6 +55,9 @@ defmodule HTTPower.Dedup do
   use GenServer
   require Logger
 
+  # Compile-time config caching for performance (avoids repeated Application.get_env calls)
+  @default_config Application.compile_env(:httpower, :deduplication, [])
+
   @completed_ttl 500
 
   # Client API
@@ -265,15 +268,7 @@ defmodule HTTPower.Dedup do
   # Private Functions
 
   defp deduplication_enabled?(config) do
-    case Keyword.get(config, :enabled) do
-      nil ->
-        # Check global config
-        global_config = Application.get_env(:httpower, :deduplication, [])
-        Keyword.get(global_config, :enabled, false)
-
-      enabled ->
-        enabled
-    end
+    Keyword.get(config, :enabled, Keyword.get(@default_config, :enabled, false))
   end
 
   defp schedule_cleanup do
