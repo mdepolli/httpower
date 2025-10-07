@@ -17,7 +17,6 @@ defmodule HTTPower.Client do
 
   require Logger
   alias HTTPower.{Response, Error}
-  alias HTTPower.Logger, as: HTTPowerLogger
   alias HTTPower.{RateLimiter, CircuitBreaker, Dedup}
 
   @default_max_retries 3
@@ -67,9 +66,13 @@ defmodule HTTPower.Client do
   # Main Request Pipeline
 
   defp request(method, url, body, opts) do
+    headers = Keyword.get(opts, :headers, %{})
+
     metadata = %{
       method: method,
-      url: sanitize_url_for_telemetry(url)
+      url: sanitize_url_for_telemetry(url),
+      headers: headers,
+      body: body
     }
 
     :telemetry.span(
@@ -96,7 +99,10 @@ defmodule HTTPower.Client do
         extra_metadata =
           case result do
             {:ok, response} ->
-              %{status: response.status, retry_count: Keyword.get(opts, :retry_count, 0)}
+              %{status: response.status, headers: response.headers, body: response.body, retry_count: Keyword.get(opts, :retry_count, 0)}
+
+            {:error, %Error{reason: {:http_status, status, response}}} ->
+              %{status: status, headers: response.headers, body: response.body, error_type: :http_error}
 
             {:error, %Error{reason: reason}} ->
               %{error_type: reason}
@@ -223,18 +229,13 @@ defmodule HTTPower.Client do
       jitter_factor: Keyword.get(opts, :jitter_factor, @default_jitter_factor)
     }
 
-    correlation_id = HTTPowerLogger.log_request(method, url, headers: headers, body: body)
-    start_time = System.monotonic_time(:millisecond)
-
     request_params = %{
       method: method,
       url: url,
       body: body,
       headers: headers,
       opts: opts,
-      adapter: adapter,
-      correlation_id: correlation_id,
-      start_time: start_time
+      adapter: adapter
     }
 
     execute_http_request(request_params, retry_opts, 1)
@@ -247,14 +248,11 @@ defmodule HTTPower.Client do
       url: url,
       body: body,
       headers: headers,
-      opts: opts,
-      correlation_id: correlation_id,
-      start_time: start_time
+      opts: opts
     } = request_params
 
     with {:ok, response} <- call_adapter(adapter, method, url, body, headers, opts),
          {:ok, :final_response} <- check_if_response_is_retryable(response, attempt, retry_opts) do
-      log_success_response(correlation_id, response, start_time)
       {:ok, response}
     else
       {:error, :should_retry, reason} ->
@@ -264,7 +262,6 @@ defmodule HTTPower.Client do
         handle_retry(request_params, retry_opts, attempt, reason)
 
       {:error, reason} ->
-        log_final_error(correlation_id, reason)
         wrap_error(reason)
     end
   end
@@ -291,16 +288,6 @@ defmodule HTTPower.Client do
     else
       case reason do
         {:http_status, status, response} when status >= 200 and status < 300 ->
-          correlation_id = request_params.correlation_id
-          start_time = request_params.start_time
-          duration_ms = System.monotonic_time(:millisecond) - start_time
-
-          HTTPowerLogger.log_response(correlation_id, status,
-            headers: response.headers,
-            body: response.body,
-            duration_ms: duration_ms
-          )
-
           {:ok, response}
 
         _ ->
@@ -541,26 +528,6 @@ defmodule HTTPower.Client do
   defp extract_retry_reason(_reason), do: :unknown
 
   # Logging Helpers
-
-  defp log_success_response(correlation_id, response, start_time) do
-    duration_ms = System.monotonic_time(:millisecond) - start_time
-
-    HTTPowerLogger.log_response(correlation_id, response.status,
-      headers: response.headers,
-      body: response.body,
-      duration_ms: duration_ms
-    )
-  end
-
-  defp log_final_error(correlation_id, reason) do
-    case wrap_error(reason) do
-      {:error, %Error{} = err} ->
-        HTTPowerLogger.log_error(correlation_id, err.reason, err.message)
-
-      _ ->
-        :ok
-    end
-  end
 
   defp log_retry_attempt(attempt, reason, max_retries) do
     remaining = max_retries - attempt
