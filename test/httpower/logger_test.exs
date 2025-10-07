@@ -3,15 +3,24 @@ defmodule HTTPower.LoggerTest do
   import ExUnit.CaptureLog
   alias HTTPower.Logger, as: HTTPowerLogger
 
+  setup_all do
+    Application.put_env(:httpower, :test_mode, true)
+    :ok
+  end
+
   setup do
     # Save original config
     original_config = Application.get_env(:httpower, :logging, [])
+
+    # Detach logger if attached from previous test
+    HTTPowerLogger.detach()
 
     # Reset to default config for each test
     Application.put_env(:httpower, :logging, enabled: true, level: :info)
 
     on_exit(fn ->
-      # Restore original config
+      # Detach logger and restore original config
+      HTTPowerLogger.detach()
       Application.put_env(:httpower, :logging, original_config)
     end)
 
@@ -36,11 +45,17 @@ defmodule HTTPower.LoggerTest do
     end
   end
 
-  describe "request logging" do
+  describe "request logging via telemetry" do
     test "logs basic GET request" do
+      Req.Test.stub(HTTPower, fn conn ->
+        Req.Test.json(conn, %{data: "test"})
+      end)
+
+      HTTPowerLogger.attach()
+
       log =
         capture_log(fn ->
-          HTTPowerLogger.log_request(:get, "https://api.example.com/users")
+          HTTPower.get("https://api.example.com/users", plug: {Req.Test, HTTPower})
         end)
 
       assert log =~ "[HTTPower]"
@@ -49,11 +64,18 @@ defmodule HTTPower.LoggerTest do
     end
 
     test "logs POST request with headers and body" do
+      Req.Test.stub(HTTPower, fn conn ->
+        Req.Test.json(conn, %{created: true})
+      end)
+
+      HTTPowerLogger.attach()
+
       log =
         capture_log(fn ->
-          HTTPowerLogger.log_request(:post, "https://api.example.com/users",
+          HTTPower.post("https://api.example.com/users",
             headers: %{"Content-Type" => "application/json"},
-            body: ~s({"name": "John"})
+            body: ~s({"name": "John"}),
+            plug: {Req.Test, HTTPower}
           )
         end)
 
@@ -64,10 +86,17 @@ defmodule HTTPower.LoggerTest do
     end
 
     test "sanitizes Authorization header" do
+      Req.Test.stub(HTTPower, fn conn ->
+        Req.Test.json(conn, %{ok: true})
+      end)
+
+      HTTPowerLogger.attach()
+
       log =
         capture_log(fn ->
-          HTTPowerLogger.log_request(:get, "https://api.example.com/users",
-            headers: %{"Authorization" => "Bearer secret-token-12345"}
+          HTTPower.get("https://api.example.com/users",
+            headers: %{"Authorization" => "Bearer secret-token-12345"},
+            plug: {Req.Test, HTTPower}
           )
         end)
 
@@ -76,13 +105,20 @@ defmodule HTTPower.LoggerTest do
     end
 
     test "sanitizes API key headers" do
+      Req.Test.stub(HTTPower, fn conn ->
+        Req.Test.json(conn, %{ok: true})
+      end)
+
+      HTTPowerLogger.attach()
+
       log =
         capture_log(fn ->
-          HTTPowerLogger.log_request(:get, "https://api.example.com/users",
+          HTTPower.get("https://api.example.com/users",
             headers: %{
               "X-API-Key" => "sk_live_12345",
               "Api-Key" => "another-secret"
-            }
+            },
+            plug: {Req.Test, HTTPower}
           )
         end)
 
@@ -91,71 +127,54 @@ defmodule HTTPower.LoggerTest do
       refute log =~ "another-secret"
     end
 
-    test "returns correlation ID" do
-      correlation_id =
-        capture_log(fn ->
-          HTTPowerLogger.log_request(:get, "https://api.example.com/users")
-        end)
-        |> then(fn _ ->
-          HTTPowerLogger.log_request(:get, "https://api.example.com/users")
-        end)
+    test "no logs when logger not attached" do
+      Req.Test.stub(HTTPower, fn conn ->
+        Req.Test.json(conn, %{ok: true})
+      end)
 
-      assert String.starts_with?(correlation_id, "req_")
-    end
-
-    test "respects logging disabled config" do
-      Application.put_env(:httpower, :logging, enabled: false)
+      # Don't attach logger
 
       log =
         capture_log(fn ->
-          HTTPowerLogger.log_request(:get, "https://api.example.com/users")
+          HTTPower.get("https://api.example.com/users", plug: {Req.Test, HTTPower})
         end)
 
       assert log == ""
     end
   end
 
-  describe "response logging" do
+  describe "response logging via telemetry" do
     test "logs successful response" do
-      correlation_id = HTTPowerLogger.generate_correlation_id()
+      Req.Test.stub(HTTPower, fn conn ->
+        conn
+        |> Plug.Conn.put_resp_header("content-type", "application/json")
+        |> Req.Test.json(%{status: "success"})
+      end)
+
+      HTTPowerLogger.attach()
 
       log =
         capture_log(fn ->
-          HTTPowerLogger.log_response(correlation_id, 200,
-            headers: %{"content-type" => "application/json"},
-            body: ~s({"status": "success"}),
-            duration_ms: 245
-          )
+          HTTPower.get("https://api.example.com/users", plug: {Req.Test, HTTPower})
         end)
 
-      assert log =~ correlation_id
+      assert log =~ "req_"
       assert log =~ "200"
-      assert log =~ "(245ms)"
+      assert log =~ "ms)"
       assert log =~ "status"
       assert log =~ "success"
     end
 
-    test "logs response without duration" do
-      correlation_id = HTTPowerLogger.generate_correlation_id()
-
-      log =
-        capture_log(fn ->
-          HTTPowerLogger.log_response(correlation_id, 404, body: ~s({"error": "Not found"}))
-        end)
-
-      assert log =~ correlation_id
-      assert log =~ "404"
-      refute log =~ "ms)"
-    end
-
     test "sanitizes response body with credit card" do
-      correlation_id = HTTPowerLogger.generate_correlation_id()
+      Req.Test.stub(HTTPower, fn conn ->
+        Req.Test.json(conn, %{card: "4111111111111111", status: "ok"})
+      end)
+
+      HTTPowerLogger.attach()
 
       log =
         capture_log(fn ->
-          HTTPowerLogger.log_response(correlation_id, 200,
-            body: ~s({"card": "4111111111111111", "status": "ok"})
-          )
+          HTTPower.get("https://api.example.com/users", plug: {Req.Test, HTTPower})
         end)
 
       assert log =~ "[REDACTED]"
@@ -164,53 +183,78 @@ defmodule HTTPower.LoggerTest do
     end
 
     test "truncates large response bodies" do
-      correlation_id = HTTPowerLogger.generate_correlation_id()
       large_body = String.duplicate("x", 1000)
+
+      Req.Test.stub(HTTPower, fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("text/plain")
+        |> Plug.Conn.send_resp(200, large_body)
+      end)
+
+      HTTPowerLogger.attach()
 
       log =
         capture_log(fn ->
-          HTTPowerLogger.log_response(correlation_id, 200, body: large_body)
+          HTTPower.get("https://api.example.com/users", plug: {Req.Test, HTTPower})
         end)
 
       assert log =~ "(truncated)"
       refute log =~ large_body
     end
 
-    test "respects logging disabled config" do
-      Application.put_env(:httpower, :logging, enabled: false)
-      correlation_id = HTTPowerLogger.generate_correlation_id()
+    test "no logs when logger not attached" do
+      Req.Test.stub(HTTPower, fn conn ->
+        Req.Test.json(conn, %{ok: true})
+      end)
+
+      # Don't attach logger
 
       log =
         capture_log(fn ->
-          HTTPowerLogger.log_response(correlation_id, 200, body: "test")
+          HTTPower.get("https://api.example.com/users", plug: {Req.Test, HTTPower})
         end)
 
       assert log == ""
     end
   end
 
-  describe "error logging" do
+  describe "error logging via telemetry" do
     test "logs request errors" do
-      correlation_id = HTTPowerLogger.generate_correlation_id()
+      Req.Test.stub(HTTPower, fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(500, ~s({"error": "Internal Server Error"}))
+      end)
+
+      HTTPowerLogger.attach()
 
       log =
         capture_log(fn ->
-          HTTPowerLogger.log_error(correlation_id, :timeout, "Request timeout after 30s")
+          HTTPower.get("https://api.example.com/users",
+            plug: {Req.Test, HTTPower},
+            max_retries: 0
+          )
         end)
 
-      assert log =~ correlation_id
-      assert log =~ "ERROR"
-      assert log =~ "Request timeout after 30s"
-      assert log =~ "timeout"
+      assert log =~ "req_"
+      assert log =~ "500"
     end
 
-    test "respects logging disabled config" do
-      Application.put_env(:httpower, :logging, enabled: false)
-      correlation_id = HTTPowerLogger.generate_correlation_id()
+    test "no logs when logger not attached" do
+      Req.Test.stub(HTTPower, fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(500, ~s({"error": "Server Error"}))
+      end)
+
+      # Don't attach logger
 
       log =
         capture_log(fn ->
-          HTTPowerLogger.log_error(correlation_id, :timeout, "Timeout")
+          HTTPower.get("https://api.example.com/users",
+            plug: {Req.Test, HTTPower},
+            max_retries: 0
+          )
         end)
 
       assert log == ""
@@ -470,27 +514,51 @@ defmodule HTTPower.LoggerTest do
 
   describe "configuration" do
     test "respects custom log level" do
-      Application.put_env(:httpower, :logging, enabled: true, level: :debug)
+      Req.Test.stub(HTTPower, fn conn ->
+        Req.Test.json(conn, %{ok: true})
+      end)
+
+      HTTPowerLogger.attach(level: :debug)
 
       log =
         capture_log([level: :debug], fn ->
-          HTTPowerLogger.log_request(:get, "https://api.example.com")
+          HTTPower.get("https://api.example.com", plug: {Req.Test, HTTPower})
         end)
 
       assert log =~ "GET"
     end
 
-    test "allows disabling sanitization" do
+    test "allows runtime configuration via attach options" do
+      Req.Test.stub(HTTPower, fn conn ->
+        Req.Test.json(conn, %{ok: true})
+      end)
+
+      HTTPowerLogger.attach(log_headers: false, log_body: false)
+
       log =
         capture_log(fn ->
-          HTTPowerLogger.log_request(:get, "https://api.example.com",
+          HTTPower.get("https://api.example.com",
             headers: %{"Authorization" => "Bearer token"},
-            sanitize: false
+            body: "test body",
+            plug: {Req.Test, HTTPower}
           )
         end)
 
-      assert log =~ "Bearer token"
-      refute log =~ "[REDACTED]"
+      # Should still have basic request info
+      assert log =~ "GET"
+      # But not headers or body
+      refute log =~ "Bearer"
+      refute log =~ "test body"
+    end
+
+    test "attach returns error when already attached" do
+      assert :ok = HTTPowerLogger.attach()
+      assert {:error, :already_exists} = HTTPowerLogger.attach()
+    end
+
+    test "detach returns error when not attached" do
+      HTTPowerLogger.detach()
+      assert {:error, :not_found} = HTTPowerLogger.detach()
     end
   end
 end

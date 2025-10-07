@@ -297,7 +297,29 @@ metadata: %{dedup_key: "2cdff299ad44f172e45a54feaafdac27f230a63471469182a6404968
 
 ### Basic Logging
 
-Log all HTTP requests with duration and status:
+**Built-in PCI-Compliant Logger (Recommended)**
+
+HTTPower includes a built-in logger with automatic PCI-compliant data sanitization:
+
+```elixir
+# In your application.ex
+def start(_type, _args) do
+  # Attach the built-in logger
+  HTTPower.Logger.attach(
+    level: :info,
+    log_headers: true,
+    log_body: true
+  )
+
+  # ... rest of your supervision tree
+end
+```
+
+The built-in logger automatically sanitizes sensitive data (credit cards, passwords, API keys, etc.) and includes correlation IDs for request tracing.
+
+**Custom Logger**
+
+Or create your own custom telemetry handler for logging:
 
 ```elixir
 defmodule MyApp.HTTPowerLogger do

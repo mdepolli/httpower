@@ -347,60 +347,89 @@ HTTPower.CircuitBreaker.reset_circuit("my_api")
 
 ## Logging Configuration
 
-### `logging.enabled`
-- **Type:** `boolean()`
-- **Default:** `true`
-- **Description:** Enable/disable HTTP request/response logging.
-- **Example:**
-  ```elixir
-  config :httpower, logging: [enabled: false]
-  ```
+HTTPower uses a telemetry-based logging system that you opt into by attaching the logger.
 
-### `logging.level`
+### Enabling Logging
+
+```elixir
+# In your application.ex
+def start(_type, _args) do
+  # Attach logger with options
+  HTTPower.Logger.attach(
+    level: :info,
+    log_headers: true,
+    log_body: true,
+    sanitize_headers: ["x-custom-token"],
+    sanitize_body_fields: ["secret_key"]
+  )
+
+  # ... rest of your supervision tree
+end
+```
+
+### Configuration Options
+
+All options can be passed to `HTTPower.Logger.attach/1` or configured via Application config (when using `attach/0`):
+
+#### `level`
 - **Type:** `:debug | :info | :warning | :error`
 - **Default:** `:info`
 - **Description:** Log level for HTTP requests.
 - **Example:**
   ```elixir
-  config :httpower, logging: [level: :debug]
+  HTTPower.Logger.attach(level: :debug)
+  # Or in config
+  config :httpower, :logging, level: :debug
   ```
 
-### `logging.sanitize_headers`
-- **Type:** `list(String.t())`
-- **Default:** `["authorization", "api-key", "x-api-key"]`
-- **Description:** Additional header names to sanitize (case-insensitive). **Additive** - adds to defaults, does not replace them.
+#### `log_headers`
+- **Type:** `boolean()`
+- **Default:** `true`
+- **Description:** Whether to include headers in logs.
 - **Example:**
   ```elixir
-  config :httpower, logging: [
-    sanitize_headers: ["x-custom-token", "x-secret"]
-  ]
-  # Final sanitized headers: authorization, api-key, x-api-key, x-custom-token, x-secret
+  HTTPower.Logger.attach(log_headers: false)
   ```
 
-### `logging.sanitize_body_fields`
-- **Type:** `list(String.t())`
-- **Default:** `["password", "credit_card", "cvv", "card_number"]`
-- **Description:** Additional body field names to sanitize in JSON/form data. **Additive** - adds to defaults, does not replace them.
+#### `log_body`
+- **Type:** `boolean()`
+- **Default:** `true`
+- **Description:** Whether to include request/response body in logs.
 - **Example:**
   ```elixir
-  config :httpower, logging: [
-    sanitize_body_fields: ["ssn", "tax_id", "secret"]
-  ]
-  # Final sanitized fields: password, credit_card, cvv, card_number, ssn, tax_id, secret
+  HTTPower.Logger.attach(log_body: false)
   ```
 
-### Per-Request Logging Control
+#### `sanitize_headers`
+- **Type:** `list(String.t())`
+- **Default:** `[]` (adds to built-in defaults)
+- **Description:** Additional header names to sanitize (case-insensitive). **Additive** - adds to defaults.
+- **Built-in defaults:** `["authorization", "api-key", "x-api-key", "token", "cookie", "secret"]`
+- **Example:**
+  ```elixir
+  HTTPower.Logger.attach(sanitize_headers: ["x-custom-token"])
+  # Or in config
+  config :httpower, :logging, sanitize_headers: ["x-custom-token"]
+  ```
+
+#### `sanitize_body_fields`
+- **Type:** `list(String.t())`
+- **Default:** `[]` (adds to built-in defaults)
+- **Description:** Additional body field names to sanitize. **Additive** - adds to defaults.
+- **Built-in defaults:** `["password", "credit_card", "cvv", "card_number", "api_key", "token", "ssn"]`
+- **Example:**
+  ```elixir
+  HTTPower.Logger.attach(sanitize_body_fields: ["tax_id", "secret"])
+  ```
+
+### Disabling Logging
 
 ```elixir
-# Disable logging for specific request
-HTTPower.get(url, logging: false)
+# Don't attach the logger
+# HTTPower.Logger.attach()  # Commented out
 
-# Additional sanitization for specific request
-HTTPower.post(url,
-  logging: [
-    sanitize_body_fields: ["custom_field"]  # Adds to global + default sanitization
-  ]
-)
+# Or detach programmatically
+HTTPower.Logger.detach()
 ```
 
 ## Request Options

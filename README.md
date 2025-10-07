@@ -206,7 +206,30 @@ config :httpower,
 
 ## PCI-Compliant Logging
 
-HTTPower automatically logs all HTTP requests and responses with PCI-compliant data sanitization. This helps with debugging and observability while maintaining security and compliance.
+HTTPower provides opt-in telemetry-based logging with automatic PCI-compliant data sanitization. Simply attach the logger to start logging all HTTP requests and responses.
+
+### Quick Start
+
+```elixir
+# In your application.ex
+def start(_type, _args) do
+  # Attach the logger to enable logging
+  HTTPower.Logger.attach()
+
+  # ... rest of your supervision tree
+end
+```
+
+Now all HTTP requests will be logged with automatic sanitization:
+
+```elixir
+HTTPower.get("https://api.example.com/users",
+  headers: %{"Authorization" => "Bearer secret-token"}
+)
+# Logs:
+# [HTTPower] [req_a1b2c3...] → GET https://api.example.com/users headers=%{"authorization" => "[REDACTED]"}
+# [HTTPower] [req_a1b2c3...] ← 200 (45ms) body=%{"users" => [...]}
+```
 
 ### Automatic Sanitization
 
@@ -243,31 +266,39 @@ HTTPower.post("https://payment-api.com/charge",
 
 ### Configuration
 
-Control logging behavior in your config:
+Configure logging via `attach/1` options or Application config:
 
 ```elixir
-# config/config.exs
+# Runtime configuration (recommended)
+HTTPower.Logger.attach(
+  level: :debug,
+  log_headers: true,
+  log_body: true,
+  sanitize_headers: ["x-custom-token"],     # Additional headers to sanitize
+  sanitize_body_fields: ["secret_key"]      # Additional body fields to sanitize
+)
+
+# Or use Application config (applies when using attach/0)
 config :httpower, :logging,
-  enabled: true,                         # Enable/disable logging (default: true)
-  level: :info,                          # Log level (default: :info)
-  sanitize_headers: ["x-custom-token"],  # Additional headers to sanitize (adds to defaults)
-  sanitize_body_fields: ["secret_key"]   # Additional body fields to sanitize (adds to defaults)
+  level: :info,
+  log_headers: true,
+  log_body: true,
+  sanitize_headers: ["x-custom-token"],
+  sanitize_body_fields: ["secret_key"]
 ```
 
-**Important:** Custom sanitization fields are **additive** - they supplement the defaults, not replace them. The default headers and body fields will always be sanitized, plus any custom ones you specify.
+**Important:** Custom sanitization fields are **additive** - they supplement the defaults, not replace them.
 
 ### Disabling Logging
 
-For performance-critical code or when you don't want logging:
+To disable logging, simply don't attach the logger, or detach it:
 
 ```elixir
-# Disable globally in config
-config :httpower, :logging, enabled: false
+# Don't attach in application.ex
+# HTTPower.Logger.attach()  # Commented out
 
-# Or use Logger configuration to filter HTTPower logs
-config :logger, :console,
-  format: "$time $metadata[$level] $message\n",
-  metadata: [:request_id]
+# Or detach programmatically
+HTTPower.Logger.detach()
 ```
 
 ## Correlation IDs

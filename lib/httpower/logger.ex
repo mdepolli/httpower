@@ -1,14 +1,14 @@
 defmodule HTTPower.Logger do
   @moduledoc """
-  PCI-compliant HTTP request/response logging for HTTPower.
+  PCI-compliant HTTP request/response logging via telemetry for HTTPower.
 
-  This module provides sanitized logging of HTTP requests and responses, automatically
-  redacting sensitive data like credit card numbers, authorization tokens, passwords,
-  and other PII to maintain PCI DSS compliance.
+  This module provides a telemetry event handler that logs HTTP requests and responses
+  with automatic PCI-compliant data sanitization, redacting sensitive data like credit
+  card numbers, authorization tokens, passwords, and other PII.
 
   ## Features
 
-  - Request/response logging with configurable levels
+  - Telemetry-based logging (opt-in by attaching)
   - Automatic PCI-compliant data sanitization
   - Correlation IDs for request tracing
   - Header and body sanitization
@@ -29,7 +29,6 @@ defmodule HTTPower.Logger do
   ## Configuration
 
       config :httpower, :logging,
-        enabled: true,
         level: :info,
         log_headers: true,
         log_body: true,
@@ -38,23 +37,39 @@ defmodule HTTPower.Logger do
 
   ## Usage
 
-      # Log request
-      correlation_id = HTTPower.Logger.log_request(:get, "https://api.example.com/users",
-        headers: %{"Authorization" => "Bearer secret-token"},
-        body: nil
+  Attach the logger in your application startup:
+
+      # In application.ex
+      def start(_type, _args) do
+        HTTPower.Logger.attach()
+        # ... rest of your supervision tree
+      end
+
+  Or attach with custom configuration:
+
+      HTTPower.Logger.attach(
+        level: :debug,
+        log_headers: false,
+        log_body: true
       )
 
-      # Log response
-      HTTPower.Logger.log_response(correlation_id, 200,
-        headers: %{"content-type" => "application/json"},
-        body: ~s({"credit_card": "4111111111111111"}),
-        duration_ms: 245
-      )
+  To detach:
+
+      HTTPower.Logger.detach()
+
+  ## Integration with Phoenix
+
+      # In your endpoint.ex or application.ex
+      HTTPower.Logger.attach()
+
+  The logger will automatically use correlation IDs from `Logger.metadata()[:request_id]`
+  if available (e.g., from Phoenix requests).
   """
 
   require Logger
 
-  @type correlation_id :: String.t()
+  @handler_id __MODULE__
+
   @type log_level :: :debug | :info | :warning | :error
 
   # Default headers to sanitize (case-insensitive)
@@ -100,115 +115,52 @@ defmodule HTTPower.Logger do
   @cvv_pattern ~r/\b(cvv|cvc|cvv2|security_?code)[\s\"\:]+\d{3,4}\b/i
 
   @doc """
-  Logs an HTTP request with PCI-compliant sanitization.
-
-  Returns a correlation ID that can be used to correlate the request with its response.
+  Attaches the HTTPower logger as a telemetry event handler.
 
   ## Options
 
-  - `:headers` - Request headers map
-  - `:body` - Request body (string or map)
-  - `:log_level` - Override default log level
-  - `:sanitize` - Enable/disable sanitization (default: true)
+  - `:level` - Log level to use (default: `:info`)
+  - `:log_headers` - Whether to log headers (default: `true`)
+  - `:log_body` - Whether to log body (default: `true`)
+  - `:sanitize_headers` - Additional headers to sanitize (list of strings)
+  - `:sanitize_body_fields` - Additional body fields to sanitize (list of strings)
 
   ## Examples
 
-      iex> HTTPower.Logger.log_request(:get, "https://api.example.com/users")
-      "req_abc123..."
+      # Use defaults from config
+      HTTPower.Logger.attach()
 
-      iex> HTTPower.Logger.log_request(:post, "https://api.example.com/payment",
-      ...>   headers: %{"Authorization" => "Bearer token"},
-      ...>   body: ~s({"card": "4111111111111111"})
-      ...> )
-      "req_def456..."
+      # Override specific options
+      HTTPower.Logger.attach(level: :debug, log_body: false)
   """
-  @spec log_request(atom(), String.t(), keyword()) :: correlation_id()
-  def log_request(method, url, opts \\ []) do
-    if logging_enabled?() do
-      correlation_id = generate_correlation_id()
-      headers = Keyword.get(opts, :headers, %{})
-      body = Keyword.get(opts, :body)
-      log_level = Keyword.get(opts, :log_level, get_log_level())
-      sanitize = Keyword.get(opts, :sanitize, true)
+  @spec attach(keyword()) :: :ok | {:error, :already_exists}
+  def attach(opts \\ []) do
+    config = build_config(opts)
 
-      sanitized_headers = if sanitize, do: sanitize_headers(headers), else: headers
-      sanitized_body = if sanitize, do: sanitize_body(body), else: body
+    events = [
+      [:httpower, :request, :start],
+      [:httpower, :request, :stop],
+      [:httpower, :request, :exception]
+    ]
 
-      message = format_request_log(correlation_id, method, url, sanitized_headers, sanitized_body)
-
-      Logger.log(log_level, message)
-
-      correlation_id
-    else
-      generate_correlation_id()
-    end
+    :telemetry.attach_many(
+      @handler_id,
+      events,
+      &handle_event/4,
+      config
+    )
   end
 
   @doc """
-  Logs an HTTP response with PCI-compliant sanitization.
-
-  ## Options
-
-  - `:headers` - Response headers map
-  - `:body` - Response body (string or map)
-  - `:duration_ms` - Request duration in milliseconds
-  - `:log_level` - Override default log level
-  - `:sanitize` - Enable/disable sanitization (default: true)
+  Detaches the HTTPower logger from telemetry events.
 
   ## Examples
 
-      iex> HTTPower.Logger.log_response("req_abc123", 200,
-      ...>   headers: %{"content-type" => "application/json"},
-      ...>   body: ~s({"status": "success"}),
-      ...>   duration_ms: 245
-      ...> )
-      :ok
+      HTTPower.Logger.detach()
   """
-  @spec log_response(correlation_id(), integer(), keyword()) :: :ok
-  def log_response(correlation_id, status, opts \\ []) do
-    if logging_enabled?() do
-      headers = Keyword.get(opts, :headers, %{})
-      body = Keyword.get(opts, :body)
-      duration_ms = Keyword.get(opts, :duration_ms)
-      log_level = Keyword.get(opts, :log_level, get_log_level())
-      sanitize = Keyword.get(opts, :sanitize, true)
-
-      sanitized_headers = if sanitize, do: sanitize_headers(headers), else: headers
-      sanitized_body = if sanitize, do: sanitize_body(body), else: body
-
-      message =
-        format_response_log(
-          correlation_id,
-          status,
-          sanitized_headers,
-          sanitized_body,
-          duration_ms
-        )
-
-      Logger.log(log_level, message)
-    end
-
-    :ok
-  end
-
-  @doc """
-  Logs an HTTP error with correlation ID.
-
-  ## Examples
-
-      iex> HTTPower.Logger.log_error("req_abc123", :timeout, "Request timeout after 30s")
-      :ok
-  """
-  @spec log_error(correlation_id(), atom(), String.t()) :: :ok
-  def log_error(correlation_id, reason, message) do
-    if logging_enabled?() do
-      log_message =
-        "[HTTPower] [#{correlation_id}] ERROR: #{message} (reason: #{inspect(reason)})"
-
-      Logger.error(log_message)
-    end
-
-    :ok
+  @spec detach() :: :ok | {:error, :not_found}
+  def detach do
+    :telemetry.detach(@handler_id)
   end
 
   @doc """
@@ -224,7 +176,7 @@ defmodule HTTPower.Logger do
       iex> String.length(id)
       20
   """
-  @spec generate_correlation_id() :: correlation_id()
+  @spec generate_correlation_id() :: String.t()
   def generate_correlation_id do
     random_bytes = :crypto.strong_rand_bytes(8)
     "req_" <> Base.encode16(random_bytes, case: :lower)
@@ -292,17 +244,134 @@ defmodule HTTPower.Logger do
 
   def sanitize_body(body), do: body
 
-  # Private functions
+  ## Telemetry Event Handlers
 
-  defp logging_enabled? do
-    Application.get_env(:httpower, :logging, [])
-    |> Keyword.get(:enabled, true)
+  @doc false
+  def handle_event([:httpower, :request, :start], _measurements, metadata, config) do
+    correlation_id = get_or_create_correlation_id()
+
+    # Store correlation_id in process dictionary for :stop event
+    Process.put(:httpower_correlation_id, correlation_id)
+
+    message = format_request_log(
+      correlation_id,
+      metadata.method,
+      metadata.url,
+      Map.get(metadata, :headers, %{}),
+      Map.get(metadata, :body),
+      config
+    )
+
+    log(message, config)
   end
 
-  defp get_log_level do
-    Application.get_env(:httpower, :logging, [])
-    |> Keyword.get(:level, :info)
+  def handle_event([:httpower, :request, :stop], measurements, metadata, config) do
+    correlation_id = Process.get(:httpower_correlation_id) || "req_unknown"
+    duration_ms = System.convert_time_unit(measurements.duration, :native, :millisecond)
+
+    status = Map.get(metadata, :status, "error")
+
+    message = format_response_log(
+      correlation_id,
+      status,
+      Map.get(metadata, :headers, %{}),
+      Map.get(metadata, :body),
+      duration_ms,
+      config
+    )
+
+    log(message, config)
   end
+
+  def handle_event([:httpower, :request, :exception], measurements, metadata, _config) do
+    correlation_id = Process.get(:httpower_correlation_id) || "req_unknown"
+    duration_ms = System.convert_time_unit(measurements.duration, :native, :millisecond)
+
+    message = format_exception_log(
+      correlation_id,
+      metadata.kind,
+      metadata.reason,
+      duration_ms
+    )
+
+    Logger.error(message)
+  end
+
+  ## Private Functions
+
+  defp build_config(opts) do
+    defaults = Application.get_env(:httpower, :logging, [])
+
+    %{
+      level: Keyword.get(opts, :level, Keyword.get(defaults, :level, :info)),
+      log_headers: Keyword.get(opts, :log_headers, Keyword.get(defaults, :log_headers, true)),
+      log_body: Keyword.get(opts, :log_body, Keyword.get(defaults, :log_body, true)),
+      sanitize_headers: Keyword.get(opts, :sanitize_headers, Keyword.get(defaults, :sanitize_headers, [])),
+      sanitize_body_fields: Keyword.get(opts, :sanitize_body_fields, Keyword.get(defaults, :sanitize_body_fields, []))
+    }
+  end
+
+  defp get_or_create_correlation_id do
+    # Try to use Phoenix request_id if available
+    Logger.metadata()[:request_id] || generate_correlation_id()
+  end
+
+  defp log(message, config) do
+    Logger.log(config.level, message)
+  end
+
+  defp format_request_log(correlation_id, method, url, headers, body, config) do
+    method_str = method |> to_string() |> String.upcase()
+
+    headers_str = if config.log_headers && map_size(headers) > 0 do
+      sanitized = sanitize_headers(headers)
+      " headers=#{inspect(sanitized)}"
+    else
+      ""
+    end
+
+    body_str = if config.log_body && body do
+      sanitized = sanitize_body(body)
+      " body=#{inspect_body(sanitized)}"
+    else
+      ""
+    end
+
+    "[HTTPower] [#{correlation_id}] → #{method_str} #{url}#{headers_str}#{body_str}"
+  end
+
+  defp format_response_log(correlation_id, status, headers, body, duration_ms, config) do
+    headers_str = if config.log_headers && map_size(headers) > 0 do
+      sanitized = sanitize_headers(headers)
+      " headers=#{inspect(sanitized)}"
+    else
+      ""
+    end
+
+    body_str = if config.log_body && body do
+      sanitized = sanitize_body(body)
+      " body=#{inspect_body(sanitized)}"
+    else
+      ""
+    end
+
+    "[HTTPower] [#{correlation_id}] ← #{status} (#{duration_ms}ms)#{headers_str}#{body_str}"
+  end
+
+  defp format_exception_log(correlation_id, kind, reason, duration_ms) do
+    "[HTTPower] [#{correlation_id}] EXCEPTION (#{duration_ms}ms) #{kind}: #{inspect(reason)}"
+  end
+
+  defp inspect_body(body) when is_binary(body) do
+    if String.length(body) > 500 do
+      truncated = String.slice(body, 0, 500)
+      "\"#{truncated}...\" (truncated)"
+    else
+      inspect(body)
+    end
+  end
+
+  defp inspect_body(body), do: inspect(body)
 
   defp get_sanitize_headers do
     custom_headers =
@@ -323,34 +392,6 @@ defmodule HTTPower.Logger do
     (@default_sanitize_body_fields ++ custom_fields)
     |> Enum.uniq()
   end
-
-  defp format_request_log(correlation_id, method, url, headers, body) do
-    method_str = method |> to_string() |> String.upcase()
-    headers_str = if map_size(headers) > 0, do: " headers=#{inspect(headers)}", else: ""
-    body_str = if body, do: " body=#{inspect_body(body)}", else: ""
-
-    "[HTTPower] [#{correlation_id}] → #{method_str} #{url}#{headers_str}#{body_str}"
-  end
-
-  defp format_response_log(correlation_id, status, headers, body, duration_ms) do
-    headers_str = if map_size(headers) > 0, do: " headers=#{inspect(headers)}", else: ""
-    body_str = if body, do: " body=#{inspect_body(body)}", else: ""
-
-    duration_str = if duration_ms, do: " (#{duration_ms}ms)", else: ""
-
-    "[HTTPower] [#{correlation_id}] ← #{status}#{duration_str}#{headers_str}#{body_str}"
-  end
-
-  defp inspect_body(body) when is_binary(body) do
-    if String.length(body) > 500 do
-      truncated = String.slice(body, 0, 500)
-      "\"#{truncated}...\" (truncated)"
-    else
-      inspect(body)
-    end
-  end
-
-  defp inspect_body(body), do: inspect(body)
 
   defp sanitize_credit_cards(text) when is_binary(text) do
     Regex.replace(@credit_card_pattern, text, "[REDACTED]")
@@ -383,6 +424,7 @@ defmodule HTTPower.Logger do
           case value do
             v when is_map(v) -> sanitize_map(v)
             v when is_list(v) -> Enum.map(v, &sanitize_value/1)
+            v when is_binary(v) -> sanitize_string_value(v)
             v -> v
           end
         end
@@ -392,5 +434,12 @@ defmodule HTTPower.Logger do
   end
 
   defp sanitize_value(value) when is_map(value), do: sanitize_map(value)
+  defp sanitize_value(value) when is_binary(value), do: sanitize_string_value(value)
   defp sanitize_value(value), do: value
+
+  defp sanitize_string_value(value) do
+    value
+    |> sanitize_credit_cards()
+    |> sanitize_cvv()
+  end
 end
