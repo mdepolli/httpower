@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Performance: ETS write concurrency optimization**
+  - Added `{:write_concurrency, true}` to all ETS tables (CircuitBreaker, RateLimiter, Dedup)
+  - Expected 2-3x throughput improvement under high concurrency (50+ concurrent requests)
+  - Enables parallel writes across multiple processes without serialization
+  - Production-grade performance for high-traffic scenarios
+
+- **Performance: CircuitBreaker async recording**
+  - Switched from synchronous `GenServer.call` to async `GenServer.cast` for result recording
+  - Expected 5-10x improvement in high-throughput scenarios
+  - Non-blocking operation: requests don't wait for state updates
+  - Eventually consistent state (5-10ms delay acceptable for circuit breaker logic)
+  - Updated tests to handle async state changes with polling helper
+
+- **Performance: Configuration caching optimization**
+  - Implemented compile-time config caching using `Application.compile_env`
+  - Eliminates repeated `Application.get_env` calls on every request
+  - Module attributes cache default config values at compile time
+  - Config resolution order: request-level → compile-time cached → runtime → hardcoded default
+  - Runtime fallback ensures tests can dynamically override config
+  - Particularly beneficial for high-throughput scenarios
+
+- **Structured logging with metadata for log aggregation**
+  - All log entries now include structured metadata via `Logger.metadata()`
+  - Request metadata: `httpower_correlation_id`, `httpower_event`, `httpower_method`, `httpower_url`, headers, body
+  - Response metadata: `httpower_correlation_id`, `httpower_event`, `httpower_status`, `httpower_duration_ms`, headers, body
+  - Exception metadata: `httpower_correlation_id`, `httpower_event`, `httpower_duration_ms`, `httpower_exception_kind`, `httpower_exception_reason`
+  - Enables powerful querying in log aggregation systems (Datadog, Splunk, ELK, Loki)
+  - Query examples: `httpower_duration_ms:>1000`, `httpower_status:>=500`, `httpower_correlation_id:"req_abc123"`
+  - All metadata respects `log_headers` and `log_body` configuration
+  - Large bodies automatically truncated to 500 characters in metadata
+  - All sensitive data sanitized before adding to metadata
+
+### Technical Details
+
+- ETS concurrency: `{:write_concurrency, true}` uses distributed locks for better parallelism
+- CircuitBreaker: Test updates include `await_state/3` helper for polling async state changes
+- Config caching: `@default_adapter`, `@default_config`, `@default_failure_threshold`, etc. cached at compile time
+- Structured logging: 9 new tests covering metadata presence, sanitization, and configuration
+- All 348 tests passing (9 new tests for structured logging metadata)
+
 ## [0.9.0] - 2025-10-06
 
 ### Added
