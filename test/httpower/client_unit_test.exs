@@ -380,4 +380,61 @@ defmodule HTTPower.ClientUnitTest do
       assert {:ok, _response} = HTTPower.get("/test")
     end
   end
+
+  describe "telemetry - retry events" do
+    setup do
+      # Attach telemetry handler to capture events
+      ref = make_ref()
+      test_pid = self()
+
+      events = [[:httpower, :retry, :attempt]]
+
+      :telemetry.attach_many(
+        ref,
+        events,
+        fn event, measurements, metadata, _config ->
+          send(test_pid, {:telemetry, event, measurements, metadata})
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(ref) end)
+
+      %{ref: ref}
+    end
+
+    test "emits retry attempt events with delay and reason" do
+      call_count = Agent.start_link(fn -> 0 end)
+      {:ok, agent} = call_count
+
+      HTTPower.Test.stub(fn conn ->
+        count = Agent.get_and_update(agent, fn n -> {n, n + 1} end)
+
+        if count < 2 do
+          # Fail first two attempts
+          Plug.Conn.resp(conn, 500, "Server Error")
+        else
+          # Succeed on third attempt
+          HTTPower.Test.json(conn, %{recovered: true})
+        end
+      end)
+
+      HTTPower.get("https://httpbin.org/get",
+        max_retries: 3,
+        base_delay: 10,
+        max_delay: 100
+      )
+
+      # Should see 2 retry events
+      assert_received {:telemetry, [:httpower, :retry, :attempt], measurements, metadata}
+      assert measurements.attempt_number == 2
+      assert measurements.delay_ms > 0  # Jitter can reduce below base_delay
+      assert metadata.method == :get
+      assert metadata.reason == {:http_status, 500}
+
+      assert_received {:telemetry, [:httpower, :retry, :attempt], measurements, _metadata}
+      assert measurements.attempt_number == 3
+      assert measurements.delay_ms > 0
+    end
+  end
 end

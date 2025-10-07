@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Comprehensive telemetry integration using Erlang's `:telemetry` library**
+  - HTTP request lifecycle events: `[:httpower, :request, :start]`, `[:httpower, :request, :stop]`, `[:httpower, :request, :exception]`
+  - Retry attempt events: `[:httpower, :retry, :attempt]` with attempt_number, delay_ms, and reason
+  - Rate limiter events: `[:httpower, :rate_limit, :ok]`, `[:httpower, :rate_limit, :wait]`, `[:httpower, :rate_limit, :exceeded]`
+  - Circuit breaker events: `[:httpower, :circuit_breaker, :state_change]`, `[:httpower, :circuit_breaker, :open]`
+  - Deduplication events: `[:httpower, :dedup, :execute]`, `[:httpower, :dedup, :wait]`, `[:httpower, :dedup, :cache_hit]`
+  - All events include rich measurements (duration, timestamps) and metadata (method, url, status, etc.)
+  - URLs automatically sanitized (query params/fragments stripped) for low cardinality in metrics
+  - Default ports (80/443) excluded from URL telemetry for cleaner metrics
+  - Zero dependencies (`:telemetry` ships with Elixir)
+  - Full observability guide with Prometheus, OpenTelemetry, and LiveDashboard examples
+
+**Integration Examples:**
+
+```elixir
+# Prometheus metrics
+distribution("httpower.request.duration",
+  event_name: [:httpower, :request, :stop],
+  measurement: :duration,
+  unit: {:native, :millisecond},
+  tags: [:method, :status]
+)
+
+# OpenTelemetry
+OpentelemetryTelemetry.register_application_tracer(:httpower)
+
+# Custom logging
+:telemetry.attach("httpower-logger", [:httpower, :request, :stop], &log_request/4, nil)
+```
+
+**Documentation:**
+
+- Added comprehensive observability guide at `guides/observability.md`
+- Updated README with Observability & Telemetry section
+- Added 11 new telemetry integration tests (339 total tests, all passing)
+
 ## [0.8.1] - 2025-10-01
 
 ### Fixed
@@ -31,6 +69,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - All error handling code must be updated to use new atoms
 
 **Migration Guide:**
+
 ```elixir
 # Update error pattern matching:
 {:error, %{reason: :rate_limit_exceeded}}    # OLD

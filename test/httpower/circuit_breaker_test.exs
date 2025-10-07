@@ -592,4 +592,99 @@ defmodule HTTPower.CircuitBreakerTest do
       assert CircuitBreaker.get_state("rapid_service") == :open
     end
   end
+
+  describe "telemetry - circuit breaker events" do
+    setup do
+      # Reset circuit state
+      CircuitBreaker.reset_circuit("test_circuit")
+
+      # Attach telemetry handler to capture events
+      ref = make_ref()
+      test_pid = self()
+
+      events = [
+        [:httpower, :circuit_breaker, :state_change],
+        [:httpower, :circuit_breaker, :open]
+      ]
+
+      :telemetry.attach_many(
+        ref,
+        events,
+        fn event, measurements, metadata, _config ->
+          send(test_pid, {:telemetry, event, measurements, metadata})
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(ref) end)
+
+      %{ref: ref}
+    end
+
+    test "emits state_change event when circuit opens" do
+      config = [
+        enabled: true,
+        failure_threshold: 3,
+        window_size: 5,
+        timeout: 60_000
+      ]
+
+      # Cause failures to open circuit
+      for _ <- 1..3 do
+        CircuitBreaker.call("test_circuit", fn -> {:error, :failure} end, config)
+      end
+
+      assert_received {:telemetry, [:httpower, :circuit_breaker, :state_change], measurements,
+                       metadata}
+
+      assert measurements.timestamp
+      assert metadata.circuit_key == "unknown"
+      assert metadata.from_state == :closed
+      assert metadata.to_state == :open
+      assert metadata.failure_count >= 3
+    end
+
+    test "emits open event when request is blocked by open circuit" do
+      # Open the circuit manually
+      CircuitBreaker.open_circuit("test_circuit")
+
+      {:error, :service_unavailable} =
+        CircuitBreaker.call("test_circuit", fn -> {:ok, :success} end, enabled: true)
+
+      assert_received {:telemetry, [:httpower, :circuit_breaker, :open], _measurements, metadata}
+      assert metadata.circuit_key == "test_circuit"
+    end
+
+    test "emits state_change event when circuit closes from half_open" do
+      config = [
+        enabled: true,
+        timeout: 60_000,
+        half_open_requests: 1
+      ]
+
+      # Open circuit
+      CircuitBreaker.open_circuit("test_circuit")
+
+      # Modify opened_at to allow transition to half-open
+      [{_, state}] = :ets.lookup(:httpower_circuit_breaker, "test_circuit")
+
+      :ets.insert(:httpower_circuit_breaker, {
+        "test_circuit",
+        %{state | opened_at: System.monotonic_time(:millisecond) - 61_000}
+      })
+
+      # This should transition to half-open then to closed
+      CircuitBreaker.call("test_circuit", fn -> {:ok, :success} end, config)
+
+      # Should see open -> half_open transition
+      assert_received {:telemetry, [:httpower, :circuit_breaker, :state_change], _, metadata}
+      assert metadata.from_state == :open
+      assert metadata.to_state == :half_open
+
+      # Should see half_open -> closed transition
+      assert_received {:telemetry, [:httpower, :circuit_breaker, :state_change], _, metadata}
+      assert metadata.from_state == :half_open
+      assert metadata.to_state == :closed
+    end
+  end
 end

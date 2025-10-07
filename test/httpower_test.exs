@@ -690,4 +690,79 @@ defmodule HTTPowerTest do
       assert Agent.get(agent, & &1) == 2
     end
   end
+
+  describe "telemetry - HTTP request lifecycle events" do
+    setup do
+      # Attach telemetry handler to capture events
+      ref = make_ref()
+      test_pid = self()
+
+      events = [
+        [:httpower, :request, :start],
+        [:httpower, :request, :stop],
+        [:httpower, :request, :exception]
+      ]
+
+      :telemetry.attach_many(
+        ref,
+        events,
+        fn event, measurements, metadata, _config ->
+          send(test_pid, {:telemetry, event, measurements, metadata})
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(ref) end)
+
+      %{ref: ref}
+    end
+
+    test "emits start and stop events for successful request" do
+      HTTPower.Test.stub(fn conn ->
+        HTTPower.Test.json(conn, %{success: true})
+      end)
+
+      HTTPower.get("https://httpbin.org/get")
+
+      assert_received {:telemetry, [:httpower, :request, :start], measurements, metadata}
+      assert measurements.system_time
+      assert metadata.method == :get
+      assert metadata.url == "https://httpbin.org/get"
+
+      assert_received {:telemetry, [:httpower, :request, :stop], measurements, metadata}
+      assert measurements.duration > 0
+      assert metadata.status == 200
+      assert metadata.method == :get
+    end
+
+    test "emits stop event for 500 error response" do
+      HTTPower.Test.stub(fn conn ->
+        Plug.Conn.resp(conn, 500, "Server Error")
+      end)
+
+      # 500 will be retried then return ok with 500 status
+      {:ok, response} = HTTPower.get("https://httpbin.org/status/500")
+      assert response.status == 500
+
+      assert_received {:telemetry, [:httpower, :request, :start], _, _}
+
+      # 500 is a valid HTTP response, so we get stop event with status 500
+      assert_received {:telemetry, [:httpower, :request, :stop], measurements, metadata}
+      assert measurements.duration > 0
+      assert metadata.status == 500
+      assert metadata.method == :get
+    end
+
+    test "sanitizes URLs in telemetry metadata" do
+      HTTPower.Test.stub(fn conn ->
+        HTTPower.Test.json(conn, %{success: true})
+      end)
+
+      HTTPower.get("https://api.example.com/users?token=secret&page=1")
+
+      assert_received {:telemetry, [:httpower, :request, :start], _, metadata}
+      # URL should be sanitized (no query params)
+      assert metadata.url == "https://api.example.com/users"
+    end
+  end
 end

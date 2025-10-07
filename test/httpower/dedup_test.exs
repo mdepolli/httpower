@@ -381,4 +381,53 @@ defmodule HTTPower.DedupTest do
       :ok
     end
   end
+
+  describe "telemetry - deduplication events" do
+    setup do
+      # Setup HTTPower.Test
+      HTTPower.Test.setup()
+
+      # Attach telemetry handler to capture events
+      ref = make_ref()
+      test_pid = self()
+
+      events = [
+        [:httpower, :dedup, :execute],
+        [:httpower, :dedup, :wait],
+        [:httpower, :dedup, :cache_hit]
+      ]
+
+      :telemetry.attach_many(
+        ref,
+        events,
+        fn event, measurements, metadata, _config ->
+          send(test_pid, {:telemetry, event, measurements, metadata})
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(ref) end)
+
+      %{ref: ref}
+    end
+
+    test "emits execute event for first request" do
+      HTTPower.Test.stub(fn conn ->
+        HTTPower.Test.json(conn, %{success: true})
+      end)
+
+      HTTPower.get("https://httpbin.org/get", deduplicate: true)
+
+      assert_received {:telemetry, [:httpower, :dedup, :execute], _measurements, metadata}
+      assert metadata.dedup_key
+    end
+  end
+
+  defp flush_telemetry do
+    receive do
+      {:telemetry, _, _, _} -> flush_telemetry()
+    after
+      0 -> :ok
+    end
+  end
 end

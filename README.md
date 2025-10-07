@@ -12,6 +12,7 @@ HTTPower is a production-ready HTTP client library for Elixir that provides bull
 - **Circuit breaker**: Automatic failure detection and recovery with state tracking
 - **Built-in rate limiting**: Token bucket algorithm with per-endpoint configuration
 - **Request deduplication**: Prevent duplicate operations from double-clicks or race conditions
+- **Comprehensive telemetry**: Deep observability with Elixir's `:telemetry` library
 - **PCI-compliant logging**: Automatic sanitization of sensitive data in logs
 - **Request/response correlation**: Trace requests with unique correlation IDs
 - **Test mode blocking**: Prevents real HTTP requests during testing
@@ -40,6 +41,7 @@ HTTPower is a production-ready HTTP client library for Elixir that provides bull
 - [Rate Limiting](#rate-limiting)
 - [Circuit Breaker](#circuit-breaker)
 - [Request Deduplication](#request-deduplication)
+- [Observability & Telemetry](#observability--telemetry)
 - [Development](#development)
 - [Documentation](#documentation)
 - [License](#license)
@@ -737,6 +739,86 @@ HTTPower.post("/charge",
 **Defense in Depth:**
 - **Client deduplication** = First line of defense (no network call)
 - **Idempotency key** = Second line of defense (server deduplication)
+
+## Observability & Telemetry
+
+HTTPower emits comprehensive telemetry events using Elixir's `:telemetry` library for deep observability into HTTP requests, retries, rate limiting, circuit breakers, and deduplication.
+
+### Quick Start
+
+```elixir
+:telemetry.attach_many(
+  "httpower-handler",
+  [
+    [:httpower, :request, :start],
+    [:httpower, :request, :stop],
+    [:httpower, :retry, :attempt]
+  ],
+  fn event, measurements, metadata, _config ->
+    IO.inspect({event, measurements, metadata})
+  end,
+  nil
+)
+```
+
+### Available Events
+
+**HTTP Request Lifecycle:**
+- `[:httpower, :request, :start]` - Request begins
+- `[:httpower, :request, :stop]` - Request completes (includes duration, status, retry_count)
+- `[:httpower, :request, :exception]` - Unhandled exception
+
+**Retry Events:**
+- `[:httpower, :retry, :attempt]` - Retry attempt (includes attempt_number, delay_ms, reason)
+
+**Rate Limiter:**
+- `[:httpower, :rate_limit, :ok]` - Request allowed
+- `[:httpower, :rate_limit, :wait]` - Waiting for tokens
+- `[:httpower, :rate_limit, :exceeded]` - Rate limit exceeded
+
+**Circuit Breaker:**
+- `[:httpower, :circuit_breaker, :state_change]` - State transition (includes from_state, to_state, failure_count)
+- `[:httpower, :circuit_breaker, :open]` - Request blocked by open circuit
+
+**Deduplication:**
+- `[:httpower, :dedup, :execute]` - First request executes
+- `[:httpower, :dedup, :wait]` - Duplicate waits for in-flight request
+- `[:httpower, :dedup, :cache_hit]` - Returns cached response
+
+### Integration Examples
+
+**Prometheus Metrics:**
+```elixir
+# Using telemetry_metrics_prometheus
+distribution(
+  "httpower.request.duration",
+  event_name: [:httpower, :request, :stop],
+  measurement: :duration,
+  unit: {:native, :millisecond},
+  tags: [:method, :status]
+)
+```
+
+**OpenTelemetry:**
+```elixir
+# Using opentelemetry_telemetry
+OpentelemetryTelemetry.register_application_tracer(:httpower)
+```
+
+**Custom Logging:**
+```elixir
+:telemetry.attach(
+  "httpower-logger",
+  [:httpower, :request, :stop],
+  fn _event, measurements, metadata, _config ->
+    duration_ms = System.convert_time_unit(measurements.duration, :native, :millisecond)
+    Logger.info("HTTP #{metadata.method} #{metadata.url} - #{metadata.status} (#{duration_ms}ms)")
+  end,
+  nil
+)
+```
+
+📖 **[Full Observability Guide](guides/observability.md)** - Complete event reference, measurements, metadata, and integration examples for Prometheus, OpenTelemetry, and Phoenix LiveDashboard.
 
 ## Development
 

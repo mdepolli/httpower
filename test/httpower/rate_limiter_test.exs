@@ -515,4 +515,93 @@ defmodule HTTPower.RateLimiterTest do
       assert new_pid != pid
     end
   end
+
+  describe "telemetry - rate limiter events" do
+    setup do
+      # Reset rate limiter state
+      RateLimiter.reset_bucket("test_bucket")
+
+      # Attach telemetry handler to capture events
+      ref = make_ref()
+      test_pid = self()
+
+      events = [
+        [:httpower, :rate_limit, :ok],
+        [:httpower, :rate_limit, :wait],
+        [:httpower, :rate_limit, :exceeded]
+      ]
+
+      :telemetry.attach_many(
+        ref,
+        events,
+        fn event, measurements, metadata, _config ->
+          send(test_pid, {:telemetry, event, measurements, metadata})
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(ref) end)
+
+      %{ref: ref}
+    end
+
+    test "emits ok event when rate limit is not exceeded" do
+      config = [enabled: true, requests: 10, per: :second]
+
+      RateLimiter.consume("test_bucket", config)
+
+      assert_received {:telemetry, [:httpower, :rate_limit, :ok], measurements, metadata}
+      assert measurements.tokens_remaining > 0
+      assert measurements.wait_time_ms == 0
+      assert metadata.bucket_key == "test_bucket"
+    end
+
+    test "emits wait event when rate limit exceeded with wait strategy" do
+      config = [enabled: true, requests: 5, per: :second, strategy: :wait, max_wait_time: 500]
+
+      # Exhaust the rate limit
+      for _ <- 1..5 do
+        RateLimiter.consume("test_bucket", config)
+      end
+
+      # Clear previous telemetry messages
+      flush_telemetry()
+
+      # This should trigger wait
+      RateLimiter.consume("test_bucket", config)
+
+      assert_received {:telemetry, [:httpower, :rate_limit, :wait], measurements, metadata}
+      assert measurements.wait_time_ms > 0
+      assert metadata.bucket_key == "test_bucket"
+      assert metadata.strategy == :wait
+    end
+
+    test "emits exceeded event when rate limit exceeded with error strategy" do
+      config = [enabled: true, requests: 5, per: :second, strategy: :error]
+
+      # Exhaust the rate limit
+      for _ <- 1..5 do
+        RateLimiter.consume("test_bucket", config)
+      end
+
+      # Clear previous telemetry messages
+      flush_telemetry()
+
+      # This should trigger error
+      {:error, :too_many_requests} = RateLimiter.consume("test_bucket", config)
+
+      assert_received {:telemetry, [:httpower, :rate_limit, :exceeded], measurements, metadata}
+      assert measurements.tokens_remaining == 0
+      assert metadata.bucket_key == "test_bucket"
+      assert metadata.strategy == :error
+    end
+  end
+
+  defp flush_telemetry do
+    receive do
+      {:telemetry, _, _, _} -> flush_telemetry()
+    after
+      0 -> :ok
+    end
+  end
 end
