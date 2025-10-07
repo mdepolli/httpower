@@ -74,6 +74,14 @@ defmodule HTTPower.CircuitBreaker do
 
   @table_name :httpower_circuit_breaker
 
+  # Compile-time config caching for performance (avoids repeated Application.get_env calls)
+  @default_config Application.compile_env(:httpower, :circuit_breaker, [])
+  @default_failure_threshold Keyword.get(@default_config, :failure_threshold, 5)
+  @default_failure_threshold_percentage Keyword.get(@default_config, :failure_threshold_percentage, nil)
+  @default_window_size Keyword.get(@default_config, :window_size, 10)
+  @default_timeout Keyword.get(@default_config, :timeout, 60_000)
+  @default_half_open_requests Keyword.get(@default_config, :half_open_requests, 1)
+
   @type circuit_key :: String.t()
   @type state :: :closed | :open | :half_open
   @type circuit_breaker_config :: [
@@ -355,14 +363,16 @@ defmodule HTTPower.CircuitBreaker do
   ## Private Functions
 
   defp circuit_breaker_enabled?(config) do
-    case Keyword.get(config, :enabled) do
-      nil ->
-        Application.get_env(:httpower, :circuit_breaker, [])
-        |> Keyword.get(:enabled, false)
-
-      enabled ->
-        enabled
-    end
+    # Check request config first, then compile-time cached config, then runtime config, then default
+    Keyword.get(
+      config,
+      :enabled,
+      Keyword.get(
+        @default_config,
+        :enabled,
+        Keyword.get(Application.get_env(:httpower, :circuit_breaker, []), :enabled, false)
+      )
+    )
   end
 
   defp check_and_allow_request(circuit_key, config) do
@@ -488,33 +498,47 @@ defmodule HTTPower.CircuitBreaker do
   end
 
   defp get_failure_threshold(config) do
-    Keyword.get(config, :failure_threshold) ||
-      Application.get_env(:httpower, :circuit_breaker, [])
-      |> Keyword.get(:failure_threshold, 5)
+    runtime_config = Application.get_env(:httpower, :circuit_breaker, [])
+
+    Keyword.get(
+      config,
+      :failure_threshold,
+      Keyword.get(runtime_config, :failure_threshold, @default_failure_threshold)
+    )
   end
 
   defp get_failure_threshold_percentage(config) do
-    Keyword.get(config, :failure_threshold_percentage) ||
-      Application.get_env(:httpower, :circuit_breaker, [])
-      |> Keyword.get(:failure_threshold_percentage, nil)
+    runtime_config = Application.get_env(:httpower, :circuit_breaker, [])
+
+    Keyword.get(
+      config,
+      :failure_threshold_percentage,
+      Keyword.get(
+        runtime_config,
+        :failure_threshold_percentage,
+        @default_failure_threshold_percentage
+      )
+    )
   end
 
   defp get_window_size(config) do
-    Keyword.get(config, :window_size) ||
-      Application.get_env(:httpower, :circuit_breaker, [])
-      |> Keyword.get(:window_size, 10)
+    runtime_config = Application.get_env(:httpower, :circuit_breaker, [])
+    Keyword.get(config, :window_size, Keyword.get(runtime_config, :window_size, @default_window_size))
   end
 
   defp get_timeout(config) do
-    Keyword.get(config, :timeout) ||
-      Application.get_env(:httpower, :circuit_breaker, [])
-      |> Keyword.get(:timeout, 60_000)
+    runtime_config = Application.get_env(:httpower, :circuit_breaker, [])
+    Keyword.get(config, :timeout, Keyword.get(runtime_config, :timeout, @default_timeout))
   end
 
   defp get_half_open_requests(config) do
-    Keyword.get(config, :half_open_requests) ||
-      Application.get_env(:httpower, :circuit_breaker, [])
-      |> Keyword.get(:half_open_requests, 1)
+    runtime_config = Application.get_env(:httpower, :circuit_breaker, [])
+
+    Keyword.get(
+      config,
+      :half_open_requests,
+      Keyword.get(runtime_config, :half_open_requests, @default_half_open_requests)
+    )
   end
 
   # Telemetry Helpers
