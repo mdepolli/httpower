@@ -720,7 +720,7 @@ HTTPower.post("https://api.example.com/charge",
 
 ```elixir
 # config/config.exs
-config :httpower, :deduplication,
+config :httpower, :deduplicate,
   enabled: true
 
 # All requests now use deduplication

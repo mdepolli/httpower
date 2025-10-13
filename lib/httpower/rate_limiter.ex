@@ -1,4 +1,6 @@
 defmodule HTTPower.RateLimiter do
+  @behaviour HTTPower.Feature
+
   @moduledoc """
   Token bucket rate limiter for HTTPower.
 
@@ -90,6 +92,43 @@ defmodule HTTPower.RateLimiter do
   end
 
   @doc """
+  Feature callback for the HTTPower pipeline.
+
+  Checks and consumes rate limit tokens for the request.
+
+  Returns:
+  - `:ok` if request can proceed
+  - `{:error, reason}` if rate limit exceeded
+
+  ## Examples
+
+      iex> request = %HTTPower.Request{url: "https://api.example.com", ...}
+      iex> HTTPower.RateLimiter.handle_request(request, [requests: 100, per: :minute])
+      :ok
+  """
+  @impl HTTPower.Feature
+  def handle_request(request, config) do
+    # Config is already merged by Client (runtime + compile-time)
+    if rate_limiting_enabled?(config) do
+      rate_limit_key = Keyword.get(config, :rate_limit_key) || request.url.host
+
+      case consume(rate_limit_key, config) do
+        :ok ->
+          :ok
+
+        {:error, reason} ->
+          {:error, %HTTPower.Error{reason: reason, message: error_message(reason)}}
+      end
+    else
+      :ok
+    end
+  end
+
+  defp error_message(:too_many_requests), do: "Too many requests"
+  defp error_message(:rate_limit_wait_timeout), do: "Rate limit wait timeout"
+  defp error_message(reason), do: inspect(reason)
+
+  @doc """
   Checks if a request can proceed under rate limit constraints.
 
   Returns:
@@ -145,7 +184,6 @@ defmodule HTTPower.RateLimiter do
           :ok
 
         {:ok, remaining} ->
-          # Consume token
           GenServer.call(__MODULE__, {:consume_token, bucket_key, config})
 
           :telemetry.execute(
@@ -272,24 +310,20 @@ defmodule HTTPower.RateLimiter do
     {max_tokens, refill_rate} = get_bucket_params(config, state.default_config)
     now_ms = System.monotonic_time(:millisecond)
 
-    # Get or initialize bucket state
     {current_tokens, last_refill_ms} =
       case :ets.lookup(@table_name, bucket_key) do
         [{^bucket_key, bucket_state}] -> bucket_state
         [] -> {max_tokens, now_ms}
       end
 
-    # Calculate tokens after refill
     elapsed_ms = now_ms - last_refill_ms
     refilled_tokens = min(max_tokens, current_tokens + elapsed_ms * refill_rate)
 
-    # Check if we have tokens available
     if refilled_tokens >= 1.0 do
       # Update bucket state (but don't consume yet)
       :ets.insert(@table_name, {bucket_key, {refilled_tokens, now_ms}})
       {:reply, {:ok, refilled_tokens}, state}
     else
-      # Calculate wait time until next token
       tokens_needed = 1.0 - refilled_tokens
       wait_time_ms = trunc(Float.ceil(tokens_needed / refill_rate))
       {:reply, {:error, :too_many_requests, wait_time_ms}, state}
@@ -301,21 +335,16 @@ defmodule HTTPower.RateLimiter do
     {max_tokens, refill_rate} = get_bucket_params(config, state.default_config)
     now_ms = System.monotonic_time(:millisecond)
 
-    # Get current bucket state
     {current_tokens, last_refill_ms} =
       case :ets.lookup(@table_name, bucket_key) do
         [{^bucket_key, bucket_state}] -> bucket_state
         [] -> {max_tokens, now_ms}
       end
 
-    # Calculate tokens after refill
     elapsed_ms = now_ms - last_refill_ms
     refilled_tokens = min(max_tokens, current_tokens + elapsed_ms * refill_rate)
-
-    # Consume one token
     new_tokens = refilled_tokens - 1.0
 
-    # Update bucket state
     :ets.insert(@table_name, {bucket_key, {new_tokens, now_ms}})
 
     {:reply, :ok, state}
@@ -352,7 +381,6 @@ defmodule HTTPower.RateLimiter do
   ## Private Functions
 
   defp rate_limiting_enabled?(config) do
-    # Check both config param and global config
     case Keyword.get(config, :enabled) do
       nil ->
         Application.get_env(:httpower, :rate_limit, [])
@@ -363,8 +391,8 @@ defmodule HTTPower.RateLimiter do
     end
   end
 
+  # Use cached default_config instead of Application.get_env
   defp get_bucket_params(config, default_config) do
-    # Get configuration values - use cached default_config instead of Application.get_env
     requests =
       Keyword.get(config, :requests) ||
         Keyword.get(default_config, :requests, 100)
@@ -373,7 +401,6 @@ defmodule HTTPower.RateLimiter do
       Keyword.get(config, :per) ||
         Keyword.get(default_config, :per, :second)
 
-    # Calculate refill rate (tokens per millisecond)
     window_ms =
       case per do
         :second -> 1_000
@@ -448,7 +475,6 @@ defmodule HTTPower.RateLimiter do
     now_ms = System.monotonic_time(:millisecond)
     cutoff_ms = now_ms - @bucket_ttl
 
-    # Delete buckets that haven't been used recently
     :ets.select_delete(@table_name, [
       {{:"$1", {:"$2", :"$3"}}, [{:<, :"$3", cutoff_ms}], [true]}
     ])

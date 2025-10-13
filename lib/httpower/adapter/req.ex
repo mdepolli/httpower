@@ -104,14 +104,12 @@ defmodule HTTPower.Adapter.Req do
   defp maybe_add_body(opts, nil), do: opts
   defp maybe_add_body(opts, body), do: Keyword.put(opts, :body, body)
 
-  defp maybe_add_ssl_options(opts, url, ssl_verify) do
-    if String.contains?(url, "https://") do
-      ssl_opts = [verify: if(ssl_verify, do: :verify_peer, else: :verify_none)]
-      Keyword.put(opts, :connect_options, transport_opts: ssl_opts)
-    else
-      opts
-    end
+  defp maybe_add_ssl_options(opts, %URI{scheme: "https"}, ssl_verify) do
+    ssl_opts = [verify: if(ssl_verify, do: :verify_peer, else: :verify_none)]
+    Keyword.put(opts, :connect_options, transport_opts: ssl_opts)
   end
+
+  defp maybe_add_ssl_options(opts, _url, _ssl_verify), do: opts
 
   defp maybe_add_proxy_options(opts, :system),
     do: Keyword.put(opts, :connect_options, proxy: :system)

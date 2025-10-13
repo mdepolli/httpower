@@ -16,8 +16,8 @@ defmodule HTTPower.Client do
   """
 
   require Logger
-  alias HTTPower.{Response, Error}
-  alias HTTPower.{RateLimiter, CircuitBreaker, Dedup}
+  alias HTTPower.{Response, Error, Request}
+  alias HTTPower.{CircuitBreaker, Dedup}
 
   # Compile-time config caching for performance (avoids repeated Application.get_env calls)
   # Note: test_mode MUST be runtime to allow tests to enable it dynamically
@@ -30,6 +30,32 @@ defmodule HTTPower.Client do
   @default_jitter_factor 0.2
 
   @retryable_status_codes [408, 429, 500, 502, 503, 504]
+
+  # Feature Registry - Define all available features
+  # Each entry: {module, key}
+  # - module: The feature module implementing HTTPower.Feature
+  # - key: Used for both Application config AND request opts (e.g., :rate_limit, :deduplicate)
+  # Features are only included in the pipeline if enabled: true in config
+  @available_features [
+    {HTTPower.RateLimiter, :rate_limit},
+    {HTTPower.CircuitBreaker, :circuit_breaker},
+    {HTTPower.Dedup, :deduplicate}
+  ]
+
+  # Build request pipeline at compile-time based on enabled features
+  # Inline pipeline building logic to work with module attributes
+  @default_request_steps @available_features
+                         |> Enum.reduce([], fn {module, key}, acc ->
+                           config = Application.compile_env(:httpower, key, [])
+
+                           # Features are enabled by default unless explicitly disabled
+                           if Keyword.get(config, :enabled, true) do
+                             [{module, key, config} | acc]
+                           else
+                             acc
+                           end
+                         end)
+                         |> Enum.reverse()
 
   # Public API
 
@@ -67,68 +93,184 @@ defmodule HTTPower.Client do
     request(:delete, url, nil, opts)
   end
 
-  # Main Request Pipeline
-
   defp request(method, url, body, opts) do
     headers = Keyword.get(opts, :headers, %{})
 
-    metadata = %{
-      method: method,
-      url: sanitize_url_for_telemetry(url),
-      headers: headers,
-      body: body
-    }
+    case validate_url(url) do
+      {:ok, uri} ->
+        metadata = %{
+          method: method,
+          url: sanitize_url_for_telemetry(uri),
+          headers: headers,
+          body: body
+        }
 
-    :telemetry.span(
-      [:httpower, :request],
-      metadata,
-      fn ->
-        result =
-          with {:ok, :allowed} <- check_test_mode_allows_request(opts),
-               {:ok, :rate_limit_passed} <- check_rate_limit(url, opts),
-               {:ok, dedup_action} <- check_deduplication(method, url, body, opts),
-               {:ok, response} <- execute_with_dedup(dedup_action, url, opts, method, body) do
-            {:ok, response}
-          else
-            {:error, :network_blocked} ->
-              {:error,
-               %Error{reason: :network_blocked, message: "Network access blocked in test mode"}}
+        :telemetry.span(
+          [:httpower, :request],
+          metadata,
+          fn ->
+            request_struct = Request.new(method, uri, body, headers, opts)
+            pipeline = get_request_pipeline(opts)
 
-            {:error, %Error{}} = error ->
-              error
+            result =
+              with {:ok, :allowed} <- check_test_mode_allows_request(opts),
+                   pipeline_result <- run_request_steps(request_struct, pipeline),
+                   {:ok, final_request} <- handle_pipeline_result(pipeline_result),
+                   {:ok, response} <- execute_http_with_retry(final_request) do
+                handle_post_request(final_request, {:ok, response})
+                {:ok, response}
+              else
+                {:error, :network_blocked} ->
+                  {:error,
+                   %Error{
+                     reason: :network_blocked,
+                     message: "Network access blocked in test mode"
+                   }}
 
-            {:error, reason} ->
-              {:error, %Error{reason: reason, message: error_message(reason)}}
+                {:error, %Error{}} = error ->
+                  error
+
+                {:error, reason} ->
+                  {:error, %Error{reason: reason, message: error_message(reason)}}
+              end
+
+            extra_metadata =
+              case result do
+                {:ok, response} ->
+                  %{
+                    status: response.status,
+                    headers: response.headers,
+                    body: response.body,
+                    retry_count: Keyword.get(opts, :retry_count, 0)
+                  }
+
+                {:error, %Error{reason: {:http_status, status, response}}} ->
+                  %{
+                    status: status,
+                    headers: response.headers,
+                    body: response.body,
+                    error_type: :http_error
+                  }
+
+                {:error, %Error{reason: reason}} ->
+                  %{error_type: reason}
+
+                {:error, reason} ->
+                  %{error_type: reason}
+              end
+
+            {result, Map.merge(metadata, extra_metadata)}
           end
+        )
 
-        extra_metadata =
-          case result do
-            {:ok, response} ->
-              %{
-                status: response.status,
-                headers: response.headers,
-                body: response.body,
-                retry_count: Keyword.get(opts, :retry_count, 0)
-              }
+      {:error, reason} ->
+        {:error, %Error{reason: :invalid_url, message: reason}}
+    end
+  end
 
-            {:error, %Error{reason: {:http_status, status, response}}} ->
-              %{
-                status: status,
-                headers: response.headers,
-                body: response.body,
-                error_type: :http_error
-              }
+  # URL Validation
 
-            {:error, %Error{reason: reason}} ->
-              %{error_type: reason}
+  defp validate_url(url) when is_binary(url) do
+    uri = URI.parse(url)
 
-            {:error, reason} ->
-              %{error_type: reason}
-          end
+    cond do
+      uri.scheme not in ["http", "https"] ->
+        {:error, "URL must use http or https scheme, got: #{inspect(uri.scheme)}"}
 
-        {result, Map.merge(metadata, extra_metadata)}
-      end
+      not is_binary(uri.host) or uri.host == "" ->
+        {:error, "URL must have a valid host"}
+
+      true ->
+        {:ok, uri}
+    end
+  end
+
+  # Get request pipeline (compile-time default + runtime custom steps)
+  defp get_request_pipeline(opts) do
+    custom_steps = Keyword.get(opts, :request_steps, [])
+    @default_request_steps ++ custom_steps
+  end
+
+  # Handle pipeline result - unwrap short-circuits or continue
+  defp handle_pipeline_result({:ok, request}), do: {:ok, request}
+
+  # Feature short-circuited (e.g., dedup cache hit, circuit breaker open)
+  defp handle_pipeline_result({:halt, response}), do: {:ok, response}
+
+  defp handle_pipeline_result({:error, _} = error), do: error
+
+  defp execute_http_with_retry(%Request{} = request) do
+    execute_request_with_retry(
+      request.method,
+      request.url,
+      request.body,
+      request.opts
     )
+  end
+
+  defp handle_post_request(request, result) do
+    case Request.get_private(request, :circuit_breaker) do
+      {circuit_key, circuit_config} ->
+        case result do
+          {:ok, _} -> CircuitBreaker.record_success(circuit_key, circuit_config)
+          {:error, _} -> CircuitBreaker.record_failure(circuit_key, circuit_config)
+        end
+
+      nil ->
+        :ok
+    end
+
+    case Request.get_private(request, :dedup) do
+      {dedup_hash, dedup_config} ->
+        case result do
+          {:ok, response} -> Dedup.complete(dedup_hash, response, dedup_config)
+          {:error, _} -> Dedup.cancel(dedup_hash)
+        end
+
+      nil ->
+        :ok
+    end
+  end
+
+  # Pipeline Execution - Generic recursive step executor
+
+  @doc false
+  # Fast path: empty pipeline (all features disabled)
+  defp run_request_steps(request, []), do: {:ok, request}
+
+  @doc false
+  # Generic step execution - works for ANY feature
+  defp run_request_steps(request, [{module, option_key, compile_config} | rest]) do
+    # Merge runtime config from request.opts (runtime takes precedence)
+    runtime_config = extract_runtime_config(request.opts, option_key)
+    merged_config = Keyword.merge(compile_config, runtime_config)
+
+    case apply(module, :handle_request, [request, merged_config]) do
+      :ok -> run_request_steps(request, rest)
+      {:ok, modified_request} -> run_request_steps(modified_request, rest)
+      {:halt, response} -> {:halt, response}
+      {:error, _reason} = error -> error
+    end
+  rescue
+    error ->
+      {:error,
+       %Error{
+         reason: {:feature_error, module, error},
+         message: "Feature #{module} failed: #{inspect(error)}"
+       }}
+  end
+
+  # Extracts runtime configuration from request options
+  # Handles: option: true → [enabled: true], option: false → [enabled: false],
+  #          option: [key: value] → [key: value], nil/missing → []
+  defp extract_runtime_config(opts, option_key) do
+    case Keyword.get(opts, option_key) do
+      nil -> []
+      true -> [enabled: true]
+      false -> [enabled: false]
+      config when is_list(config) -> config
+      _ -> []
+    end
   end
 
   defp check_test_mode_allows_request(opts) do
@@ -136,99 +278,6 @@ defmodule HTTPower.Client do
       {:ok, :allowed}
     else
       {:error, :network_blocked}
-    end
-  end
-
-  defp check_rate_limit(url, opts) do
-    rate_limit_key = get_rate_limit_key(url, opts)
-    rate_limit_config = get_rate_limit_config(opts)
-
-    case RateLimiter.consume(rate_limit_key, rate_limit_config) do
-      :ok -> {:ok, :rate_limit_passed}
-      {:error, _reason} = error -> error
-    end
-  end
-
-  defp check_deduplication(method, url, body, opts) do
-    dedup_config = get_deduplication_config(opts)
-    dedup_hash = get_deduplication_hash(method, url, body, opts)
-
-    case Dedup.deduplicate(dedup_hash, dedup_config) do
-      {:ok, :execute} ->
-        :telemetry.execute(
-          [:httpower, :dedup, :execute],
-          %{},
-          %{dedup_key: dedup_hash}
-        )
-
-        {:ok, {:execute, dedup_hash, dedup_config}}
-
-      {:ok, :wait, ref} ->
-        {:ok, {:wait, ref, dedup_hash}}
-
-      {:ok, response} ->
-        :telemetry.execute(
-          [:httpower, :dedup, :cache_hit],
-          %{},
-          %{dedup_key: dedup_hash}
-        )
-
-        {:ok, {:cached, response}}
-
-      {:error, _} = error ->
-        error
-    end
-  end
-
-  defp execute_with_dedup({:execute, dedup_hash, dedup_config}, url, opts, method, body) do
-    result =
-      execute_with_circuit_breaker(url, opts, fn ->
-        execute_request_with_retry(method, url, body, opts)
-      end)
-
-    case result do
-      {:ok, response} ->
-        Dedup.complete(dedup_hash, response, dedup_config)
-        {:ok, response}
-
-      {:error, _} = error ->
-        Dedup.cancel(dedup_hash)
-        error
-    end
-  end
-
-  defp execute_with_dedup({:wait, ref, dedup_hash}, _url, _opts, _method, _body) do
-    start_time = System.monotonic_time(:millisecond)
-
-    result =
-      receive do
-        {:dedup_response, ^ref, response} -> {:ok, response}
-      after
-        30_000 -> {:error, :dedup_timeout}
-      end
-
-    wait_time_ms = System.monotonic_time(:millisecond) - start_time
-
-    :telemetry.execute(
-      [:httpower, :dedup, :wait],
-      %{wait_time_ms: wait_time_ms},
-      %{dedup_key: dedup_hash}
-    )
-
-    result
-  end
-
-  defp execute_with_dedup({:cached, response}, _url, _opts, _method, _body) do
-    {:ok, response}
-  end
-
-  defp execute_with_circuit_breaker(url, opts, request_fn) do
-    circuit_breaker_key = get_circuit_breaker_key(url, opts)
-    circuit_breaker_config = get_circuit_breaker_config(opts)
-
-    case CircuitBreaker.call(circuit_breaker_key, request_fn, circuit_breaker_config) do
-      {:ok, _} = success -> success
-      {:error, _} = error -> error
     end
   end
 
@@ -441,101 +490,20 @@ defmodule HTTPower.Client do
     not test_mode or httpower_test_enabled or has_plug or has_adapter_with_config
   end
 
-  # Rate Limit Configuration
-
-  defp get_rate_limit_key(url, opts) do
-    case Keyword.get(opts, :rate_limit_key) do
-      nil ->
-        uri = URI.parse(url)
-        uri.host || url
-
-      custom_key ->
-        custom_key
-    end
-  end
-
-  defp get_rate_limit_config(opts) do
-    rate_limit_opts = Keyword.get(opts, :rate_limit, [])
-
-    case rate_limit_opts do
-      opts when is_list(opts) -> opts
-      false -> [enabled: false]
-      true -> []
-      _ -> []
-    end
-  end
-
-  # Circuit Breaker Configuration
-
-  defp get_circuit_breaker_key(url, opts) do
-    case Keyword.get(opts, :circuit_breaker_key) do
-      nil ->
-        uri = URI.parse(url)
-        uri.host || url
-
-      custom_key ->
-        custom_key
-    end
-  end
-
-  defp get_circuit_breaker_config(opts) do
-    circuit_breaker_opts = Keyword.get(opts, :circuit_breaker, [])
-
-    case circuit_breaker_opts do
-      opts when is_list(opts) -> opts
-      false -> [enabled: false]
-      true -> []
-      _ -> []
-    end
-  end
-
-  # Request Deduplication Configuration
-
-  defp get_deduplication_hash(method, url, body, opts) do
-    case Keyword.get(opts, :deduplicate) do
-      config when is_list(config) ->
-        case Keyword.get(config, :key) do
-          nil -> Dedup.hash(method, url, body)
-          custom_key -> custom_key
-        end
-
-      _ ->
-        Dedup.hash(method, url, body)
-    end
-  end
-
-  defp get_deduplication_config(opts) do
-    dedup_opts = Keyword.get(opts, :deduplicate, [])
-
-    case dedup_opts do
-      opts when is_list(opts) -> opts
-      true -> []
-      false -> [enabled: false]
-      _ -> [enabled: false]
-    end
-  end
-
   # Telemetry Helpers
 
-  defp sanitize_url_for_telemetry(url) when is_binary(url) do
-    # Strip query params and fragments for lower cardinality in telemetry
-    case URI.parse(url) do
-      %URI{scheme: scheme, host: host, port: port, path: path} ->
-        # Only include port if it's not the default for the scheme
-        port_part =
-          case {scheme, port} do
-            {"https", 443} -> ""
-            {"http", 80} -> ""
-            {_, nil} -> ""
-            {_, p} -> ":#{p}"
-          end
+  # Strip query params and fragments for lower cardinality in telemetry
+  defp sanitize_url_for_telemetry(%URI{} = uri) do
+    port_part =
+      case {uri.scheme, uri.port} do
+        {"https", 443} -> ""
+        {"http", 80} -> ""
+        {_, nil} -> ""
+        {_, p} -> ":#{p}"
+      end
 
-        path_part = path || ""
-        "#{scheme}://#{host}#{port_part}#{path_part}"
-
-      _ ->
-        url
-    end
+    path_part = uri.path || ""
+    "#{uri.scheme}://#{uri.host}#{port_part}#{path_part}"
   end
 
   defp extract_retry_reason({:http_status, status, _response}), do: {:http_status, status}
