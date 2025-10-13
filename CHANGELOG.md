@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2025-10-13
+
 ### Changed
 
 - **Refactored client to extensible pipeline architecture**
@@ -32,6 +34,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Circuit breaker and dedup can short-circuit pipeline with `{:halt, response}`
   - More consistent error handling across all features
 
+- **Request execution flow improvements**
+  - Request struct now built early in request lifecycle and passed throughout pipeline
+  - Cleaner parameter passing: 2 parameters instead of 6 in execution functions
+
 - **Code cleanup and documentation**
   - Removed ~57 redundant comments that described what code does rather than why
   - Kept important comments explaining architectural decisions
@@ -46,7 +52,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Extensibility**: Adding new features requires only implementing `HTTPower.Feature` behaviour
 - **Type safety**: URI structs ensure valid URLs throughout the pipeline
 - **Testability**: Generic pipeline executor simplifies testing of new features
-- All 348 tests passing (1 pre-existing flaky test passes in isolation)
+- **Request flow**: Request struct created early (line 103), passed through entire pipeline
+- All 348 tests passing
 - Zero compile warnings
 - Net code addition: 434 lines (+721 -287) with significant architectural improvements
 
@@ -546,7 +553,8 @@ OpentelemetryTelemetry.register_application_tracer(:httpower)
 - Production-ready error handling and logging
 - PCI DSS compliance considerations in design
 
-[unreleased]: https://github.com/mdepolli/httpower/compare/v0.10.0...HEAD
+[unreleased]: https://github.com/mdepolli/httpower/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/mdepolli/httpower/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/mdepolli/httpower/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/mdepolli/httpower/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/mdepolli/httpower/compare/v0.8.0...v0.8.1
