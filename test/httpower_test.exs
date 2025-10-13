@@ -6,6 +6,15 @@ defmodule HTTPowerTest do
     HTTPower.Test.setup()
   end
 
+  # Helper to flush mailbox and ignore telemetry events from other concurrent tests
+  defp flush_mailbox do
+    receive do
+      {:telemetry, _, _, _} -> flush_mailbox()
+    after
+      0 -> :ok
+    end
+  end
+
   describe "basic HTTP methods" do
     test "get/2 with test mode disabled" do
       # Use Req.Test.stub for controlled testing
@@ -736,19 +745,26 @@ defmodule HTTPowerTest do
     end
 
     test "emits stop event for 500 error response" do
+      # Flush mailbox to ignore events from other concurrent tests
+      flush_mailbox()
+
       HTTPower.Test.stub(fn conn ->
         Plug.Conn.resp(conn, 500, "Server Error")
       end)
 
+      test_url = "https://httpbin.org/status/500"
+
       # 500 will be retried then return ok with 500 status
-      {:ok, response} = HTTPower.get("https://httpbin.org/status/500")
+      {:ok, response} = HTTPower.get(test_url)
       assert response.status == 500
 
-      assert_received {:telemetry, [:httpower, :request, :start], _, _}
+      # Match on URL to ensure we get events from THIS test, not other concurrent tests
+      assert_received {:telemetry, [:httpower, :request, :start], _, %{url: ^test_url}}
 
       # 500 is a valid HTTP response, so we get stop event with status 500
       assert_received {:telemetry, [:httpower, :request, :stop], measurements, metadata}
       assert measurements.duration > 0
+      assert metadata.url == test_url
       assert metadata.status == 500
       assert metadata.method == :get
     end
