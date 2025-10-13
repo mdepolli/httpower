@@ -16,7 +16,7 @@ defmodule HTTPower.Client do
   """
 
   require Logger
-  alias HTTPower.{Response, Error, Request}
+  alias HTTPower.{Error, Request, Response}
   alias HTTPower.{CircuitBreaker, Dedup}
 
   # Compile-time config caching for performance (avoids repeated Application.get_env calls)
@@ -93,96 +93,125 @@ defmodule HTTPower.Client do
     request(:delete, url, nil, opts)
   end
 
+  # Private
+
   defp request(method, url, body, opts) do
     headers = Keyword.get(opts, :headers, %{})
 
-    case validate_url(url) do
-      {:ok, uri} ->
-        metadata = %{
-          method: method,
-          url: sanitize_url_for_telemetry(uri),
-          headers: headers,
-          body: body
-        }
+    with {:ok, :allowed} <- check_test_mode_allows_request(opts),
+         {:ok, %URI{} = uri} <- validate_url(url),
+         %Request{} = request <- Request.new(method, uri, body, headers, opts),
+         pipeline when is_list(pipeline) <- get_request_pipeline(opts) do
+      fun = get_request_function(request, pipeline)
+      execute_with_telemetry(request, fun)
+    else
+      {:error, %Error{}} = error ->
+        error
 
-        :telemetry.span(
-          [:httpower, :request],
-          metadata,
-          fn ->
-            request_struct = Request.new(method, uri, body, headers, opts)
-            pipeline = get_request_pipeline(opts)
-
-            result =
-              with {:ok, :allowed} <- check_test_mode_allows_request(opts),
-                   pipeline_result <- run_request_steps(request_struct, pipeline),
-                   {:ok, final_request} <- handle_pipeline_result(pipeline_result),
-                   {:ok, response} <- execute_http_with_retry(final_request) do
-                handle_post_request(final_request, {:ok, response})
-                {:ok, response}
-              else
-                {:error, :network_blocked} ->
-                  {:error,
-                   %Error{
-                     reason: :network_blocked,
-                     message: "Network access blocked in test mode"
-                   }}
-
-                {:error, %Error{}} = error ->
-                  error
-
-                {:error, reason} ->
-                  {:error, %Error{reason: reason, message: error_message(reason)}}
-              end
-
-            extra_metadata =
-              case result do
-                {:ok, response} ->
-                  %{
-                    status: response.status,
-                    headers: response.headers,
-                    body: response.body,
-                    retry_count: Keyword.get(opts, :retry_count, 0)
-                  }
-
-                {:error, %Error{reason: {:http_status, status, response}}} ->
-                  %{
-                    status: status,
-                    headers: response.headers,
-                    body: response.body,
-                    error_type: :http_error
-                  }
-
-                {:error, %Error{reason: reason}} ->
-                  %{error_type: reason}
-
-                {:error, reason} ->
-                  %{error_type: reason}
-              end
-
-            {result, Map.merge(metadata, extra_metadata)}
-          end
-        )
+      {:error, :network_blocked} ->
+        {:error, %Error{reason: :network_blocked, message: "Network access blocked in test mode"}}
 
       {:error, reason} ->
-        {:error, %Error{reason: :invalid_url, message: reason}}
+        {:error, %Error{reason: reason, message: error_message(reason)}}
     end
   end
-
-  # URL Validation
 
   defp validate_url(url) when is_binary(url) do
     uri = URI.parse(url)
 
     cond do
       uri.scheme not in ["http", "https"] ->
-        {:error, "URL must use http or https scheme, got: #{inspect(uri.scheme)}"}
+        {:error,
+         %Error{
+           reason: :invalid_url,
+           message: "URL must use http or https scheme, got: #{inspect(uri.scheme)}"
+         }}
 
       not is_binary(uri.host) or uri.host == "" ->
-        {:error, "URL must have a valid host"}
+        {:error, %Error{reason: :invalid_url, message: "URL must have a valid host"}}
 
       true ->
         {:ok, uri}
     end
+  end
+
+  defp sanitize_uri_for_telemetry(%URI{} = uri) do
+    normalized_port =
+      case {uri.scheme, uri.port} do
+        {"https", 443} -> nil
+        {"http", 80} -> nil
+        {_, port} -> port
+      end
+
+    normalized_path = uri.path || ""
+
+    normalized_uri = %URI{
+      uri
+      | port: normalized_port,
+        path: normalized_path,
+        query: nil,
+        fragment: nil
+    }
+
+    URI.to_string(normalized_uri)
+  end
+
+  defp get_request_function(%Request{} = request, pipeline) do
+    fn ->
+      result =
+        with pipeline_result <- run_request_steps(request, pipeline),
+             {:ok, final_request} <- handle_pipeline_result(pipeline_result),
+             {:ok, response} <- execute_http_with_retry(final_request) do
+          handle_post_request(final_request, {:ok, response})
+          {:ok, response}
+        else
+          {:error, %Error{}} = error ->
+            error
+
+          {:error, reason} ->
+            {:error, %Error{reason: reason, message: error_message(reason)}}
+        end
+
+      response_metadata =
+        case result do
+          {:ok, response} ->
+            %{
+              status: response.status,
+              headers: response.headers,
+              body: response.body,
+              retry_count: Keyword.get(request.opts, :retry_count, 0)
+            }
+
+          {:error, %Error{reason: {:http_status, status, response}}} ->
+            %{
+              status: status,
+              headers: response.headers,
+              body: response.body,
+              error_type: :http_error
+            }
+
+          {:error, %Error{reason: reason}} ->
+            %{error_type: reason}
+
+          {:error, reason} ->
+            %{error_type: reason}
+        end
+
+      {result, Map.merge(request_metadata(request), response_metadata)}
+    end
+  end
+
+  defp execute_with_telemetry(%Request{} = request, fun) do
+    :telemetry.span([:httpower, :request], request_metadata(request), fun)
+  end
+
+  defp request_metadata(%Request{} = request) do
+    %{
+      method: request.method,
+      url: sanitize_uri_for_telemetry(request.url),
+      headers: request.headers,
+      body: request.body
+    }
   end
 
   # Get request pipeline (compile-time default + runtime custom steps)
@@ -342,7 +371,7 @@ defmodule HTTPower.Client do
         %{attempt_number: attempt + 1, delay_ms: delay},
         %{
           method: request_params.method,
-          url: sanitize_url_for_telemetry(request_params.url),
+          url: request_params.url,
           reason: extract_retry_reason(reason)
         }
       )
@@ -490,21 +519,7 @@ defmodule HTTPower.Client do
     not test_mode or httpower_test_enabled or has_plug or has_adapter_with_config
   end
 
-  # Telemetry Helpers
-
-  # Strip query params and fragments for lower cardinality in telemetry
-  defp sanitize_url_for_telemetry(%URI{} = uri) do
-    port_part =
-      case {uri.scheme, uri.port} do
-        {"https", 443} -> ""
-        {"http", 80} -> ""
-        {_, nil} -> ""
-        {_, p} -> ":#{p}"
-      end
-
-    path_part = uri.path || ""
-    "#{uri.scheme}://#{uri.host}#{port_part}#{path_part}"
-  end
+  # Retry
 
   defp extract_retry_reason({:http_status, status, _response}), do: {:http_status, status}
   defp extract_retry_reason(reason) when is_atom(reason), do: reason
