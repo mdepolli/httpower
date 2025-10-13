@@ -422,12 +422,4 @@ defmodule HTTPower.DedupTest do
       assert metadata.dedup_key
     end
   end
-
-  defp flush_telemetry do
-    receive do
-      {:telemetry, _, _, _} -> flush_telemetry()
-    after
-      0 -> :ok
-    end
-  end
 end

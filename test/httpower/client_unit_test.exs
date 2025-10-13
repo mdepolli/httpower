@@ -371,13 +371,11 @@ defmodule HTTPower.ClientUnitTest do
       assert {:ok, _response} = HTTPower.get("https://api.example.com/test")
     end
 
-    test "handles URLs without host (relative paths)" do
-      HTTPower.Test.stub(fn conn ->
-        HTTPower.Test.json(conn, %{success: true})
-      end)
-
-      # Should use the full path as the key when no host
-      assert {:ok, _response} = HTTPower.get("/test")
+    test "rejects URLs without scheme (relative paths) with clear error" do
+      # With fail-fast URL validation, relative paths are rejected early
+      assert {:error, error} = HTTPower.get("/test")
+      assert error.reason == :invalid_url
+      assert error.message =~ "must use http or https scheme"
     end
   end
 

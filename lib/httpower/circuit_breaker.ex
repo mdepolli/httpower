@@ -1,4 +1,6 @@
 defmodule HTTPower.CircuitBreaker do
+  @behaviour HTTPower.Feature
+
   @moduledoc """
   Circuit breaker implementation for HTTPower.
 
@@ -116,6 +118,50 @@ defmodule HTTPower.CircuitBreaker do
   end
 
   @doc """
+  Feature callback for the HTTPower pipeline.
+
+  Checks circuit breaker state and stores info for post-request recording.
+
+  Returns:
+  - `:ok` if circuit is closed (continue with request)
+  - `{:ok, request}` with circuit breaker info stored in private
+  - `{:error, reason}` if circuit is open (fail immediately)
+
+  ## Examples
+
+      iex> request = %HTTPower.Request{url: "https://api.example.com", ...}
+      iex> HTTPower.CircuitBreaker.handle_request(request, [failure_threshold: 5])
+      {:ok, modified_request}
+  """
+  @impl HTTPower.Feature
+  def handle_request(request, config) do
+    # Config is already merged by Client (runtime + compile-time)
+    if circuit_breaker_enabled?(config) do
+      circuit_key = Keyword.get(config, :circuit_breaker_key) || request.url.host
+
+      case check_and_allow_request(circuit_key, config) do
+        {:ok, :allowed} ->
+          modified_request =
+            HTTPower.Request.put_private(request, :circuit_breaker, {circuit_key, config})
+
+          {:ok, modified_request}
+
+        {:error, :service_unavailable} ->
+          :telemetry.execute(
+            [:httpower, :circuit_breaker, :open],
+            %{},
+            %{circuit_key: circuit_key}
+          )
+
+          {:error,
+           %HTTPower.Error{reason: :service_unavailable, message: "Circuit breaker is open"}}
+      end
+    else
+      :ok
+    end
+  end
+
+  @doc """
   Checks if a request should be allowed through the circuit breaker.
 
   Returns:
@@ -136,7 +182,7 @@ defmodule HTTPower.CircuitBreaker do
     if circuit_breaker_enabled?(config) do
       case check_and_allow_request(circuit_key, config) do
         {:ok, :allowed} ->
-          # Execute the function and record the result asynchronously (non-blocking)
+          # Record result asynchronously (non-blocking)
           result = fun.()
 
           case result do
@@ -159,7 +205,6 @@ defmodule HTTPower.CircuitBreaker do
           {:error, :service_unavailable}
       end
     else
-      # Circuit breaker disabled, just execute
       fun.()
     end
   end
@@ -293,11 +338,9 @@ defmodule HTTPower.CircuitBreaker do
           {:ok, :allowed}
 
         :open ->
-          # Check if timeout has elapsed
           timeout = get_timeout(config)
 
           if circuit_state.opened_at && now - circuit_state.opened_at >= timeout do
-            # Transition to half-open
             new_circuit_state = %{circuit_state | state: :half_open, half_open_attempts: 0}
             :ets.insert(@table_name, {circuit_key, new_circuit_state})
 
@@ -312,14 +355,12 @@ defmodule HTTPower.CircuitBreaker do
           end
 
         :half_open ->
-          # Allow limited test requests
           half_open_requests = get_half_open_requests(config)
 
           if circuit_state.half_open_attempts >= half_open_requests do
             {:error, :service_unavailable}
           else
             # Increment BEFORE allowing request to prevent race condition
-            # where multiple processes check and pass before increment happens
             new_circuit_state = %{
               circuit_state
               | half_open_attempts: circuit_state.half_open_attempts + 1
@@ -437,7 +478,6 @@ defmodule HTTPower.CircuitBreaker do
 
   defp maybe_transition_to_open(circuit_state, config, now) do
     cond do
-      # Half-open failure -> back to open
       circuit_state.state == :half_open ->
         Logger.warning("Circuit breaker reopening from half-open due to failure")
 
@@ -451,7 +491,6 @@ defmodule HTTPower.CircuitBreaker do
         emit_state_change_event(circuit_state, new_state, config)
         new_state
 
-      # Closed with threshold exceeded -> open
       circuit_state.state == :closed && should_open?(circuit_state, config) ->
         Logger.warning("Circuit breaker opening due to failure threshold")
 
@@ -478,10 +517,8 @@ defmodule HTTPower.CircuitBreaker do
     failure_count = count_failures(circuit_state.requests)
     total_count = length(circuit_state.requests)
 
-    # Check absolute threshold
     absolute_threshold_exceeded = failure_count >= failure_threshold
 
-    # Check percentage threshold (only if we have enough requests)
     percentage_threshold_exceeded =
       if total_count >= window_size and failure_percentage do
         failure_rate = failure_count / total_count * 100
@@ -553,7 +590,6 @@ defmodule HTTPower.CircuitBreaker do
   # Telemetry Helpers
 
   defp emit_state_change_event(old_state, new_state, config, circuit_key \\ nil) do
-    # Extract circuit_key from config or use provided value
     key = circuit_key || Keyword.get(config, :circuit_key, "unknown")
 
     failure_count = count_failures(new_state.requests)

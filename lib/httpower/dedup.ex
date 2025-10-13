@@ -1,4 +1,6 @@
 defmodule HTTPower.Dedup do
+  @behaviour HTTPower.Feature
+
   @moduledoc """
   In-flight request deduplication to prevent duplicate operations.
 
@@ -22,7 +24,7 @@ defmodule HTTPower.Dedup do
   ## Configuration
 
       # Global configuration
-      config :httpower, :deduplication,
+      config :httpower, :deduplicate,
         enabled: true,
         ttl: 5_000  # 5 seconds - how long to track in-flight requests
 
@@ -56,7 +58,7 @@ defmodule HTTPower.Dedup do
   require Logger
 
   # Compile-time config caching for performance (avoids repeated Application.get_env calls)
-  @default_config Application.compile_env(:httpower, :deduplication, [])
+  @default_config Application.compile_env(:httpower, :deduplicate, [])
 
   @completed_ttl 500
 
@@ -67,6 +69,79 @@ defmodule HTTPower.Dedup do
   """
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+  end
+
+  @doc """
+  Feature callback for the HTTPower pipeline.
+
+  Checks for duplicate requests and either executes, waits, or returns cached response.
+
+  Returns:
+  - `{:ok, request}` with dedup info stored in private (first occurrence)
+  - `{:halt, response}` if cached response available (short-circuit)
+  - Waits and returns `{:halt, response}` for duplicate in-flight requests
+
+  ## Examples
+
+      iex> request = %HTTPower.Request{method: :post, url: "https://api.example.com/charge", body: "..."}
+      iex> HTTPower.Dedup.handle_request(request, [enabled: true])
+      {:ok, modified_request}
+  """
+  @impl HTTPower.Feature
+  def handle_request(request, config) do
+    if deduplication_enabled?(config) do
+      dedup_hash = extract_dedup_hash(request, config)
+
+      case deduplicate(dedup_hash, config) do
+        {:ok, :execute} ->
+          :telemetry.execute(
+            [:httpower, :dedup, :execute],
+            %{},
+            %{dedup_key: dedup_hash}
+          )
+
+          modified_request = HTTPower.Request.put_private(request, :dedup, {dedup_hash, config})
+          {:ok, modified_request}
+
+        {:ok, :wait, ref} ->
+          receive do
+            {:dedup_response, ^ref, response} ->
+              :telemetry.execute(
+                [:httpower, :dedup, :wait],
+                %{wait_time_ms: 0},
+                %{dedup_key: dedup_hash}
+              )
+
+              {:halt, response}
+          after
+            30_000 ->
+              {:error,
+               %HTTPower.Error{reason: :dedup_timeout, message: "Request deduplication timeout"}}
+          end
+
+        {:ok, cached_response} ->
+          :telemetry.execute(
+            [:httpower, :dedup, :cache_hit],
+            %{},
+            %{dedup_key: dedup_hash}
+          )
+
+          {:halt, cached_response}
+
+        {:error, reason} ->
+          {:error,
+           %HTTPower.Error{reason: reason, message: "Deduplication error: #{inspect(reason)}"}}
+      end
+    else
+      :ok
+    end
+  end
+
+  defp extract_dedup_hash(request, config) do
+    case Keyword.get(config, :key) do
+      nil -> hash(request.method, URI.to_string(request.url), request.body)
+      custom_key -> custom_key
+    end
   end
 
   @doc """
@@ -174,20 +249,17 @@ defmodule HTTPower.Dedup do
   def handle_call({:deduplicate, hash, caller_pid}, _from, state) do
     case :ets.lookup(state.table, hash) do
       [] ->
-        # First request - mark as in-flight
         ref = make_ref()
         :ets.insert(state.table, {hash, {:in_flight, []}, ref, timestamp()})
         {:reply, {:ok, :execute}, state}
 
       [{^hash, {:in_flight, waiters}, ref, _ts}] ->
-        # Request already in-flight - add to waiters
         # Monitor the waiter to detect if it dies/times out
         Process.monitor(caller_pid)
         :ets.update_element(state.table, hash, {2, {:in_flight, [caller_pid | waiters]}})
         {:reply, {:ok, :wait, ref}, state}
 
       [{^hash, {:completed, response}, _ref, _ts}] ->
-        # Request just completed - return cached response
         {:reply, {:ok, response}, state}
     end
   end
@@ -196,7 +268,6 @@ defmodule HTTPower.Dedup do
   def handle_cast({:complete, hash, response}, state) do
     case :ets.lookup(state.table, hash) do
       [{^hash, {:in_flight, waiters}, ref, _ts}] ->
-        # Notify all waiting processes
         Enum.each(waiters, fn pid ->
           send(pid, {:dedup_response, ref, response})
         end)
@@ -205,7 +276,6 @@ defmodule HTTPower.Dedup do
         :ets.insert(state.table, {hash, {:completed, response}, ref, timestamp()})
 
       _ ->
-        # No in-flight request found, ignore
         :ok
     end
 
@@ -214,14 +284,12 @@ defmodule HTTPower.Dedup do
 
   @impl true
   def handle_cast({:cancel, hash}, state) do
-    # Remove in-flight request on error/timeout
     :ets.delete(state.table, hash)
     {:noreply, state}
   end
 
   @impl true
   def handle_info({:DOWN, _ref, :process, pid, _reason}, state) do
-    # Remove dead waiter from all in-flight requests
     # This prevents memory leaks when waiters timeout or crash
     :ets.foldl(
       fn
@@ -234,7 +302,6 @@ defmodule HTTPower.Dedup do
 
           acc
 
-        # Ignore completed requests
         _other, acc ->
           acc
       end,
@@ -250,7 +317,6 @@ defmodule HTTPower.Dedup do
     now = timestamp()
     completed_cutoff = now - @completed_ttl
 
-    # Remove completed requests older than completed TTL
     :ets.select_delete(state.table, [
       {
         {:"$1", {:completed, :"$2"}, :"$3", :"$4"},
@@ -259,7 +325,6 @@ defmodule HTTPower.Dedup do
       }
     ])
 
-    # Schedule next cleanup
     schedule_cleanup()
 
     {:noreply, state}
@@ -272,7 +337,6 @@ defmodule HTTPower.Dedup do
   end
 
   defp schedule_cleanup do
-    # Run cleanup every second
     Process.send_after(self(), :cleanup, 1_000)
   end
 
