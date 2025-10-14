@@ -79,24 +79,30 @@ defmodule HTTPower.Request do
   ## Examples
 
       iex> uri = URI.parse("https://api.example.com")
-      iex> HTTPower.Request.new(:get, uri)
-      %HTTPower.Request{
-        method: :get,
-        url: %URI{scheme: "https", host: "api.example.com", ...},
-        body: nil,
-        headers: %{},
-        opts: [],
-        private: %{}
-      }
+      iex> request = HTTPower.Request.new(:get, uri)
+      iex> request.method
+      :get
+      iex> request.url.scheme
+      "https"
+      iex> request.url.host
+      "api.example.com"
+      iex> request.body
+      nil
+      iex> request.headers
+      %{}
+      iex> request.opts
+      []
+      iex> request.private
+      %{}
 
       iex> uri = URI.parse("https://api.example.com")
-      iex> HTTPower.Request.new(:post, uri, "data", %{"content-type" => "text/plain"})
-      %HTTPower.Request{
-        method: :post,
-        url: %URI{scheme: "https", host: "api.example.com", ...},
-        body: "data",
-        headers: %{"content-type" => "text/plain"}
-      }
+      iex> request = HTTPower.Request.new(:post, uri, "data", %{"content-type" => "text/plain"})
+      iex> request.method
+      :post
+      iex> request.body
+      "data"
+      iex> request.headers
+      %{"content-type" => "text/plain"}
   """
   @spec new(atom(), URI.t(), term(), map(), keyword()) :: t()
   def new(method, %URI{} = url, body \\ nil, headers \\ %{}, opts \\ []) do
@@ -115,7 +121,8 @@ defmodule HTTPower.Request do
 
   ## Examples
 
-      iex> request = HTTPower.Request.new(:get, "https://example.com")
+      iex> uri = URI.parse("https://example.com")
+      iex> request = HTTPower.Request.new(:get, uri)
       iex> request = HTTPower.Request.put_private(request, :my_key, "my_value")
       iex> request.private
       %{my_key: "my_value"}
@@ -133,16 +140,19 @@ defmodule HTTPower.Request do
 
   ## Examples
 
-      iex> request = HTTPower.Request.new(:get, "https://example.com")
+      iex> uri = URI.parse("https://example.com")
+      iex> request = HTTPower.Request.new(:get, uri)
       iex> request = HTTPower.Request.put_private(request, :my_key, "my_value")
       iex> HTTPower.Request.get_private(request, :my_key)
       "my_value"
 
-      iex> request = HTTPower.Request.new(:get, "https://example.com")
+      iex> uri = URI.parse("https://example.com")
+      iex> request = HTTPower.Request.new(:get, uri)
       iex> HTTPower.Request.get_private(request, :missing_key)
       nil
 
-      iex> request = HTTPower.Request.new(:get, "https://example.com")
+      iex> uri = URI.parse("https://example.com")
+      iex> request = HTTPower.Request.new(:get, uri)
       iex> HTTPower.Request.get_private(request, :missing_key, "default")
       "default"
   """
@@ -158,12 +168,14 @@ defmodule HTTPower.Request do
 
   ## Examples
 
-      iex> request = HTTPower.Request.new(:get, "https://example.com", nil, %{"accept" => "application/json"})
+      iex> uri = URI.parse("https://example.com")
+      iex> request = HTTPower.Request.new(:get, uri, nil, %{"accept" => "application/json"})
       iex> request = HTTPower.Request.merge_headers(request, %{"authorization" => "Bearer token"})
       iex> request.headers
       %{"accept" => "application/json", "authorization" => "Bearer token"}
 
-      iex> request = HTTPower.Request.new(:get, "https://example.com", nil, %{"accept" => "application/json"})
+      iex> uri = URI.parse("https://example.com")
+      iex> request = HTTPower.Request.new(:get, uri, nil, %{"accept" => "application/json"})
       iex> request = HTTPower.Request.merge_headers(request, %{"accept" => "application/xml"})
       iex> request.headers
       %{"accept" => "application/xml"}
@@ -179,7 +191,8 @@ defmodule HTTPower.Request do
 
   ## Examples
 
-      iex> request = HTTPower.Request.new(:get, "https://example.com")
+      iex> uri = URI.parse("https://example.com")
+      iex> request = HTTPower.Request.new(:get, uri)
       iex> request = HTTPower.Request.put_header(request, "authorization", "Bearer token")
       iex> request.headers
       %{"authorization" => "Bearer token"}
@@ -197,15 +210,18 @@ defmodule HTTPower.Request do
 
   ## Examples
 
-      iex> request = HTTPower.Request.new(:get, "https://example.com", nil, %{"accept" => "application/json"})
+      iex> uri = URI.parse("https://example.com")
+      iex> request = HTTPower.Request.new(:get, uri, nil, %{"accept" => "application/json"})
       iex> HTTPower.Request.get_header(request, "accept")
       "application/json"
 
-      iex> request = HTTPower.Request.new(:get, "https://example.com")
+      iex> uri = URI.parse("https://example.com")
+      iex> request = HTTPower.Request.new(:get, uri)
       iex> HTTPower.Request.get_header(request, "missing")
       nil
 
-      iex> request = HTTPower.Request.new(:get, "https://example.com")
+      iex> uri = URI.parse("https://example.com")
+      iex> request = HTTPower.Request.new(:get, uri)
       iex> HTTPower.Request.get_header(request, "missing", "default")
       "default"
   """
