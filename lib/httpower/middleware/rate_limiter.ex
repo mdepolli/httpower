@@ -24,7 +24,7 @@ defmodule HTTPower.Middleware.RateLimiter do
         per: :second,               # Time window: :second, :minute, :hour
         strategy: :wait,            # Strategy: :wait or :error
         max_wait_time: 5000,        # Max wait time in ms (default: 5000)
-        adaptive: true              # Adjust rate based on circuit breaker health (default: false)
+        adaptive: true              # Adjust rate based on circuit breaker health (default: true)
 
   ## Usage
 
@@ -503,8 +503,8 @@ defmodule HTTPower.Middleware.RateLimiter do
 
   # Adaptive rate limiting based on circuit breaker health
   defp maybe_adjust_rate_for_circuit_state(config, request) do
-    # Only adjust if adaptive mode is enabled
-    if Keyword.get(config, :adaptive, false) do
+    # Only adjust if adaptive mode is enabled (default: true)
+    if Keyword.get(config, :adaptive, true) do
       circuit_key = Keyword.get(config, :circuit_breaker_key) || request.url.host
 
       # Query circuit breaker state (read-only, loose coupling)
