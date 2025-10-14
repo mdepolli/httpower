@@ -316,7 +316,6 @@ defmodule HTTPower.Client do
     end
   end
 
-
   # Adapter Management
 
   defp get_adapter(opts) do
