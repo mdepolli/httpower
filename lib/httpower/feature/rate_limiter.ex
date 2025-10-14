@@ -1,4 +1,4 @@
-defmodule HTTPower.RateLimiter do
+defmodule HTTPower.Feature.RateLimiter do
   @behaviour HTTPower.Feature
 
   @moduledoc """

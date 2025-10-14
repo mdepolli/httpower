@@ -17,7 +17,7 @@ defmodule HTTPower.Client do
 
   require Logger
   alias HTTPower.{Error, Request, Response}
-  alias HTTPower.{CircuitBreaker, Dedup}
+  alias HTTPower.Feature.{CircuitBreaker, Dedup}
 
   # Compile-time config caching for performance (avoids repeated Application.get_env calls)
   # Note: test_mode MUST be runtime to allow tests to enable it dynamically
@@ -37,9 +37,9 @@ defmodule HTTPower.Client do
   # - key: Used for both Application config AND request opts (e.g., :rate_limit, :deduplicate)
   # Features are only included in the pipeline if enabled: true in config
   @available_features [
-    {HTTPower.RateLimiter, :rate_limit},
-    {HTTPower.CircuitBreaker, :circuit_breaker},
-    {HTTPower.Dedup, :deduplicate}
+    {HTTPower.Feature.RateLimiter, :rate_limit},
+    {HTTPower.Feature.CircuitBreaker, :circuit_breaker},
+    {HTTPower.Feature.Dedup, :deduplicate}
   ]
 
   # Build request pipeline at compile-time based on enabled features

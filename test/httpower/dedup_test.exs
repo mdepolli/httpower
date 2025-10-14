@@ -1,6 +1,6 @@
-defmodule HTTPower.DedupTest do
+defmodule HTTPower.Feature.DedupTest do
   @moduledoc """
-  Tests for HTTPower.Dedup module.
+  Tests for HTTPower.Feature.Dedup module.
 
   Tests cover:
   - Hash generation from request parameters
@@ -11,7 +11,7 @@ defmodule HTTPower.DedupTest do
   """
 
   use ExUnit.Case, async: true
-  alias HTTPower.Dedup
+  alias HTTPower.Feature.Dedup
 
   setup do
     # Request deduplicator starts with Application
@@ -286,7 +286,7 @@ defmodule HTTPower.DedupTest do
       assert {:ok, :execute} = Dedup.deduplicate(hash, enabled: true)
 
       # Get GenServer pid and kill it
-      pid = Process.whereis(HTTPower.Dedup)
+      pid = Process.whereis(HTTPower.Feature.Dedup)
       ref = Process.monitor(pid)
       Process.exit(pid, :kill)
 
@@ -305,7 +305,7 @@ defmodule HTTPower.DedupTest do
       assert {:ok, :execute} = Dedup.deduplicate(hash2, enabled: true)
 
       # New GenServer should be running
-      new_pid = Process.whereis(HTTPower.Dedup)
+      new_pid = Process.whereis(HTTPower.Feature.Dedup)
       assert new_pid != nil
       assert new_pid != pid
     end

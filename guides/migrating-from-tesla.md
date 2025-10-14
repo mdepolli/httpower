@@ -447,7 +447,7 @@ HTTPower adds ~1-5ms overhead for the reliability layer. The trade-off is worth 
 Yes:
 
 ```elixir
-HTTPower.CircuitBreaker.get_state("my_api")
+HTTPower.Feature.CircuitBreaker.get_state("my_api")
 # Returns: :closed | :open | :half_open | nil
 ```
 
@@ -464,7 +464,7 @@ HTTPower.CircuitBreaker.get_state("my_api")
 4. Add logging to see what's happening:
    ```elixir
    require Logger
-   Logger.info("Circuit state: #{inspect(HTTPower.CircuitBreaker.get_state("my_key"))}")
+   Logger.info("Circuit state: #{inspect(HTTPower.Feature.CircuitBreaker.get_state("my_key"))}")
    ```
 
 ### Issue: Rate limiting too aggressive

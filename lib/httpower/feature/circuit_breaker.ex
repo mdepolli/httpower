@@ -1,4 +1,4 @@
-defmodule HTTPower.CircuitBreaker do
+defmodule HTTPower.Feature.CircuitBreaker do
   @behaviour HTTPower.Feature
 
   @moduledoc """

@@ -465,10 +465,10 @@ headers = %{
 # => %{limit: 60, remaining: 42, reset_at: ~U[2009-02-13 23:31:30Z], format: :github}
 
 # Update rate limiter bucket from server headers
-HTTPower.RateLimiter.update_from_headers("api.github.com", rate_limit_info)
+HTTPower.Feature.RateLimiter.update_from_headers("api.github.com", rate_limit_info)
 
 # Get current bucket information
-HTTPower.RateLimiter.get_info("api.github.com")
+HTTPower.Feature.RateLimiter.get_info("api.github.com")
 # => %{current_tokens: 42.0, last_refill_ms: 1234567890}
 ```
 
@@ -599,16 +599,16 @@ config :httpower, :circuit_breaker,
 
 ```elixir
 # Manually open a circuit
-HTTPower.CircuitBreaker.open_circuit("payment_api")
+HTTPower.Feature.CircuitBreaker.open_circuit("payment_api")
 
 # Manually close a circuit
-HTTPower.CircuitBreaker.close_circuit("payment_api")
+HTTPower.Feature.CircuitBreaker.close_circuit("payment_api")
 
 # Reset a circuit completely
-HTTPower.CircuitBreaker.reset_circuit("payment_api")
+HTTPower.Feature.CircuitBreaker.reset_circuit("payment_api")
 
 # Check circuit state
-HTTPower.CircuitBreaker.get_state("payment_api")
+HTTPower.Feature.CircuitBreaker.get_state("payment_api")
 # Returns: :closed | :open | :half_open | nil
 ```
 

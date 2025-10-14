@@ -1,7 +1,7 @@
-defmodule HTTPower.RateLimiterTest do
+defmodule HTTPower.Feature.RateLimiterTest do
   use ExUnit.Case, async: false
 
-  alias HTTPower.RateLimiter
+  alias HTTPower.Feature.RateLimiter
   alias HTTPower.RateLimitHeaders
 
   setup do
@@ -492,7 +492,7 @@ defmodule HTTPower.RateLimiterTest do
       assert :ok = RateLimiter.consume("crash_test", config)
 
       # Get GenServer pid and kill it
-      pid = Process.whereis(HTTPower.RateLimiter)
+      pid = Process.whereis(HTTPower.Feature.RateLimiter)
       ref = Process.monitor(pid)
       Process.exit(pid, :kill)
 
@@ -510,7 +510,7 @@ defmodule HTTPower.RateLimiterTest do
       assert :ok = RateLimiter.consume("crash_test", config)
 
       # New GenServer should be running
-      new_pid = Process.whereis(HTTPower.RateLimiter)
+      new_pid = Process.whereis(HTTPower.Feature.RateLimiter)
       assert new_pid != nil
       assert new_pid != pid
     end
