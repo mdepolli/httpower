@@ -1,5 +1,5 @@
-defmodule HTTPower.Feature.Dedup do
-  @behaviour HTTPower.Feature
+defmodule HTTPower.Middleware.Dedup do
+  @behaviour HTTPower.Middleware
 
   @moduledoc """
   In-flight request deduplication to prevent duplicate operations.
@@ -87,7 +87,7 @@ defmodule HTTPower.Feature.Dedup do
       iex> HTTPower.Dedup.handle_request(request, [enabled: true])
       {:ok, modified_request}
   """
-  @impl HTTPower.Feature
+  @impl HTTPower.Middleware
   def handle_request(request, config) do
     if deduplication_enabled?(config) do
       dedup_hash = extract_dedup_hash(request, config)

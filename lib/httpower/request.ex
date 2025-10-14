@@ -41,7 +41,7 @@ defmodule HTTPower.Request do
   Request structs in your `handle_request/2` callback:
 
       defmodule MyFeature do
-        @behaviour HTTPower.Feature
+        @behaviour HTTPower.Middleware
 
         def handle_request(request, _config) do
           # Modify the request

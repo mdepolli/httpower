@@ -1,5 +1,5 @@
-defmodule HTTPower.Feature.CircuitBreaker do
-  @behaviour HTTPower.Feature
+defmodule HTTPower.Middleware.CircuitBreaker do
+  @behaviour HTTPower.Middleware
 
   @moduledoc """
   Circuit breaker implementation for HTTPower.
@@ -133,7 +133,7 @@ defmodule HTTPower.Feature.CircuitBreaker do
       iex> HTTPower.CircuitBreaker.handle_request(request, [failure_threshold: 5])
       {:ok, modified_request}
   """
-  @impl HTTPower.Feature
+  @impl HTTPower.Middleware
   def handle_request(request, config) do
     # Config is already merged by Client (runtime + compile-time)
     if circuit_breaker_enabled?(config) do

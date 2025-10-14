@@ -1,7 +1,7 @@
-defmodule HTTPower.Feature.CircuitBreakerTest do
+defmodule HTTPower.Middleware.CircuitBreakerTest do
   use ExUnit.Case, async: false
 
-  alias HTTPower.Feature.CircuitBreaker
+  alias HTTPower.Middleware.CircuitBreaker
 
   # Helper function to wait for async state changes (cast-based recording)
   defp await_state(circuit_key, expected_state, timeout \\ 100) do
@@ -552,7 +552,7 @@ defmodule HTTPower.Feature.CircuitBreakerTest do
       assert await_state("crash_test", :closed) == :closed
 
       # Get GenServer pid and kill it
-      pid = Process.whereis(HTTPower.Feature.CircuitBreaker)
+      pid = Process.whereis(HTTPower.Middleware.CircuitBreaker)
       ref = Process.monitor(pid)
       Process.exit(pid, :kill)
 
@@ -571,7 +571,7 @@ defmodule HTTPower.Feature.CircuitBreakerTest do
       assert result == {:ok, :recovered}
 
       # New GenServer should be running
-      new_pid = Process.whereis(HTTPower.Feature.CircuitBreaker)
+      new_pid = Process.whereis(HTTPower.Middleware.CircuitBreaker)
       assert new_pid != nil
       assert new_pid != pid
     end

@@ -1,17 +1,17 @@
-defmodule HTTPower.Feature do
+defmodule HTTPower.Middleware do
   @moduledoc """
-  Behaviour for HTTPower pipeline features.
+  Behaviour for HTTPower pipeline middleware.
 
-  Features are composable, reusable components that process HTTP requests
-  in a pipeline. Each feature can inspect, modify, short-circuit, or fail
+  Middleware are composable, reusable components that process HTTP requests
+  in a pipeline. Each middleware can inspect, modify, short-circuit, or fail
   a request as it flows through the pipeline.
 
-  ## Implementing a Feature
+  ## Implementing Middleware
 
-  To implement a feature, create a module that implements this behaviour:
+  To implement middleware, create a module that implements this behaviour:
 
       defmodule MyApp.CustomAuth do
-        @behaviour HTTPower.Feature
+        @behaviour HTTPower.Middleware
 
         @impl true
         def handle_request(request, config) do
@@ -23,9 +23,9 @@ defmodule HTTPower.Feature do
 
   ## Return Values
 
-  Feature callbacks must return one of:
+  Middleware callbacks must return one of:
 
-  - `:ok` - Continue to next feature with request unchanged
+  - `:ok` - Continue to next middleware with request unchanged
   - `{:ok, modified_request}` - Continue with modified request
   - `{:halt, response}` - Short-circuit pipeline and return response immediately
   - `{:error, reason}` - Fail the request with error
@@ -60,19 +60,19 @@ defmodule HTTPower.Feature do
         end
       end
 
-  ## Feature Communication
+  ## Middleware Communication
 
-  Features can communicate with each other through the `request.private` map:
+  Middleware can communicate with each other through the `request.private` map:
 
-      # Store data for later features or post-request processing
+      # Store data for later middleware or post-request processing
       def handle_request(request, config) do
-        private = Map.put(request.private, :my_feature_data, %{...})
+        private = Map.put(request.private, :my_middleware_data, %{...})
         {:ok, %{request | private: private}}
       end
 
-      # Read data stored by previous feature
+      # Read data stored by previous middleware
       def handle_request(request, config) do
-        case Map.get(request.private, :my_feature_data) do
+        case Map.get(request.private, :my_middleware_data) do
           nil -> :ok
           data -> process_data(data)
         end
@@ -80,11 +80,11 @@ defmodule HTTPower.Feature do
 
   ## Configuration
 
-  Features are configured at compile-time in `config.exs`:
+  Middleware are configured at compile-time in `config.exs`:
 
       config :httpower,
-        my_feature: [
-          enabled: true,  # Feature only runs if enabled
+        my_middleware: [
+          enabled: true,  # Middleware only runs if enabled
           option1: "value",
           option2: 123
         ]
@@ -93,17 +93,17 @@ defmodule HTTPower.Feature do
 
   ## Performance
 
-  Features are only called if they are enabled in configuration. Disabled
-  features have zero runtime overhead - they are not included in the compiled
+  Middleware are only called if they are enabled in configuration. Disabled
+  middleware have zero runtime overhead - they are not included in the compiled
   pipeline at all.
 
-  ## Built-in Features
+  ## Built-in Middleware
 
-  HTTPower includes these built-in features:
+  HTTPower includes these built-in middleware:
 
-  - `HTTPower.Feature.RateLimiter` - Token bucket rate limiting
-  - `HTTPower.Feature.CircuitBreaker` - Circuit breaker pattern
-  - `HTTPower.Feature.Dedup` - Request deduplication
+  - `HTTPower.Middleware.RateLimiter` - Token bucket rate limiting
+  - `HTTPower.Middleware.CircuitBreaker` - Circuit breaker pattern
+  - `HTTPower.Middleware.Dedup` - Request deduplication
 
   See individual module documentation for details.
   """
@@ -113,13 +113,13 @@ defmodule HTTPower.Feature do
   @doc """
   Handles a request in the pipeline.
 
-  Receives the request and feature configuration, returns whether to
+  Receives the request and middleware configuration, returns whether to
   continue, modify, halt, or error.
 
   ## Parameters
 
   - `request` - The request struct (see `HTTPower.Request`)
-  - `config` - Feature configuration from `config.exs`
+  - `config` - Middleware configuration from `config.exs`
 
   ## Return Values
 

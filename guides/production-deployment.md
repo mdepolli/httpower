@@ -6,8 +6,8 @@ This guide covers deploying HTTPower in production environments with proper conf
 
 HTTPower starts a supervision tree automatically when added to your application. The supervision tree manages two GenServers:
 
-- `HTTPower.Feature.RateLimiter` - Manages rate limiting state in ETS
-- `HTTPower.Feature.CircuitBreaker` - Manages circuit breaker state in ETS
+- `HTTPower.Middleware.RateLimiter` - Manages rate limiting state in ETS
+- `HTTPower.Middleware.CircuitBreaker` - Manages circuit breaker state in ETS
 
 ### Automatic Startup
 
@@ -45,8 +45,8 @@ end
 ```
 YourApp.Supervisor
 ├── HTTPower.Supervisor (one_for_one strategy)
-│   ├── HTTPower.Feature.RateLimiter (GenServer with ETS)
-│   └── HTTPower.Feature.CircuitBreaker (GenServer with ETS)
+│   ├── HTTPower.Middleware.RateLimiter (GenServer with ETS)
+│   └── HTTPower.Middleware.CircuitBreaker (GenServer with ETS)
 └── Your other children...
 ```
 
@@ -58,17 +58,17 @@ Check that HTTPower's processes are running:
 
 ```elixir
 # In IEx
-iex> Process.whereis(HTTPower.Feature.RateLimiter)
+iex> Process.whereis(HTTPower.Middleware.RateLimiter)
 #PID<0.234.0>
 
-iex> Process.whereis(HTTPower.Feature.CircuitBreaker)
+iex> Process.whereis(HTTPower.Middleware.CircuitBreaker)
 #PID<0.235.0>
 
 # Check supervisor
 iex> Supervisor.which_children(HTTPower.Supervisor)
 [
-  {HTTPower.Feature.CircuitBreaker, #PID<0.235.0>, :worker, [HTTPower.Feature.CircuitBreaker]},
-  {HTTPower.Feature.RateLimiter, #PID<0.234.0>, :worker, [HTTPower.Feature.RateLimiter]}
+  {HTTPower.Middleware.CircuitBreaker, #PID<0.235.0>, :worker, [HTTPower.Middleware.CircuitBreaker]},
+  {HTTPower.Middleware.RateLimiter, #PID<0.234.0>, :worker, [HTTPower.Middleware.RateLimiter]}
 ]
 ```
 
@@ -186,7 +186,7 @@ defmodule MyApp.CircuitBreakerMonitor do
     circuits = ["payment_api", "user_service", "order_service"]
 
     Enum.each(circuits, fn circuit_key ->
-      state = HTTPower.Feature.CircuitBreaker.get_state(circuit_key)
+      state = HTTPower.Middleware.CircuitBreaker.get_state(circuit_key)
 
       case state do
         :open -> Logger.warning("Circuit OPEN: #{circuit_key}")
@@ -471,7 +471,7 @@ end
 **Debug:**
 ```elixir
 # Check current state
-HTTPower.Feature.CircuitBreaker.get_state("my_service")
+HTTPower.Middleware.CircuitBreaker.get_state("my_service")
 
 # Temporarily disable to test
 config :httpower, circuit_breaker: [enabled: false]
