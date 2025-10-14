@@ -67,7 +67,7 @@ Add `httpower` and at least one HTTP client adapter to your dependencies in `mix
 ```elixir
 def deps do
   [
-    {:httpower, "~> 0.12.0"},
+    {:httpower, "~> 0.13.0"},
 
     # Choose at least one adapter:
     {:finch, "~> 0.20"},       # Recommended - high performance
@@ -253,6 +253,7 @@ httpower_method:post
 ```
 
 **Available metadata:**
+
 - `httpower_correlation_id` - Unique request identifier
 - `httpower_event` - Event type (`:request`, `:response`, `:exception`)
 - `httpower_method` - HTTP method (`:get`, `:post`, etc.)
@@ -473,6 +474,7 @@ HTTPower.Middleware.RateLimiter.get_info("api.github.com")
 ```
 
 Supported header formats:
+
 - **GitHub/Twitter**: `X-RateLimit-*` headers
 - **RFC 6585/IETF**: `RateLimit-*` headers
 - **Stripe**: `X-Stripe-RateLimit-*` headers
@@ -748,6 +750,7 @@ HTTPower.post("https://api.example.com/charge",
 ### Use Cases
 
 **Prevent Double-Clicks**
+
 ```elixir
 def process_payment(user_id, amount) do
   # Even if user clicks "Pay" button multiple times,
@@ -760,6 +763,7 @@ end
 ```
 
 **Prevent Race Conditions**
+
 ```elixir
 # Multiple processes trying to create the same resource
 # Only one request executes, others wait and share the response
@@ -775,12 +779,14 @@ end)
 ### Deduplication vs Idempotency Keys
 
 **Request Deduplication (Client-Side)**
+
 - Prevents duplicate requests from leaving the client
 - Works with any API
 - Scope: Single HTTPower instance
 - Duration: Very short (seconds)
 
 **Idempotency Keys (Server-Side)**
+
 - Server prevents duplicate processing
 - Requires API support
 - Scope: Cross-instance, persistent
@@ -801,6 +807,7 @@ HTTPower.post("/charge",
 ```
 
 **Defense in Depth:**
+
 - **Client deduplication** = First line of defense (no network call)
 - **Idempotency key** = Second line of defense (server deduplication)
 
@@ -828,23 +835,28 @@ HTTPower emits comprehensive telemetry events using Elixir's `:telemetry` librar
 ### Available Events
 
 **HTTP Request Lifecycle:**
+
 - `[:httpower, :request, :start]` - Request begins
 - `[:httpower, :request, :stop]` - Request completes (includes duration, status, retry_count)
 - `[:httpower, :request, :exception]` - Unhandled exception
 
 **Retry Events:**
+
 - `[:httpower, :retry, :attempt]` - Retry attempt (includes attempt_number, delay_ms, reason)
 
 **Rate Limiter:**
+
 - `[:httpower, :rate_limit, :ok]` - Request allowed
 - `[:httpower, :rate_limit, :wait]` - Waiting for tokens
 - `[:httpower, :rate_limit, :exceeded]` - Rate limit exceeded
 
 **Circuit Breaker:**
+
 - `[:httpower, :circuit_breaker, :state_change]` - State transition (includes from_state, to_state, failure_count)
 - `[:httpower, :circuit_breaker, :open]` - Request blocked by open circuit
 
 **Deduplication:**
+
 - `[:httpower, :dedup, :execute]` - First request executes
 - `[:httpower, :dedup, :wait]` - Duplicate waits for in-flight request
 - `[:httpower, :dedup, :cache_hit]` - Returns cached response
@@ -852,6 +864,7 @@ HTTPower emits comprehensive telemetry events using Elixir's `:telemetry` librar
 ### Integration Examples
 
 **Prometheus Metrics:**
+
 ```elixir
 # Using telemetry_metrics_prometheus
 distribution(
@@ -864,12 +877,14 @@ distribution(
 ```
 
 **OpenTelemetry:**
+
 ```elixir
 # Using opentelemetry_telemetry
 OpentelemetryTelemetry.register_application_tracer(:httpower)
 ```
 
 **Custom Logging:**
+
 ```elixir
 :telemetry.attach(
   "httpower-logger",
