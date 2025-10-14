@@ -1,5 +1,5 @@
-defmodule HTTPower.Feature.RateLimiter do
-  @behaviour HTTPower.Feature
+defmodule HTTPower.Middleware.RateLimiter do
+  @behaviour HTTPower.Middleware
 
   @moduledoc """
   Token bucket rate limiter for HTTPower.
@@ -106,7 +106,7 @@ defmodule HTTPower.Feature.RateLimiter do
       iex> HTTPower.RateLimiter.handle_request(request, [requests: 100, per: :minute])
       :ok
   """
-  @impl HTTPower.Feature
+  @impl HTTPower.Middleware
   def handle_request(request, config) do
     # Config is already merged by Client (runtime + compile-time)
     if rate_limiting_enabled?(config) do

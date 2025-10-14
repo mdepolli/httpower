@@ -17,7 +17,7 @@ defmodule HTTPower.Client do
 
   require Logger
   alias HTTPower.{Error, Request, Response}
-  alias HTTPower.Feature.{CircuitBreaker, Dedup}
+  alias HTTPower.Middleware.{CircuitBreaker, Dedup}
 
   # Compile-time config caching for performance (avoids repeated Application.get_env calls)
   # Note: test_mode MUST be runtime to allow tests to enable it dynamically
@@ -31,18 +31,18 @@ defmodule HTTPower.Client do
 
   @retryable_status_codes [408, 429, 500, 502, 503, 504]
 
-  # Feature Registry - Define all available features
+  # Middleware Registry - Define all available middleware
   # Each entry: {module, key}
-  # - module: The feature module implementing HTTPower.Feature
+  # - module: The middleware module implementing HTTPower.Middleware
   # - key: Used for both Application config AND request opts (e.g., :rate_limit, :deduplicate)
-  # Features are only included in the pipeline if enabled: true in config
+  # Middleware are only included in the pipeline if enabled: true in config
   @available_features [
-    {HTTPower.Feature.RateLimiter, :rate_limit},
-    {HTTPower.Feature.CircuitBreaker, :circuit_breaker},
-    {HTTPower.Feature.Dedup, :deduplicate}
+    {HTTPower.Middleware.RateLimiter, :rate_limit},
+    {HTTPower.Middleware.CircuitBreaker, :circuit_breaker},
+    {HTTPower.Middleware.Dedup, :deduplicate}
   ]
 
-  # Build request pipeline at compile-time based on enabled features
+  # Build request pipeline at compile-time based on enabled middleware
   # Inline pipeline building logic to work with module attributes
   @default_request_steps @available_features
                          |> Enum.reduce([], fn {module, key}, acc ->
@@ -268,7 +268,7 @@ defmodule HTTPower.Client do
   defp run_request_steps(request, []), do: {:ok, request}
 
   @doc false
-  # Generic step execution - works for ANY feature
+  # Generic step execution - works for ANY middleware
   defp run_request_steps(request, [{module, option_key, compile_config} | rest]) do
     # Merge runtime config from request.opts (runtime takes precedence)
     runtime_config = extract_runtime_config(request.opts, option_key)
@@ -285,7 +285,7 @@ defmodule HTTPower.Client do
       {:error,
        %Error{
          reason: {:feature_error, module, error},
-         message: "Feature #{module} failed: #{inspect(error)}"
+         message: "Middleware #{module} failed: #{inspect(error)}"
        }}
   end
 
