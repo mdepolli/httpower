@@ -67,7 +67,7 @@ Add `httpower` and at least one HTTP client adapter to your dependencies in `mix
 ```elixir
 def deps do
   [
-    {:httpower, "~> 0.11.0"},
+    {:httpower, "~> 0.12.0"},
 
     # Choose at least one adapter:
     {:finch, "~> 0.20"},       # Recommended - high performance

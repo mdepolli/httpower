@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0] - 2025-10-13
+
 ### Added
 
 - **Finch adapter** - High-performance HTTP client built on Mint and NimblePool
@@ -27,6 +29,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - No breaking changes to existing code (auto-detection still works)
   - Updated error message to recommend Finch first
   - Updated README and documentation to reflect Finch as default
+- **Renamed Feature to Middleware for clearer semantics**
+  - `HTTPower.Feature` → `HTTPower.Middleware` (module namespace change)
+  - `lib/httpower/feature/` → `lib/httpower/middleware/` (directory reorganization)
+  - All middleware modules moved: `RateLimiter`, `CircuitBreaker`, `Dedup`
+  - Updated all references in code, tests, and documentation
+  - Industry-standard terminology (matches Phoenix/Plug, Express, Rails)
+  - Zero breaking changes to public API - internal refactoring only
 - **Logger tests updated to use Finch adapter**
   - Converted from `Req.Test` to `HTTPower.Test` (adapter-agnostic)
   - All 51 logger tests now test with Finch adapter
@@ -42,6 +51,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Configurable pools via `config :httpower, :finch_pools`
 - Test coverage excludes Finch adapter (tested via integration tests)
 - All production features work consistently across Finch, Req, and Tesla adapters
+- Middleware pattern provides clearer mental model for request/response pipeline
+- All 357 tests passing with zero compilation warnings
 
 ## [0.11.0] - 2025-10-13
 
@@ -589,7 +600,8 @@ OpentelemetryTelemetry.register_application_tracer(:httpower)
 - Production-ready error handling and logging
 - PCI DSS compliance considerations in design
 
-[unreleased]: https://github.com/mdepolli/httpower/compare/v0.11.0...HEAD
+[unreleased]: https://github.com/mdepolli/httpower/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/mdepolli/httpower/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/mdepolli/httpower/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/mdepolli/httpower/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/mdepolli/httpower/compare/v0.8.1...v0.9.0
