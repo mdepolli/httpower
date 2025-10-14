@@ -19,10 +19,11 @@ defmodule HTTPower.MixProject do
       test_coverage: [
         summary: [threshold: 75],
         ignore_modules: [
-          # Adapters are thin wrappers around Req/Tesla with minimal logic.
+          # Adapters are thin wrappers around Finch/Req/Tesla with minimal logic.
           # They're thoroughly tested via integration tests (see test/httpower/adapter/*_test.exs),
           # but HTTPower.Test intercepts requests before adapter code executes in unit tests,
           # resulting in low direct coverage metrics despite comprehensive testing.
+          HTTPower.Adapter.Finch,
           HTTPower.Adapter.Req,
           HTTPower.Adapter.Tesla
         ]
@@ -40,8 +41,11 @@ defmodule HTTPower.MixProject do
   defp deps do
     [
       # HTTP client adapters - at least one required
+      {:finch, "~> 0.20", optional: true},
       {:req, "~> 0.4.0", optional: true},
       {:tesla, "~> 1.11", optional: true},
+      # JSON encoding/decoding (required by Finch adapter for auto-decode)
+      {:jason, "~> 1.4"},
       # Development dependencies
       {:plug, "~> 1.15", only: :test},
       {:ex_doc, "~> 0.31", only: :dev, runtime: false}

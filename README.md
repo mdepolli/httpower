@@ -50,10 +50,11 @@ HTTPower is a production-ready HTTP client library for Elixir that provides bull
 
 HTTPower supports multiple HTTP clients through an adapter system:
 
-- **Req** (default) - Batteries-included HTTP client with automatic JSON handling
+- **Finch** (default) - High-performance HTTP client built on Mint with explicit connection pooling
+- **Req** - Batteries-included HTTP client with automatic JSON handling
 - **Tesla** - Flexible HTTP client with extensive middleware ecosystem
 
-HTTPower's production features (circuit breaker, rate limiting, PCI logging, smart retries) work consistently across both adapters. For existing Tesla applications, your middleware continues to work unchanged - HTTPower adds reliability on top.
+HTTPower's production features (circuit breaker, rate limiting, PCI logging, smart retries) work consistently across all adapters. For existing Tesla applications, your middleware continues to work unchanged - HTTPower adds reliability on top.
 
 See [Migrating from Tesla](guides/migrating-from-tesla.md) or [Migrating from Req](guides/migrating-from-req.md) for adapter-specific guidance.
 
@@ -66,17 +67,19 @@ Add `httpower` and at least one HTTP client adapter to your dependencies in `mix
 ```elixir
 def deps do
   [
-    {:httpower, "~> 0.10.0"},
+    {:httpower, "~> 0.11.0"},
 
     # Choose at least one adapter:
-    {:req, "~> 0.4.0"},        # Recommended for new projects
+    {:finch, "~> 0.20"},       # Recommended - high performance
+    # OR
+    {:req, "~> 0.4.0"},        # Batteries-included with auto-JSON
     # OR
     {:tesla, "~> 1.11"}        # If you already use Tesla
   ]
 end
 ```
 
-**Note:** HTTPower requires either Req or Tesla. If both are present, Req is used by default (can be overridden with the `adapter` option).
+**Note:** HTTPower requires at least one adapter (Finch, Req, or Tesla). If multiple are present, Finch is used by default (can be overridden with the `adapter` option).
 
 ### Basic Usage
 

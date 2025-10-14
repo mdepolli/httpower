@@ -3,7 +3,7 @@ defmodule HTTPower.Client do
   HTTPower client with adapter support and advanced features.
 
   This module provides:
-  - Adapter pattern supporting multiple HTTP clients (Req, Tesla)
+  - Adapter pattern supporting multiple HTTP clients (Finch, Req, Tesla)
   - Test mode request blocking
   - Smart retry logic with exponential backoff and jitter
   - Clean error handling (never raises exceptions)
@@ -467,6 +467,9 @@ defmodule HTTPower.Client do
 
   defp detect_adapter do
     cond do
+      Code.ensure_loaded?(HTTPower.Adapter.Finch) ->
+        HTTPower.Adapter.Finch
+
       Code.ensure_loaded?(HTTPower.Adapter.Req) ->
         HTTPower.Adapter.Req
 
@@ -482,9 +485,12 @@ defmodule HTTPower.Client do
     raise """
     HTTPower requires at least one HTTP client adapter.
 
-    Add one of the following to your mix.exs dependencies:
+    Add ONE of the following to your mix.exs dependencies:
 
-      # Recommended for new projects (batteries-included)
+      # Recommended for high performance (Mint-based)
+      {:finch, "~> 0.20"}
+
+      # Recommended for convenience (batteries-included)
       {:req, "~> 0.4.0"}
 
       # If you already use Tesla
@@ -494,7 +500,7 @@ defmodule HTTPower.Client do
       mix deps.get
 
     Alternatively, specify an adapter explicitly:
-      HTTPower.get(url, adapter: HTTPower.Adapter.Req)
+      HTTPower.get(url, adapter: HTTPower.Adapter.Finch)
     """
   end
 

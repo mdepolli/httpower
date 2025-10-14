@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Finch adapter** - High-performance HTTP client built on Mint and NimblePool
+  - `HTTPower.Adapter.Finch` - New adapter using Finch HTTP client
+  - Performance-focused with explicit connection pooling
+  - Built on Mint (same low-level library that powers Req)
+  - SSL/TLS support with configurable verification
+  - Proxy support (system or custom)
+  - Manual JSON decoding with Jason for flexibility
+  - Connection pool configuration via Application config
+  - Comprehensive test suite (357 tests passing)
+
+### Changed
+
+- **Finch is now the default adapter** (breaking change for adapter detection order)
+  - Adapter detection priority: Finch → Req → Tesla
+  - All adapters remain optional - users can choose what to install
+  - No breaking changes to existing code (auto-detection still works)
+  - Updated error message to recommend Finch first
+  - Updated README and documentation to reflect Finch as default
+- **Logger tests updated to use Finch adapter**
+  - Converted from `Req.Test` to `HTTPower.Test` (adapter-agnostic)
+  - All 51 logger tests now test with Finch adapter
+  - Tests demonstrate adapter-agnostic testing approach
+
+### Technical Details
+
+- Finch adapter handles both URI structs and strings
+- Header format conversion to match Req's format (map with list values)
+- Automatic JSON body parsing when response is valid JSON
+- Conditional supervision - Finch only started if loaded via `Code.ensure_loaded?/1`
+- Default pool configuration: 10 connections per pool, one pool per scheduler
+- Configurable pools via `config :httpower, :finch_pools`
+- Test coverage excludes Finch adapter (tested via integration tests)
+- All production features work consistently across Finch, Req, and Tesla adapters
+
 ## [0.11.0] - 2025-10-13
 
 ### Changed
