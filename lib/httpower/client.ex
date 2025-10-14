@@ -164,12 +164,24 @@ defmodule HTTPower.Client do
   defp get_request_function(%Request{} = request, pipeline) do
     fn ->
       result =
-        with pipeline_result <- run_request_steps(request, pipeline),
-             {:ok, final_request} <- handle_pipeline_result(pipeline_result),
-             {:ok, response} <- execute_http_with_retry(final_request) do
-          handle_post_request(final_request, {:ok, response})
-          {:ok, response}
-        else
+        case run_request_steps(request, pipeline) do
+          {:ok, %Request{} = final_request} ->
+            # Pipeline completed - execute HTTP request
+            case execute_http_with_retry(final_request) do
+              {:ok, response} ->
+                handle_post_request(final_request, {:ok, response})
+                {:ok, response}
+
+              {:error, _} = error ->
+                handle_post_request(final_request, error)
+                error
+            end
+
+          {:halt, %Response{} = response} ->
+            # Pipeline short-circuited (e.g., dedup cache hit, circuit breaker open)
+            # Response already finalized, no HTTP call needed
+            {:ok, response}
+
           {:error, %Error{}} = error ->
             error
 
@@ -224,14 +236,6 @@ defmodule HTTPower.Client do
     custom_steps = Keyword.get(opts, :request_steps, [])
     @default_request_steps ++ custom_steps
   end
-
-  # Handle pipeline result - unwrap short-circuits or continue
-  defp handle_pipeline_result({:ok, request}), do: {:ok, request}
-
-  # Feature short-circuited (e.g., dedup cache hit, circuit breaker open)
-  defp handle_pipeline_result({:halt, response}), do: {:ok, response}
-
-  defp handle_pipeline_result({:error, _} = error), do: error
 
   defp execute_http_with_retry(%Request{} = request) do
     execute_request_with_retry(
