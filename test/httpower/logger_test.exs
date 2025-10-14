@@ -9,6 +9,9 @@ defmodule HTTPower.LoggerTest do
   end
 
   setup do
+    # Setup HTTPower.Test for adapter-agnostic mocking
+    HTTPower.Test.setup()
+
     # Save original config
     original_config = Application.get_env(:httpower, :logging, [])
 
@@ -47,15 +50,15 @@ defmodule HTTPower.LoggerTest do
 
   describe "request logging via telemetry" do
     test "logs basic GET request" do
-      Req.Test.stub(HTTPower, fn conn ->
-        Req.Test.json(conn, %{data: "test"})
+      HTTPower.Test.stub(fn conn ->
+        HTTPower.Test.json(conn, %{data: "test"})
       end)
 
       HTTPowerLogger.attach()
 
       log =
         capture_log(fn ->
-          HTTPower.get("https://api.example.com/users", plug: {Req.Test, HTTPower})
+          HTTPower.get("https://api.example.com/users", adapter: HTTPower.Adapter.Finch)
         end)
 
       assert log =~ "[HTTPower]"
@@ -64,8 +67,8 @@ defmodule HTTPower.LoggerTest do
     end
 
     test "logs POST request with headers and body" do
-      Req.Test.stub(HTTPower, fn conn ->
-        Req.Test.json(conn, %{created: true})
+      HTTPower.Test.stub(fn conn ->
+        HTTPower.Test.json(conn, %{created: true})
       end)
 
       HTTPowerLogger.attach()
@@ -75,7 +78,7 @@ defmodule HTTPower.LoggerTest do
           HTTPower.post("https://api.example.com/users",
             headers: %{"Content-Type" => "application/json"},
             body: ~s({"name": "John"}),
-            plug: {Req.Test, HTTPower}
+            adapter: HTTPower.Adapter.Finch
           )
         end)
 
@@ -86,8 +89,8 @@ defmodule HTTPower.LoggerTest do
     end
 
     test "sanitizes Authorization header" do
-      Req.Test.stub(HTTPower, fn conn ->
-        Req.Test.json(conn, %{ok: true})
+      HTTPower.Test.stub(fn conn ->
+        HTTPower.Test.json(conn, %{ok: true})
       end)
 
       HTTPowerLogger.attach()
@@ -96,7 +99,7 @@ defmodule HTTPower.LoggerTest do
         capture_log(fn ->
           HTTPower.get("https://api.example.com/users",
             headers: %{"Authorization" => "Bearer secret-token-12345"},
-            plug: {Req.Test, HTTPower}
+            adapter: HTTPower.Adapter.Finch
           )
         end)
 
@@ -105,8 +108,8 @@ defmodule HTTPower.LoggerTest do
     end
 
     test "sanitizes API key headers" do
-      Req.Test.stub(HTTPower, fn conn ->
-        Req.Test.json(conn, %{ok: true})
+      HTTPower.Test.stub(fn conn ->
+        HTTPower.Test.json(conn, %{ok: true})
       end)
 
       HTTPowerLogger.attach()
@@ -118,7 +121,7 @@ defmodule HTTPower.LoggerTest do
               "X-API-Key" => "sk_live_12345",
               "Api-Key" => "another-secret"
             },
-            plug: {Req.Test, HTTPower}
+            adapter: HTTPower.Adapter.Finch
           )
         end)
 
@@ -128,15 +131,15 @@ defmodule HTTPower.LoggerTest do
     end
 
     test "no logs when logger not attached" do
-      Req.Test.stub(HTTPower, fn conn ->
-        Req.Test.json(conn, %{ok: true})
+      HTTPower.Test.stub(fn conn ->
+        HTTPower.Test.json(conn, %{ok: true})
       end)
 
       # Don't attach logger
 
       log =
         capture_log(fn ->
-          HTTPower.get("https://api.example.com/users", plug: {Req.Test, HTTPower})
+          HTTPower.get("https://api.example.com/users", adapter: HTTPower.Adapter.Finch)
         end)
 
       assert log == ""
@@ -145,17 +148,17 @@ defmodule HTTPower.LoggerTest do
 
   describe "response logging via telemetry" do
     test "logs successful response" do
-      Req.Test.stub(HTTPower, fn conn ->
+      HTTPower.Test.stub(fn conn ->
         conn
         |> Plug.Conn.put_resp_header("content-type", "application/json")
-        |> Req.Test.json(%{status: "success"})
+        |> HTTPower.Test.json(%{status: "success"})
       end)
 
       HTTPowerLogger.attach()
 
       log =
         capture_log(fn ->
-          HTTPower.get("https://api.example.com/users", plug: {Req.Test, HTTPower})
+          HTTPower.get("https://api.example.com/users", adapter: HTTPower.Adapter.Finch)
         end)
 
       assert log =~ "req_"
@@ -166,15 +169,15 @@ defmodule HTTPower.LoggerTest do
     end
 
     test "sanitizes response body with credit card" do
-      Req.Test.stub(HTTPower, fn conn ->
-        Req.Test.json(conn, %{card: "4111111111111111", status: "ok"})
+      HTTPower.Test.stub(fn conn ->
+        HTTPower.Test.json(conn, %{card: "4111111111111111", status: "ok"})
       end)
 
       HTTPowerLogger.attach()
 
       log =
         capture_log(fn ->
-          HTTPower.get("https://api.example.com/users", plug: {Req.Test, HTTPower})
+          HTTPower.get("https://api.example.com/users", adapter: HTTPower.Adapter.Finch)
         end)
 
       assert log =~ "[REDACTED]"
@@ -185,7 +188,7 @@ defmodule HTTPower.LoggerTest do
     test "truncates large response bodies" do
       large_body = String.duplicate("x", 1000)
 
-      Req.Test.stub(HTTPower, fn conn ->
+      HTTPower.Test.stub(fn conn ->
         conn
         |> Plug.Conn.put_resp_content_type("text/plain")
         |> Plug.Conn.send_resp(200, large_body)
@@ -195,7 +198,7 @@ defmodule HTTPower.LoggerTest do
 
       log =
         capture_log(fn ->
-          HTTPower.get("https://api.example.com/users", plug: {Req.Test, HTTPower})
+          HTTPower.get("https://api.example.com/users", adapter: HTTPower.Adapter.Finch)
         end)
 
       assert log =~ "(truncated)"
@@ -203,15 +206,15 @@ defmodule HTTPower.LoggerTest do
     end
 
     test "no logs when logger not attached" do
-      Req.Test.stub(HTTPower, fn conn ->
-        Req.Test.json(conn, %{ok: true})
+      HTTPower.Test.stub(fn conn ->
+        HTTPower.Test.json(conn, %{ok: true})
       end)
 
       # Don't attach logger
 
       log =
         capture_log(fn ->
-          HTTPower.get("https://api.example.com/users", plug: {Req.Test, HTTPower})
+          HTTPower.get("https://api.example.com/users", adapter: HTTPower.Adapter.Finch)
         end)
 
       assert log == ""
@@ -220,7 +223,7 @@ defmodule HTTPower.LoggerTest do
 
   describe "error logging via telemetry" do
     test "logs request errors" do
-      Req.Test.stub(HTTPower, fn conn ->
+      HTTPower.Test.stub(fn conn ->
         conn
         |> Plug.Conn.put_resp_content_type("application/json")
         |> Plug.Conn.send_resp(500, ~s({"error": "Internal Server Error"}))
@@ -231,7 +234,7 @@ defmodule HTTPower.LoggerTest do
       log =
         capture_log(fn ->
           HTTPower.get("https://api.example.com/users",
-            plug: {Req.Test, HTTPower},
+            adapter: HTTPower.Adapter.Finch,
             max_retries: 0
           )
         end)
@@ -241,7 +244,7 @@ defmodule HTTPower.LoggerTest do
     end
 
     test "no logs when logger not attached" do
-      Req.Test.stub(HTTPower, fn conn ->
+      HTTPower.Test.stub(fn conn ->
         conn
         |> Plug.Conn.put_resp_content_type("application/json")
         |> Plug.Conn.send_resp(500, ~s({"error": "Server Error"}))
@@ -252,7 +255,7 @@ defmodule HTTPower.LoggerTest do
       log =
         capture_log(fn ->
           HTTPower.get("https://api.example.com/users",
-            plug: {Req.Test, HTTPower},
+            adapter: HTTPower.Adapter.Finch,
             max_retries: 0
           )
         end)
@@ -514,23 +517,23 @@ defmodule HTTPower.LoggerTest do
 
   describe "configuration" do
     test "respects custom log level" do
-      Req.Test.stub(HTTPower, fn conn ->
-        Req.Test.json(conn, %{ok: true})
+      HTTPower.Test.stub(fn conn ->
+        HTTPower.Test.json(conn, %{ok: true})
       end)
 
       HTTPowerLogger.attach(level: :debug)
 
       log =
         capture_log([level: :debug], fn ->
-          HTTPower.get("https://api.example.com", plug: {Req.Test, HTTPower})
+          HTTPower.get("https://api.example.com", adapter: HTTPower.Adapter.Finch)
         end)
 
       assert log =~ "GET"
     end
 
     test "allows runtime configuration via attach options" do
-      Req.Test.stub(HTTPower, fn conn ->
-        Req.Test.json(conn, %{ok: true})
+      HTTPower.Test.stub(fn conn ->
+        HTTPower.Test.json(conn, %{ok: true})
       end)
 
       HTTPowerLogger.attach(log_headers: false, log_body: false)
@@ -540,7 +543,7 @@ defmodule HTTPower.LoggerTest do
           HTTPower.get("https://api.example.com",
             headers: %{"Authorization" => "Bearer token"},
             body: "test body",
-            plug: {Req.Test, HTTPower}
+            adapter: HTTPower.Adapter.Finch
           )
         end)
 
@@ -564,8 +567,8 @@ defmodule HTTPower.LoggerTest do
 
   describe "structured logging metadata" do
     test "sets request metadata in Logger.metadata()" do
-      Req.Test.stub(HTTPower, fn conn ->
-        Req.Test.json(conn, %{data: "test"})
+      HTTPower.Test.stub(fn conn ->
+        HTTPower.Test.json(conn, %{data: "test"})
       end)
 
       HTTPowerLogger.attach(log_headers: true, log_body: true)
@@ -574,7 +577,7 @@ defmodule HTTPower.LoggerTest do
       Logger.reset_metadata()
 
       capture_log(fn ->
-        HTTPower.get("https://api.example.com/test", plug: {Req.Test, HTTPower})
+        HTTPower.get("https://api.example.com/test", adapter: HTTPower.Adapter.Finch)
       end)
 
       metadata = Logger.metadata()
@@ -589,8 +592,8 @@ defmodule HTTPower.LoggerTest do
     end
 
     test "includes method and URL in metadata" do
-      Req.Test.stub(HTTPower, fn conn ->
-        Req.Test.json(conn, %{success: true})
+      HTTPower.Test.stub(fn conn ->
+        HTTPower.Test.json(conn, %{success: true})
       end)
 
       HTTPowerLogger.attach()
@@ -599,7 +602,7 @@ defmodule HTTPower.LoggerTest do
       capture_log(fn ->
         HTTPower.post("https://api.example.com/users",
           body: ~s({"name": "Test"}),
-          plug: {Req.Test, HTTPower}
+          adapter: HTTPower.Adapter.Finch
         )
       end)
 
@@ -610,10 +613,10 @@ defmodule HTTPower.LoggerTest do
     end
 
     test "includes headers in metadata when enabled" do
-      Req.Test.stub(HTTPower, fn conn ->
+      HTTPower.Test.stub(fn conn ->
         conn
         |> Plug.Conn.put_resp_header("x-custom-header", "value")
-        |> Req.Test.json(%{})
+        |> HTTPower.Test.json(%{})
       end)
 
       HTTPowerLogger.attach(log_headers: true)
@@ -622,7 +625,7 @@ defmodule HTTPower.LoggerTest do
       capture_log(fn ->
         HTTPower.get("https://api.example.com/test",
           headers: %{"authorization" => "Bearer token123"},
-          plug: {Req.Test, HTTPower}
+          adapter: HTTPower.Adapter.Finch
         )
       end)
 
@@ -636,8 +639,8 @@ defmodule HTTPower.LoggerTest do
     end
 
     test "includes body in metadata when enabled" do
-      Req.Test.stub(HTTPower, fn conn ->
-        Req.Test.json(conn, %{result: "success"})
+      HTTPower.Test.stub(fn conn ->
+        HTTPower.Test.json(conn, %{result: "success"})
       end)
 
       HTTPowerLogger.attach(log_body: true)
@@ -646,7 +649,7 @@ defmodule HTTPower.LoggerTest do
       capture_log(fn ->
         HTTPower.post("https://api.example.com/test",
           body: ~s({"data": "test"}),
-          plug: {Req.Test, HTTPower}
+          adapter: HTTPower.Adapter.Finch
         )
       end)
 
@@ -657,8 +660,8 @@ defmodule HTTPower.LoggerTest do
     end
 
     test "excludes headers from metadata when disabled" do
-      Req.Test.stub(HTTPower, fn conn ->
-        Req.Test.json(conn, %{})
+      HTTPower.Test.stub(fn conn ->
+        HTTPower.Test.json(conn, %{})
       end)
 
       HTTPowerLogger.attach(log_headers: false)
@@ -667,7 +670,7 @@ defmodule HTTPower.LoggerTest do
       capture_log(fn ->
         HTTPower.get("https://api.example.com/test",
           headers: %{"x-custom" => "value"},
-          plug: {Req.Test, HTTPower}
+          adapter: HTTPower.Adapter.Finch
         )
       end)
 
@@ -676,8 +679,8 @@ defmodule HTTPower.LoggerTest do
     end
 
     test "excludes body from metadata when disabled" do
-      Req.Test.stub(HTTPower, fn conn ->
-        Req.Test.json(conn, %{result: "data"})
+      HTTPower.Test.stub(fn conn ->
+        HTTPower.Test.json(conn, %{result: "data"})
       end)
 
       HTTPowerLogger.attach(log_body: false)
@@ -686,7 +689,7 @@ defmodule HTTPower.LoggerTest do
       capture_log(fn ->
         HTTPower.post("https://api.example.com/test",
           body: ~s({"test": "data"}),
-          plug: {Req.Test, HTTPower}
+          adapter: HTTPower.Adapter.Finch
         )
       end)
 
@@ -695,8 +698,8 @@ defmodule HTTPower.LoggerTest do
     end
 
     test "sanitizes sensitive data in metadata" do
-      Req.Test.stub(HTTPower, fn conn ->
-        Req.Test.json(conn, %{password: "secret123"})
+      HTTPower.Test.stub(fn conn ->
+        HTTPower.Test.json(conn, %{password: "secret123"})
       end)
 
       HTTPowerLogger.attach(log_headers: true, log_body: true)
@@ -706,7 +709,7 @@ defmodule HTTPower.LoggerTest do
         HTTPower.post("https://api.example.com/login",
           headers: %{"authorization" => "Bearer secret-token"},
           body: ~s({"password": "secret123"}),
-          plug: {Req.Test, HTTPower}
+          adapter: HTTPower.Adapter.Finch
         )
       end)
 
@@ -721,7 +724,7 @@ defmodule HTTPower.LoggerTest do
     test "truncates large bodies in metadata" do
       large_body = String.duplicate("x", 600)
 
-      Req.Test.stub(HTTPower, fn conn ->
+      HTTPower.Test.stub(fn conn ->
         Plug.Conn.send_resp(conn, 200, large_body)
       end)
 
@@ -729,7 +732,7 @@ defmodule HTTPower.LoggerTest do
       Logger.reset_metadata()
 
       capture_log(fn ->
-        HTTPower.get("https://api.example.com/test", plug: {Req.Test, HTTPower})
+        HTTPower.get("https://api.example.com/test", adapter: HTTPower.Adapter.Finch)
       end)
 
       metadata = Logger.metadata()
