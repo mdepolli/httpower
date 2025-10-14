@@ -533,8 +533,16 @@ defmodule HTTPower.Middleware.RateLimiter do
 
     :telemetry.execute(
       [:httpower, :rate_limit, :adaptive_reduction],
-      %{original_rate: original_requests, adjusted_rate: adjusted_requests, reduction_factor: 0.5},
-      %{circuit_key: circuit_key, circuit_state: :half_open, coordination: :circuit_breaker_adaptive}
+      %{
+        original_rate: original_requests,
+        adjusted_rate: adjusted_requests,
+        reduction_factor: 0.5
+      },
+      %{
+        circuit_key: circuit_key,
+        circuit_state: :half_open,
+        coordination: :circuit_breaker_adaptive
+      }
     )
 
     Keyword.put(config, :requests, adjusted_requests)
@@ -547,7 +555,11 @@ defmodule HTTPower.Middleware.RateLimiter do
 
     :telemetry.execute(
       [:httpower, :rate_limit, :adaptive_reduction],
-      %{original_rate: original_requests, adjusted_rate: adjusted_requests, reduction_factor: 0.1},
+      %{
+        original_rate: original_requests,
+        adjusted_rate: adjusted_requests,
+        reduction_factor: 0.1
+      },
       %{circuit_key: circuit_key, circuit_state: :open, coordination: :circuit_breaker_adaptive}
     )
 

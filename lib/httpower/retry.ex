@@ -256,7 +256,8 @@ defmodule HTTPower.Retry do
       opts: opts
     } = request_params
 
-    with {:ok, response} <- HTTPower.Client.call_adapter(adapter, method, url, body, headers, opts),
+    with {:ok, response} <-
+           HTTPower.Client.call_adapter(adapter, method, url, body, headers, opts),
          {:ok, :final_response} <- check_if_response_is_retryable(response, attempt, retry_opts) do
       {:ok, response}
     else

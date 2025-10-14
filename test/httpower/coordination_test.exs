@@ -37,6 +37,7 @@ defmodule HTTPower.CoordinationTest do
         fn
           [:httpower, :dedup, :cache_hit], measurements, _metadata, _config ->
             bypassed = Map.get(measurements, :bypassed_rate_limit, 0)
+
             Agent.update(agent, fn state ->
               Map.update!(state, :rate_limit_bypassed, &(&1 + bypassed))
             end)
@@ -178,7 +179,9 @@ defmodule HTTPower.CoordinationTest do
         ref,
         [:httpower, :rate_limit, :adaptive_reduction],
         fn _event, measurements, metadata, _config ->
-          Agent.update(agent, fn events -> [%{measurements: measurements, metadata: metadata} | events] end)
+          Agent.update(agent, fn events ->
+            [%{measurements: measurements, metadata: metadata} | events]
+          end)
         end,
         nil
       )
@@ -194,7 +197,8 @@ defmodule HTTPower.CoordinationTest do
 
       event = List.first(events)
       assert event.measurements[:original_rate] == 100
-      assert event.measurements[:adjusted_rate] == 10  # 10% of original
+      # 10% of original
+      assert event.measurements[:adjusted_rate] == 10
       assert event.measurements[:reduction_factor] == 0.1
       assert event.metadata[:circuit_state] == :open
       assert event.metadata[:coordination] == :circuit_breaker_adaptive
@@ -240,7 +244,9 @@ defmodule HTTPower.CoordinationTest do
         ref,
         [:httpower, :rate_limit, :adaptive_reduction],
         fn _event, measurements, metadata, _config ->
-          Agent.update(agent, fn events -> [%{measurements: measurements, metadata: metadata} | events] end)
+          Agent.update(agent, fn events ->
+            [%{measurements: measurements, metadata: metadata} | events]
+          end)
         end,
         nil
       )
@@ -254,7 +260,8 @@ defmodule HTTPower.CoordinationTest do
       # In that case, we'll verify the logic exists
       if length(events) > 0 do
         event = List.first(events)
-        assert event.measurements[:reduction_factor] in [0.5, 0.1]  # Either half-open or open
+        # Either half-open or open
+        assert event.measurements[:reduction_factor] in [0.5, 0.1]
       end
 
       :telemetry.detach(ref)
@@ -268,7 +275,8 @@ defmodule HTTPower.CoordinationTest do
       RateLimiter.reset_bucket(circuit_key)
 
       # Ensure circuit is closed (default state)
-      assert CircuitBreaker.get_state(circuit_key) == nil || CircuitBreaker.get_state(circuit_key) == :closed
+      assert CircuitBreaker.get_state(circuit_key) == nil ||
+               CircuitBreaker.get_state(circuit_key) == :closed
 
       config = [
         enabled: true,
@@ -293,7 +301,9 @@ defmodule HTTPower.CoordinationTest do
         ref,
         [:httpower, :rate_limit, :adaptive_reduction],
         fn _event, measurements, metadata, _config ->
-          Agent.update(agent, fn events -> [%{measurements: measurements, metadata: metadata} | events] end)
+          Agent.update(agent, fn events ->
+            [%{measurements: measurements, metadata: metadata} | events]
+          end)
         end,
         nil
       )
@@ -321,7 +331,8 @@ defmodule HTTPower.CoordinationTest do
         enabled: true,
         requests: 100,
         per: :minute,
-        adaptive: false,  # Explicitly disabled
+        # Explicitly disabled
+        adaptive: false,
         circuit_breaker_key: circuit_key
       ]
 
@@ -340,7 +351,9 @@ defmodule HTTPower.CoordinationTest do
         ref,
         [:httpower, :rate_limit, :adaptive_reduction],
         fn _event, measurements, metadata, _config ->
-          Agent.update(agent, fn events -> [%{measurements: measurements, metadata: metadata} | events] end)
+          Agent.update(agent, fn events ->
+            [%{measurements: measurements, metadata: metadata} | events]
+          end)
         end,
         nil
       )
@@ -360,10 +373,11 @@ defmodule HTTPower.CoordinationTest do
 
   describe "configuration profiles" do
     test "payment_processing profile sets correct options" do
-      client = HTTPower.new(
-        base_url: "https://payment-gateway.com",
-        profile: :payment_processing
-      )
+      client =
+        HTTPower.new(
+          base_url: "https://payment-gateway.com",
+          profile: :payment_processing
+        )
 
       assert client.base_url == "https://payment-gateway.com"
 
@@ -421,11 +435,12 @@ defmodule HTTPower.CoordinationTest do
     end
 
     test "explicit options override profile settings" do
-      client = HTTPower.new(
-        profile: :high_volume_api,
-        rate_limit: [requests: 2000],
-        max_retries: 5
-      )
+      client =
+        HTTPower.new(
+          profile: :high_volume_api,
+          rate_limit: [requests: 2000],
+          max_retries: 5
+        )
 
       # Profile default should be overridden
       rate_limit = Keyword.get(client.options, :rate_limit)
