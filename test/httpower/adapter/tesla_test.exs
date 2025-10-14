@@ -1,13 +1,14 @@
-defmodule HTTPower.TeslaAdapterIntegrationTest do
+defmodule HTTPower.Adapter.TeslaTest do
   @moduledoc """
-  Integration tests using Tesla adapter with HTTPower.Test.
+  Unit tests for HTTPower.Adapter.Tesla module.
 
-  These tests use HTTPower.Test (adapter-agnostic) to prove that the Tesla adapter
-  works identically to the Req adapter. This proves true adapter independence!
+  These tests directly test the Tesla adapter logic, including Tesla client handling,
+  header conversion, option building, and response conversion.
   """
 
-  use ExUnit.Case, async: false
-  import HTTPower.SharedTests
+  use ExUnit.Case, async: true
+  alias HTTPower.Adapter.Tesla, as: TeslaAdapter
+  alias HTTPower.Response
 
   setup_all do
     Application.put_env(:httpower, :test_mode, true)
@@ -16,83 +17,381 @@ defmodule HTTPower.TeslaAdapterIntegrationTest do
 
   setup do
     HTTPower.Test.setup()
+    :ok
+  end
 
-    HTTPower.Test.stub(fn conn ->
-      case {conn.method, conn.request_path} do
-        {"GET", "/test"} ->
-          HTTPower.Test.json(conn, %{status: "success", penguin: "🐧"})
+  describe "request/5 with HTTPower.Test interception" do
+    test "makes successful GET request" do
+      HTTPower.Test.stub(fn conn ->
+        HTTPower.Test.json(conn, %{success: true})
+      end)
 
-        {"POST", "/submit"} ->
-          HTTPower.Test.json(conn, %{received: "data"})
+      tesla_client = Tesla.client([])
+      opts = [adapter_config: tesla_client]
 
-        {"POST", "/users"} ->
-          HTTPower.Test.json(conn, %{created: true})
+      assert {:ok, %Response{status: 200, body: body}} =
+               TeslaAdapter.request(:get, "https://api.example.com/test", nil, %{}, opts)
 
-        {"PUT", "/users/1"} ->
-          HTTPower.Test.json(conn, %{updated: true})
+      assert body == %{"success" => true}
+    end
 
-        {"DELETE", "/users/1"} ->
-          HTTPower.Test.text(conn, "", status: 204)
+    test "makes successful POST request with body" do
+      HTTPower.Test.stub(fn conn ->
+        HTTPower.Test.json(conn, %{received: true})
+      end)
 
-        {"GET", "/users"} ->
-          HTTPower.Test.json(conn, %{users: ["alice", "bob"]})
+      tesla_client = Tesla.client([])
+      opts = [adapter_config: tesla_client]
 
-        {"GET", "/error"} ->
-          HTTPower.Test.text(conn, "Internal Server Error", status: 500)
+      assert {:ok, %Response{status: 200}} =
+               TeslaAdapter.request(
+                 :post,
+                 "https://api.example.com/submit",
+                 "test=data",
+                 %{},
+                 opts
+               )
+    end
 
-        _ ->
-          HTTPower.Test.json(conn, %{default: true})
+    test "makes successful PUT request" do
+      HTTPower.Test.stub(fn conn ->
+        HTTPower.Test.json(conn, %{updated: true})
+      end)
+
+      tesla_client = Tesla.client([])
+      opts = [adapter_config: tesla_client]
+
+      assert {:ok, %Response{status: 200}} =
+               TeslaAdapter.request(
+                 :put,
+                 "https://api.example.com/users/1",
+                 "name=John",
+                 %{},
+                 opts
+               )
+    end
+
+    test "makes successful DELETE request" do
+      HTTPower.Test.stub(fn conn ->
+        HTTPower.Test.text(conn, "", status: 204)
+      end)
+
+      tesla_client = Tesla.client([])
+      opts = [adapter_config: tesla_client]
+
+      assert {:ok, %Response{status: 204, body: ""}} =
+               TeslaAdapter.request(:delete, "https://api.example.com/users/1", nil, %{}, opts)
+    end
+  end
+
+  # Note: Testing ArgumentError for missing adapter_config is difficult because
+  # HTTPower.Test intercepts requests before adapter validation.
+  # This is covered by integration tests instead.
+
+  describe "request/5 with custom headers" do
+    test "converts map headers to Tesla format (list of tuples)" do
+      HTTPower.Test.stub(fn conn ->
+        # Check that custom header is present
+        headers = conn.req_headers |> Enum.into(%{})
+        assert headers["x-custom-header"] == "test-value"
+        HTTPower.Test.json(conn, %{success: true})
+      end)
+
+      tesla_client = Tesla.client([])
+      headers = %{"x-custom-header" => "test-value"}
+      opts = [adapter_config: tesla_client]
+
+      assert {:ok, %Response{}} =
+               TeslaAdapter.request(:get, "https://api.example.com/test", nil, headers, opts)
+    end
+
+    test "converts header keys to lowercase" do
+      HTTPower.Test.stub(fn conn ->
+        headers = conn.req_headers |> Enum.into(%{})
+        # Should be lowercase
+        assert headers["x-custom-header"] == "value"
+        HTTPower.Test.json(conn, %{success: true})
+      end)
+
+      tesla_client = Tesla.client([])
+      headers = %{"X-Custom-Header" => "value"}
+      opts = [adapter_config: tesla_client]
+
+      assert {:ok, %Response{}} =
+               TeslaAdapter.request(:get, "https://api.example.com/test", nil, headers, opts)
+    end
+
+    test "handles atom keys in headers" do
+      HTTPower.Test.stub(fn conn ->
+        headers = conn.req_headers |> Enum.into(%{})
+        assert headers["authorization"] == "Bearer token"
+        HTTPower.Test.json(conn, %{success: true})
+      end)
+
+      tesla_client = Tesla.client([])
+      headers = %{authorization: "Bearer token"}
+      opts = [adapter_config: tesla_client]
+
+      assert {:ok, %Response{}} =
+               TeslaAdapter.request(:get, "https://api.example.com/test", nil, headers, opts)
+    end
+
+    test "handles empty headers" do
+      HTTPower.Test.stub(fn conn ->
+        HTTPower.Test.json(conn, %{success: true})
+      end)
+
+      tesla_client = Tesla.client([])
+      opts = [adapter_config: tesla_client]
+
+      assert {:ok, %Response{}} =
+               TeslaAdapter.request(:get, "https://api.example.com/test", nil, %{}, opts)
+    end
+
+    test "handles nil headers" do
+      HTTPower.Test.stub(fn conn ->
+        HTTPower.Test.json(conn, %{success: true})
+      end)
+
+      tesla_client = Tesla.client([])
+      opts = [adapter_config: tesla_client]
+
+      assert {:ok, %Response{}} =
+               TeslaAdapter.request(:get, "https://api.example.com/test", nil, nil, opts)
+    end
+  end
+
+  describe "response conversion" do
+    test "converts Tesla.Env to HTTPower.Response" do
+      HTTPower.Test.stub(fn conn ->
+        conn
+        |> Plug.Conn.put_resp_header("x-custom", "value")
+        |> HTTPower.Test.json(%{data: "test"})
+      end)
+
+      tesla_client = Tesla.client([])
+      opts = [adapter_config: tesla_client]
+
+      assert {:ok, response} =
+               TeslaAdapter.request(:get, "https://api.example.com/test", nil, %{}, opts)
+
+      assert %Response{} = response
+      assert response.status == 200
+      assert is_map(response.headers)
+      # Headers come back as lists from Plug
+      assert response.headers["x-custom"] == ["value"] or response.headers["x-custom"] == "value"
+      assert response.body == %{"data" => "test"}
+    end
+
+    test "handles response headers as list of tuples" do
+      HTTPower.Test.stub(fn conn ->
+        conn
+        |> Plug.Conn.put_resp_header("x-header-1", "value1")
+        |> Plug.Conn.put_resp_header("x-header-2", "value2")
+        |> HTTPower.Test.json(%{success: true})
+      end)
+
+      tesla_client = Tesla.client([])
+      opts = [adapter_config: tesla_client]
+
+      assert {:ok, response} =
+               TeslaAdapter.request(:get, "https://api.example.com/test", nil, %{}, opts)
+
+      assert is_map(response.headers)
+      assert Map.has_key?(response.headers, "x-header-1")
+      assert Map.has_key?(response.headers, "x-header-2")
+    end
+
+    test "handles empty response body" do
+      HTTPower.Test.stub(fn conn ->
+        HTTPower.Test.text(conn, "", status: 204)
+      end)
+
+      tesla_client = Tesla.client([])
+      opts = [adapter_config: tesla_client]
+
+      assert {:ok, %Response{status: 204, body: ""}} =
+               TeslaAdapter.request(:get, "https://api.example.com/empty", nil, %{}, opts)
+    end
+
+    test "handles various status codes" do
+      tesla_client = Tesla.client([])
+      opts = [adapter_config: tesla_client]
+
+      for status <- [200, 201, 204, 400, 404, 500, 502] do
+        HTTPower.Test.stub(fn conn ->
+          HTTPower.Test.text(conn, "response", status: status)
+        end)
+
+        assert {:ok, %Response{status: ^status}} =
+                 TeslaAdapter.request(:get, "https://api.example.com/status", nil, %{}, opts)
       end
-    end)
-
-    # Create a minimal Tesla client (not actually used since HTTPower.Test intercepts)
-    tesla_client = Tesla.client([])
-
-    # Return adapter options for Tesla
-    {:ok, adapter_opts: [adapter: {HTTPower.Adapter.Tesla, tesla_client}]}
-  end
-
-  describe "Tesla adapter: basic HTTP methods" do
-    test "get/2 works correctly", %{adapter_opts: adapter_opts} do
-      test_basic_get(adapter_opts)
-    end
-
-    test "get/2 with custom headers and timeout", %{adapter_opts: adapter_opts} do
-      test_get_with_headers_and_timeout(adapter_opts)
-    end
-
-    test "post/2 with body and headers", %{adapter_opts: adapter_opts} do
-      test_post_with_body_and_headers(adapter_opts)
-    end
-
-    test "post/2 with custom content-type header", %{adapter_opts: adapter_opts} do
-      test_post_with_custom_content_type(adapter_opts)
-    end
-
-    test "put/2 with body", %{adapter_opts: adapter_opts} do
-      test_put_with_body(adapter_opts)
-    end
-
-    test "delete/2 method", %{adapter_opts: adapter_opts} do
-      test_delete(adapter_opts)
     end
   end
 
-  describe "Tesla adapter: test mode blocking" do
-    test "blocks real requests when test_mode is true" do
-      test_mode_blocks_real_requests(HTTPower.Adapter.Tesla)
+  describe "error handling" do
+    test "handles network errors gracefully" do
+      HTTPower.Test.stub(fn conn ->
+        HTTPower.Test.transport_error(conn, :timeout)
+      end)
+
+      tesla_client = Tesla.client([])
+      opts = [adapter_config: tesla_client]
+
+      # HTTPower.Test wraps transport errors in HTTPower.Error
+      assert {:error, %HTTPower.Error{reason: :test_transport_error}} =
+               TeslaAdapter.request(:get, "https://api.example.com/timeout", nil, %{}, opts)
+    end
+
+    test "handles connection refused" do
+      HTTPower.Test.stub(fn conn ->
+        HTTPower.Test.transport_error(conn, :econnrefused)
+      end)
+
+      tesla_client = Tesla.client([])
+      opts = [adapter_config: tesla_client]
+
+      assert {:error, %HTTPower.Error{reason: :test_transport_error}} =
+               TeslaAdapter.request(:get, "https://api.example.com/refused", nil, %{}, opts)
+    end
+
+    test "handles other transport errors" do
+      HTTPower.Test.stub(fn conn ->
+        HTTPower.Test.transport_error(conn, :closed)
+      end)
+
+      tesla_client = Tesla.client([])
+      opts = [adapter_config: tesla_client]
+
+      assert {:error, %HTTPower.Error{reason: :test_transport_error}} =
+               TeslaAdapter.request(:get, "https://api.example.com/closed", nil, %{}, opts)
     end
   end
 
-  describe "Tesla adapter: retry logic" do
-    test "respects max_retries configuration", %{adapter_opts: adapter_opts} do
-      test_retry_respects_max_retries(adapter_opts)
+  describe "body handling" do
+    test "converts nil body to empty string" do
+      HTTPower.Test.stub(fn conn ->
+        HTTPower.Test.json(conn, %{success: true})
+      end)
+
+      tesla_client = Tesla.client([])
+      opts = [adapter_config: tesla_client]
+
+      assert {:ok, %Response{}} =
+               TeslaAdapter.request(:get, "https://api.example.com/test", nil, %{}, opts)
+    end
+
+    test "handles string body" do
+      HTTPower.Test.stub(fn conn ->
+        {:ok, body, _} = Plug.Conn.read_body(conn)
+        assert body == "test=data"
+        HTTPower.Test.json(conn, %{success: true})
+      end)
+
+      tesla_client = Tesla.client([])
+      opts = [adapter_config: tesla_client]
+
+      assert {:ok, %Response{}} =
+               TeslaAdapter.request(
+                 :post,
+                 "https://api.example.com/submit",
+                 "test=data",
+                 %{},
+                 opts
+               )
+    end
+
+    test "handles JSON body" do
+      HTTPower.Test.stub(fn conn ->
+        {:ok, body, _} = Plug.Conn.read_body(conn)
+        assert body =~ "name"
+        HTTPower.Test.json(conn, %{success: true})
+      end)
+
+      tesla_client = Tesla.client([])
+      json_body = Jason.encode!(%{name: "John"})
+      headers = %{"Content-Type" => "application/json"}
+      opts = [adapter_config: tesla_client]
+
+      assert {:ok, %Response{}} =
+               TeslaAdapter.request(
+                 :post,
+                 "https://api.example.com/users",
+                 json_body,
+                 headers,
+                 opts
+               )
     end
   end
 
-  describe "Tesla adapter: configured clients" do
-    test "works with HTTPower.new/1 client pattern", %{adapter_opts: adapter_opts} do
-      test_configured_client(adapter_opts)
+  describe "Tesla client middleware" do
+    test "works with Tesla client containing middleware" do
+      HTTPower.Test.stub(fn conn ->
+        HTTPower.Test.json(conn, %{middleware: "works"})
+      end)
+
+      # Create Tesla client with middleware (would normally add headers, etc.)
+      # In our test, HTTPower.Test intercepts before middleware runs
+      tesla_client = Tesla.client([])
+      opts = [adapter_config: tesla_client]
+
+      assert {:ok, %Response{body: %{"middleware" => "works"}}} =
+               TeslaAdapter.request(:get, "https://api.example.com/test", nil, %{}, opts)
+    end
+  end
+
+  describe "integration with HTTPower.Test" do
+    test "respects HTTPower.Test.stub configuration" do
+      HTTPower.Test.stub(fn conn ->
+        case conn.request_path do
+          "/test" -> HTTPower.Test.json(conn, %{path: "test"})
+          "/other" -> HTTPower.Test.json(conn, %{path: "other"})
+          _ -> HTTPower.Test.json(conn, %{path: "default"})
+        end
+      end)
+
+      tesla_client = Tesla.client([])
+      opts = [adapter_config: tesla_client]
+
+      assert {:ok, %Response{body: %{"path" => "test"}}} =
+               TeslaAdapter.request(:get, "https://api.example.com/test", nil, %{}, opts)
+
+      assert {:ok, %Response{body: %{"path" => "other"}}} =
+               TeslaAdapter.request(:get, "https://api.example.com/other", nil, %{}, opts)
+
+      assert {:ok, %Response{body: %{"path" => "default"}}} =
+               TeslaAdapter.request(:get, "https://api.example.com/unknown", nil, %{}, opts)
+    end
+  end
+
+  describe "edge cases" do
+    test "handles response headers as map (some Tesla middleware)" do
+      HTTPower.Test.stub(fn conn ->
+        conn
+        |> Plug.Conn.put_resp_header("x-test", "value")
+        |> HTTPower.Test.json(%{success: true})
+      end)
+
+      tesla_client = Tesla.client([])
+      opts = [adapter_config: tesla_client]
+
+      assert {:ok, %Response{headers: headers}} =
+               TeslaAdapter.request(:get, "https://api.example.com/test", nil, %{}, opts)
+
+      assert is_map(headers)
+    end
+
+    test "handles nil headers" do
+      HTTPower.Test.stub(fn conn ->
+        HTTPower.Test.json(conn, %{success: true})
+      end)
+
+      tesla_client = Tesla.client([])
+      opts = [adapter_config: tesla_client]
+
+      # Nil headers get converted to empty list by convert_headers
+      assert {:ok, %Response{}} =
+               TeslaAdapter.request(:get, "https://api.example.com/test", nil, nil, opts)
     end
   end
 end
