@@ -23,14 +23,6 @@ defmodule HTTPower.Client do
   # Note: test_mode MUST be runtime to allow tests to enable it dynamically
   @default_adapter Application.compile_env(:httpower, :adapter, nil)
 
-  @default_max_retries 3
-  @default_retry_safe false
-  @default_base_delay 1000
-  @default_max_delay 30_000
-  @default_jitter_factor 0.2
-
-  @retryable_status_codes [408, 429, 500, 502, 503, 504]
-
   # Middleware Registry - Define all available middleware
   # Each entry: {module, key}
   # - module: The middleware module implementing HTTPower.Middleware
@@ -238,10 +230,15 @@ defmodule HTTPower.Client do
   end
 
   defp execute_http_with_retry(%Request{} = request) do
-    execute_request_with_retry(
+    headers = Keyword.get(request.opts, :headers, %{})
+    adapter = get_adapter(request.opts)
+
+    HTTPower.Retry.execute_with_retry(
       request.method,
       request.url,
       request.body,
+      headers,
+      adapter,
       request.opts
     )
   end
@@ -319,142 +316,6 @@ defmodule HTTPower.Client do
     end
   end
 
-  defp execute_request_with_retry(method, url, body, opts) do
-    headers = Keyword.get(opts, :headers, %{})
-    adapter = get_adapter(opts)
-
-    retry_opts = %{
-      max_retries: Keyword.get(opts, :max_retries, @default_max_retries),
-      retry_safe: Keyword.get(opts, :retry_safe, @default_retry_safe),
-      base_delay: Keyword.get(opts, :base_delay, @default_base_delay),
-      max_delay: Keyword.get(opts, :max_delay, @default_max_delay),
-      jitter_factor: Keyword.get(opts, :jitter_factor, @default_jitter_factor)
-    }
-
-    request_params = %{
-      method: method,
-      url: url,
-      body: body,
-      headers: headers,
-      opts: opts,
-      adapter: adapter
-    }
-
-    execute_http_request(request_params, retry_opts, 1)
-  end
-
-  defp execute_http_request(request_params, retry_opts, attempt) do
-    %{
-      adapter: adapter,
-      method: method,
-      url: url,
-      body: body,
-      headers: headers,
-      opts: opts
-    } = request_params
-
-    with {:ok, response} <- call_adapter(adapter, method, url, body, headers, opts),
-         {:ok, :final_response} <- check_if_response_is_retryable(response, attempt, retry_opts) do
-      {:ok, response}
-    else
-      {:error, :should_retry, reason} ->
-        handle_retry(request_params, retry_opts, attempt, reason)
-
-      {:error, reason} when attempt < retry_opts.max_retries ->
-        handle_retry(request_params, retry_opts, attempt, reason)
-
-      {:error, reason} ->
-        wrap_error(reason)
-    end
-  end
-
-  # Retry Logic
-
-  defp handle_retry(request_params, retry_opts, attempt, reason) do
-    if retryable_error?(reason, retry_opts.retry_safe) do
-      log_retry_attempt(attempt, reason, retry_opts.max_retries)
-      delay = calculate_retry_delay(reason, attempt, retry_opts)
-
-      :telemetry.execute(
-        [:httpower, :retry, :attempt],
-        %{attempt_number: attempt + 1, delay_ms: delay},
-        %{
-          method: request_params.method,
-          url: request_params.url,
-          reason: extract_retry_reason(reason)
-        }
-      )
-
-      :timer.sleep(delay)
-      execute_http_request(request_params, retry_opts, attempt + 1)
-    else
-      case reason do
-        {:http_status, status, response} when status >= 200 and status < 300 ->
-          {:ok, response}
-
-        _ ->
-          wrap_error(reason)
-      end
-    end
-  end
-
-  defp check_if_response_is_retryable(response, attempt, retry_opts) do
-    if retryable_status?(response.status) and attempt < retry_opts.max_retries do
-      {:error, :should_retry, {:http_status, response.status, response}}
-    else
-      {:ok, :final_response}
-    end
-  end
-
-  defp calculate_retry_delay({:http_status, status, response}, attempt, retry_opts)
-       when status in [429, 503] do
-    case HTTPower.RateLimitHeaders.parse_retry_after(response.headers) do
-      {:ok, seconds} ->
-        Logger.info(
-          "Retry-After header found: waiting #{seconds} seconds as instructed by server"
-        )
-
-        seconds * 1000
-
-      {:error, :not_found} ->
-        calculate_backoff_delay(attempt, retry_opts)
-    end
-  end
-
-  defp calculate_retry_delay(_reason, attempt, retry_opts) do
-    calculate_backoff_delay(attempt, retry_opts)
-  end
-
-  def calculate_backoff_delay(attempt, retry_opts) do
-    factor = Integer.pow(2, attempt - 1)
-    delay_before_cap = retry_opts.base_delay * factor
-    max_delay = min(retry_opts.max_delay, delay_before_cap)
-    jitter = 1 - retry_opts.jitter_factor * :rand.uniform()
-    trunc(max_delay * jitter)
-  end
-
-  def retryable_error?({:http_status, status, _response}, _retry_safe) do
-    retryable_status?(status)
-  end
-
-  def retryable_error?(%Mint.TransportError{reason: reason}, retry_safe) do
-    retryable_transport_error?(reason, retry_safe)
-  end
-
-  def retryable_error?(reason, retry_safe) when is_atom(reason) do
-    retryable_transport_error?(reason, retry_safe)
-  end
-
-  def retryable_error?(_, _), do: false
-
-  def retryable_status?(status) when status in @retryable_status_codes, do: true
-  def retryable_status?(_), do: false
-
-  defp retryable_transport_error?(:timeout, _), do: true
-  defp retryable_transport_error?(:closed, _), do: true
-  defp retryable_transport_error?(:econnrefused, _), do: true
-  defp retryable_transport_error?(:econnreset, retry_safe), do: retry_safe
-  defp retryable_transport_error?(_, _), do: false
 
   # Adapter Management
 
@@ -513,13 +374,15 @@ defmodule HTTPower.Client do
     """
   end
 
-  defp call_adapter({adapter_module, config}, method, url, body, headers, opts) do
+  @doc false
+  def call_adapter({adapter_module, config}, method, url, body, headers, opts) do
     adapter_opts = Keyword.put(opts, :adapter_config, config)
     adapter_module.request(method, url, body, headers, adapter_opts)
   end
 
-  defp call_adapter(adapter_module, method, url, body, headers, opts)
-       when is_atom(adapter_module) do
+  @doc false
+  def call_adapter(adapter_module, method, url, body, headers, opts)
+      when is_atom(adapter_module) do
     adapter_module.request(method, url, body, headers, opts)
   end
 
@@ -534,26 +397,7 @@ defmodule HTTPower.Client do
     not test_mode or httpower_test_enabled or has_plug or has_adapter_with_config
   end
 
-  # Retry
-
-  defp extract_retry_reason({:http_status, status, _response}), do: {:http_status, status}
-  defp extract_retry_reason(reason) when is_atom(reason), do: reason
-  defp extract_retry_reason(_reason), do: :unknown
-
-  # Logging Helpers
-
-  defp log_retry_attempt(attempt, reason, max_retries) do
-    remaining = max_retries - attempt
-
-    Logger.info(
-      "HTTPower retry attempt #{attempt} due to #{inspect(reason)}, #{remaining} attempts remaining"
-    )
-  end
-
   # Error Handling
-
-  defp wrap_error(%Error{} = error), do: {:error, error}
-  defp wrap_error(reason), do: {:error, %Error{reason: reason, message: error_message(reason)}}
 
   defp error_message(%Mint.TransportError{reason: reason}), do: error_message(reason)
   defp error_message({:http_status, status, _response}), do: "HTTP #{status} error"

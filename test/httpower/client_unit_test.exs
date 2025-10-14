@@ -11,7 +11,7 @@ defmodule HTTPower.ClientUnitTest do
   """
 
   use ExUnit.Case, async: true
-  alias HTTPower.Client
+  alias HTTPower.Retry
 
   setup_all do
     Application.put_env(:httpower, :test_mode, true)
@@ -25,88 +25,88 @@ defmodule HTTPower.ClientUnitTest do
 
   describe "retryable_error?/2" do
     test "returns true for timeout errors" do
-      assert Client.retryable_error?(:timeout, false) == true
-      assert Client.retryable_error?(:timeout, true) == true
+      assert Retry.retryable_error?(:timeout, false) == true
+      assert Retry.retryable_error?(:timeout, true) == true
     end
 
     test "returns true for closed connection" do
-      assert Client.retryable_error?(:closed, false) == true
-      assert Client.retryable_error?(:closed, true) == true
+      assert Retry.retryable_error?(:closed, false) == true
+      assert Retry.retryable_error?(:closed, true) == true
     end
 
     test "returns true for econnrefused" do
-      assert Client.retryable_error?(:econnrefused, false) == true
-      assert Client.retryable_error?(:econnrefused, true) == true
+      assert Retry.retryable_error?(:econnrefused, false) == true
+      assert Retry.retryable_error?(:econnrefused, true) == true
     end
 
     test "returns true for econnreset only when retry_safe is true" do
-      assert Client.retryable_error?(:econnreset, false) == false
-      assert Client.retryable_error?(:econnreset, true) == true
+      assert Retry.retryable_error?(:econnreset, false) == false
+      assert Retry.retryable_error?(:econnreset, true) == true
     end
 
     test "returns false for unknown error reasons" do
-      assert Client.retryable_error?(:unknown_error, false) == false
-      assert Client.retryable_error?(:unknown_error, true) == false
+      assert Retry.retryable_error?(:unknown_error, false) == false
+      assert Retry.retryable_error?(:unknown_error, true) == false
     end
 
     test "handles Mint.TransportError structs" do
       timeout_error = %Mint.TransportError{reason: :timeout}
-      assert Client.retryable_error?(timeout_error, false) == true
+      assert Retry.retryable_error?(timeout_error, false) == true
 
       closed_error = %Mint.TransportError{reason: :closed}
-      assert Client.retryable_error?(closed_error, false) == true
+      assert Retry.retryable_error?(closed_error, false) == true
 
       refused_error = %Mint.TransportError{reason: :econnrefused}
-      assert Client.retryable_error?(refused_error, false) == true
+      assert Retry.retryable_error?(refused_error, false) == true
 
       reset_error = %Mint.TransportError{reason: :econnreset}
-      assert Client.retryable_error?(reset_error, false) == false
-      assert Client.retryable_error?(reset_error, true) == true
+      assert Retry.retryable_error?(reset_error, false) == false
+      assert Retry.retryable_error?(reset_error, true) == true
     end
 
     test "returns false for non-error values" do
-      assert Client.retryable_error?("not an error", false) == false
-      assert Client.retryable_error?(123, false) == false
-      assert Client.retryable_error?(%{}, false) == false
+      assert Retry.retryable_error?("not an error", false) == false
+      assert Retry.retryable_error?(123, false) == false
+      assert Retry.retryable_error?(%{}, false) == false
     end
   end
 
   describe "retryable_status?/1" do
     test "returns true for 408 Request Timeout" do
-      assert Client.retryable_status?(408) == true
+      assert Retry.retryable_status?(408) == true
     end
 
     test "returns true for 429 Too Many Requests" do
-      assert Client.retryable_status?(429) == true
+      assert Retry.retryable_status?(429) == true
     end
 
     test "returns true for 500 Internal Server Error" do
-      assert Client.retryable_status?(500) == true
+      assert Retry.retryable_status?(500) == true
     end
 
     test "returns true for 502 Bad Gateway" do
-      assert Client.retryable_status?(502) == true
+      assert Retry.retryable_status?(502) == true
     end
 
     test "returns true for 503 Service Unavailable" do
-      assert Client.retryable_status?(503) == true
+      assert Retry.retryable_status?(503) == true
     end
 
     test "returns true for 504 Gateway Timeout" do
-      assert Client.retryable_status?(504) == true
+      assert Retry.retryable_status?(504) == true
     end
 
     test "returns false for 2xx success codes" do
-      assert Client.retryable_status?(200) == false
-      assert Client.retryable_status?(201) == false
-      assert Client.retryable_status?(204) == false
+      assert Retry.retryable_status?(200) == false
+      assert Retry.retryable_status?(201) == false
+      assert Retry.retryable_status?(204) == false
     end
 
     test "returns false for 4xx client errors (except 408, 429)" do
-      assert Client.retryable_status?(400) == false
-      assert Client.retryable_status?(401) == false
-      assert Client.retryable_status?(403) == false
-      assert Client.retryable_status?(404) == false
+      assert Retry.retryable_status?(400) == false
+      assert Retry.retryable_status?(401) == false
+      assert Retry.retryable_status?(403) == false
+      assert Retry.retryable_status?(404) == false
     end
   end
 
@@ -120,7 +120,7 @@ defmodule HTTPower.ClientUnitTest do
       }
 
       # First attempt: 1000 * 2^0 = 1000ms
-      delay = Client.calculate_backoff_delay(1, retry_opts)
+      delay = Retry.calculate_backoff_delay(1, retry_opts)
       assert delay == 1000
     end
 
@@ -132,7 +132,7 @@ defmodule HTTPower.ClientUnitTest do
       }
 
       # Second attempt: 1000 * 2^1 = 2000ms
-      delay = Client.calculate_backoff_delay(2, retry_opts)
+      delay = Retry.calculate_backoff_delay(2, retry_opts)
       assert delay == 2000
     end
 
@@ -144,7 +144,7 @@ defmodule HTTPower.ClientUnitTest do
       }
 
       # Third attempt: 1000 * 2^2 = 4000ms
-      delay = Client.calculate_backoff_delay(3, retry_opts)
+      delay = Retry.calculate_backoff_delay(3, retry_opts)
       assert delay == 4000
     end
 
@@ -156,7 +156,7 @@ defmodule HTTPower.ClientUnitTest do
       }
 
       # Would be 8000ms, but capped at 5000ms
-      delay = Client.calculate_backoff_delay(4, retry_opts)
+      delay = Retry.calculate_backoff_delay(4, retry_opts)
       assert delay == 5000
     end
 
@@ -168,7 +168,7 @@ defmodule HTTPower.ClientUnitTest do
       }
 
       # With 20% jitter, delay should be between 800ms and 1000ms
-      delay = Client.calculate_backoff_delay(1, retry_opts)
+      delay = Retry.calculate_backoff_delay(1, retry_opts)
       assert delay >= 800 and delay <= 1000
     end
 
@@ -180,7 +180,7 @@ defmodule HTTPower.ClientUnitTest do
       }
 
       # Even with huge exponential growth, should be capped
-      delay = Client.calculate_backoff_delay(10, retry_opts)
+      delay = Retry.calculate_backoff_delay(10, retry_opts)
       assert delay == 60_000
     end
   end
