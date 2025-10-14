@@ -93,7 +93,11 @@ defmodule HTTPower do
   ## Options
 
   - `base_url` - Base URL to prepend to all requests
+  - `profile` - Pre-configured profile (`:payment_processing`, `:high_volume_api`, `:microservices_mesh`)
   - All other options are the same as individual request options (see module documentation)
+
+  When using a profile, profile settings are merged with explicit options.
+  Explicit options always take precedence over profile defaults.
 
   ## Examples
 
@@ -109,10 +113,46 @@ defmodule HTTPower do
         retry_safe: true
       )
 
+      # Use a profile for optimal settings
+      client = HTTPower.new(
+        base_url: "https://payment-gateway.com",
+        profile: :payment_processing
+      )
+
+      # Profile with overrides
+      client = HTTPower.new(
+        base_url: "https://api.example.com",
+        profile: :high_volume_api,
+        rate_limit: [requests: 2000]  # Override profile's rate limit
+      )
+
   """
   @spec new(keyword()) :: client()
   def new(opts \\ []) do
-    {base_url, options} = Keyword.pop(opts, :base_url)
+    # Extract profile and base_url
+    {profile, opts} = Keyword.pop(opts, :profile)
+    {base_url, opts} = Keyword.pop(opts, :base_url)
+
+    # Merge profile settings with user options (user options win)
+    options =
+      case profile do
+        nil ->
+          opts
+
+        profile_name ->
+          case HTTPower.Profiles.get(profile_name) do
+            {:ok, profile_config} ->
+              Keyword.merge(profile_config, opts)
+
+            {:error, :unknown_profile} ->
+              raise ArgumentError, """
+              Unknown profile: #{inspect(profile_name)}
+
+              Available profiles: #{inspect(HTTPower.Profiles.list())}
+              """
+          end
+      end
+
     %__MODULE__{base_url: base_url, options: options}
   end
 
