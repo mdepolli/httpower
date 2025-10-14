@@ -99,7 +99,7 @@ IO.inspect(response.body)    # %{"users" => [...]}
 )
 ```
 
-**Client-based usage (recommended for reusable configuration):**
+**Client-based usage:**
 
 ```elixir
 # Create a configured client
@@ -114,8 +114,47 @@ client = HTTPower.new(
 {:ok, users} = HTTPower.get(client, "/users")
 {:ok, user} = HTTPower.get(client, "/users/123")
 {:ok, created} = HTTPower.post(client, "/users", body: data)
+```
 
-# Error handling (never raises!)
+**Global configuration:**
+
+```elixir
+# config/config.exs - applies to all requests
+config :httpower,
+  # Retry configuration
+  max_retries: 3,
+  retry_safe: false,
+  base_delay: 1000,
+  max_delay: 30000,
+
+  # Rate limiting
+  rate_limit: [
+    enabled: true,
+    requests: 100,
+    per: :minute,
+    strategy: :wait
+  ],
+
+  # Circuit breaker
+  circuit_breaker: [
+    enabled: true,
+    failure_threshold: 5,
+    timeout: 60_000
+  ],
+
+  # Logging
+  logging: [
+    enabled: true,
+    level: :info
+  ]
+
+# All requests use global configuration
+{:ok, response} = HTTPower.get("https://api.example.com/users")
+```
+
+**Error handling (never raises!):**
+
+```elixir
 case HTTPower.get("https://api.example.com") do
   {:ok, %HTTPower.Response{status: 200, body: body}} ->
     # Success case
@@ -171,42 +210,11 @@ end
 
 ## Configuration Options
 
-HTTPower supports extensive configuration at multiple levels. **Global configuration in `config.exs` is recommended** for production settings:
+HTTPower supports configuration at three levels with the following priority:
 
-### Global Configuration (Recommended)
+**Per-request options > Per-client options > Global configuration**
 
-```elixir
-# config/config.exs
-config :httpower,
-  # Retry configuration
-  max_retries: 3,
-  retry_safe: false,
-  base_delay: 1000,
-  max_delay: 30000,
-
-  # Rate limiting (see Rate Limiting section)
-  rate_limit: [
-    enabled: true,
-    requests: 100,
-    per: :minute,
-    strategy: :wait
-  ],
-
-  # Circuit breaker (see Circuit Breaker section)
-  circuit_breaker: [
-    enabled: true,
-    failure_threshold: 5,
-    timeout: 60_000
-  ],
-
-  # Logging (see PCI-Compliant Logging section)
-  logging: [
-    enabled: true,
-    level: :info
-  ]
-```
-
-**Priority:** Per-request options > Per-client options > Global configuration
+This allows you to set sensible defaults globally, override them per-client, and further customize individual requests as needed.
 
 ## PCI-Compliant Logging
 
@@ -707,7 +715,7 @@ When deduplication is enabled, HTTPower:
 
 1. **Fingerprints each request** using a hash of method + URL + body
 2. **Tracks in-flight requests** - first occurrence executes normally
-3. **Shares responses** - duplicate requests wait and receive the same response
+3. **Duplicate requests wait** - subsequent identical requests wait for the first to complete and receive its response
 4. **Auto-cleanup** - tracking data is removed after 500ms
 
 This is **client-side deduplication** that prevents duplicate requests from ever leaving your application.
@@ -915,15 +923,6 @@ mix docs
 # Check coverage
 mix test --cover
 ```
-
-## Roadmap
-
-Planned features:
-
-- **Phase 2**: Performance optimization, security features, middleware
-- **Phase 3**: Advanced authentication, monitoring, streaming
-
-Phase 1 (logging, rate limiting, circuit breaker patterns) is complete.
 
 ## Contributing
 
