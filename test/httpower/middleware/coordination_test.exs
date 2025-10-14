@@ -1,4 +1,4 @@
-defmodule HTTPower.CoordinationTest do
+defmodule HTTPower.Middleware.CoordinationTest do
   use ExUnit.Case, async: false
 
   alias HTTPower.Middleware.{CircuitBreaker, RateLimiter}

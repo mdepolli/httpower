@@ -1,4 +1,4 @@
-defmodule HTTPower.ClientUnitTest do
+defmodule HTTPower.ClientTest do
   @moduledoc """
   Unit tests for HTTPower.Client module.
 
