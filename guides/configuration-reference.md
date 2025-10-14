@@ -333,16 +333,16 @@ HTTPower.get(url,
 
 ```elixir
 # Check state
-HTTPower.CircuitBreaker.get_state("my_api")  # => :closed | :open | :half_open | nil
+HTTPower.Feature.CircuitBreaker.get_state("my_api")  # => :closed | :open | :half_open | nil
 
 # Manually open
-HTTPower.CircuitBreaker.open_circuit("my_api")
+HTTPower.Feature.CircuitBreaker.open_circuit("my_api")
 
 # Manually close
-HTTPower.CircuitBreaker.close_circuit("my_api")
+HTTPower.Feature.CircuitBreaker.close_circuit("my_api")
 
 # Reset completely
-HTTPower.CircuitBreaker.reset_circuit("my_api")
+HTTPower.Feature.CircuitBreaker.reset_circuit("my_api")
 ```
 
 ## Logging Configuration

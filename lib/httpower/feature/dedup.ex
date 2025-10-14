@@ -1,4 +1,4 @@
-defmodule HTTPower.Dedup do
+defmodule HTTPower.Feature.Dedup do
   @behaviour HTTPower.Feature
 
   @moduledoc """

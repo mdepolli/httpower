@@ -8,11 +8,11 @@ defmodule HTTPower.Application do
     children =
       [
         # Rate limiter GenServer
-        HTTPower.RateLimiter,
+        HTTPower.Feature.RateLimiter,
         # Circuit breaker GenServer
-        HTTPower.CircuitBreaker,
+        HTTPower.Feature.CircuitBreaker,
         # Request deduplicator GenServer
-        HTTPower.Dedup
+        HTTPower.Feature.Dedup
       ] ++ finch_child()
 
     opts = [strategy: :one_for_one, name: HTTPower.Supervisor]

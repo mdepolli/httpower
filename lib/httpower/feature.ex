@@ -101,9 +101,9 @@ defmodule HTTPower.Feature do
 
   HTTPower includes these built-in features:
 
-  - `HTTPower.RateLimiter` - Token bucket rate limiting
-  - `HTTPower.CircuitBreaker` - Circuit breaker pattern
-  - `HTTPower.Dedup` - Request deduplication
+  - `HTTPower.Feature.RateLimiter` - Token bucket rate limiting
+  - `HTTPower.Feature.CircuitBreaker` - Circuit breaker pattern
+  - `HTTPower.Feature.Dedup` - Request deduplication
 
   See individual module documentation for details.
   """
