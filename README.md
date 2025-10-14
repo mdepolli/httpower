@@ -4,6 +4,7 @@ HTTPower is a production-ready HTTP client library for Elixir that provides bull
 
 [![Hex.pm](https://img.shields.io/hexpm/v/httpower)](https://hex.pm/packages/httpower)
 [![Documentation](https://img.shields.io/badge/docs-hexdocs-blue)](https://hexdocs.pm/httpower)
+[![CI](https://github.com/mdepolli/httpower/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/mdepolli/httpower/actions/workflows/ci.yml)
 
 ## Features
 
