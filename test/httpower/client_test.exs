@@ -417,21 +417,30 @@ defmodule HTTPower.ClientTest do
         end
       end)
 
-      HTTPower.get("https://httpbin.org/get",
+      # Use unique host to filter telemetry events from concurrent tests
+      test_host = "retry-telemetry-test-#{System.unique_integer([:positive])}.example.com"
+      test_url = "https://#{test_host}/get"
+
+      HTTPower.get(test_url,
         max_retries: 3,
         base_delay: 10,
         max_delay: 100
       )
 
-      # Should see 2 retry events
-      assert_received {:telemetry, [:httpower, :retry, :attempt], measurements, metadata}
+      # Should see 2 retry events - filter by host to avoid cross-test interference
+      # Note: URL in telemetry metadata is a %URI{} struct, so we match on host
+      assert_received {:telemetry, [:httpower, :retry, :attempt], measurements,
+                       %{url: %URI{host: ^test_host}} = metadata}
+
       assert measurements.attempt_number == 2
       # Jitter can reduce below base_delay
       assert measurements.delay_ms > 0
       assert metadata.method == :get
       assert metadata.reason == {:http_status, 500}
 
-      assert_received {:telemetry, [:httpower, :retry, :attempt], measurements, _metadata}
+      assert_received {:telemetry, [:httpower, :retry, :attempt], measurements,
+                       %{url: %URI{host: ^test_host}}}
+
       assert measurements.attempt_number == 3
       assert measurements.delay_ms > 0
     end
