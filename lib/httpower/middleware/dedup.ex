@@ -108,8 +108,11 @@ defmodule HTTPower.Middleware.Dedup do
             {:dedup_response, ^ref, response} ->
               :telemetry.execute(
                 [:httpower, :dedup, :wait],
-                %{wait_time_ms: 0},
-                %{dedup_key: dedup_hash}
+                %{wait_time_ms: 0, bypassed_rate_limit: 1},
+                %{
+                  dedup_key: dedup_hash,
+                  coordination: :rate_limit_bypass
+                }
               )
 
               {:halt, response}
@@ -122,8 +125,11 @@ defmodule HTTPower.Middleware.Dedup do
         {:ok, cached_response} ->
           :telemetry.execute(
             [:httpower, :dedup, :cache_hit],
-            %{},
-            %{dedup_key: dedup_hash}
+            %{bypassed_rate_limit: 1},
+            %{
+              dedup_key: dedup_hash,
+              coordination: :rate_limit_bypass
+            }
           )
 
           {:halt, cached_response}

@@ -23,7 +23,8 @@ defmodule HTTPower.Middleware.RateLimiter do
         requests: 100,              # Max requests per time window
         per: :second,               # Time window: :second, :minute, :hour
         strategy: :wait,            # Strategy: :wait or :error
-        max_wait_time: 5000         # Max wait time in ms (default: 5000)
+        max_wait_time: 5000,        # Max wait time in ms (default: 5000)
+        adaptive: true              # Adjust rate based on circuit breaker health (default: false)
 
   ## Usage
 
@@ -52,12 +53,25 @@ defmodule HTTPower.Middleware.RateLimiter do
      - :wait strategy - waits until tokens are available (up to max_wait_time)
      - :error strategy - returns {:error, :too_many_requests}
 
+  ## Adaptive Rate Limiting
+
+  When `adaptive: true` is enabled, rate limits automatically adjust based on
+  circuit breaker health to prevent thundering herd during service recovery:
+
+  - **Circuit closed** (healthy) → 100% rate (full speed)
+  - **Circuit half-open** (recovering) → 50% rate (be gentle)
+  - **Circuit open** (down) → 10% rate (minimal health checks)
+
+  This coordination prevents overwhelming a recovering service with full traffic
+  immediately after it comes back up.
+
   ## Implementation Details
 
   - Uses ETS table for fast in-memory storage
   - Tokens refill continuously based on elapsed time
   - Buckets are automatically cleaned up after inactivity
   - Thread-safe with atomic ETS operations
+  - Adaptive mode queries circuit breaker state (read-only, no coupling)
   """
 
   use GenServer
@@ -112,7 +126,10 @@ defmodule HTTPower.Middleware.RateLimiter do
     if rate_limiting_enabled?(config) do
       rate_limit_key = Keyword.get(config, :rate_limit_key) || request.url.host
 
-      case consume(rate_limit_key, config) do
+      # Adaptive rate limiting: adjust rate based on circuit breaker health
+      adjusted_config = maybe_adjust_rate_for_circuit_state(config, request)
+
+      case consume(rate_limit_key, adjusted_config) do
         :ok ->
           :ok
 
@@ -482,5 +499,58 @@ defmodule HTTPower.Middleware.RateLimiter do
 
   defp schedule_cleanup do
     Process.send_after(self(), :cleanup, @cleanup_interval)
+  end
+
+  # Adaptive rate limiting based on circuit breaker health
+  defp maybe_adjust_rate_for_circuit_state(config, request) do
+    # Only adjust if adaptive mode is enabled
+    if Keyword.get(config, :adaptive, false) do
+      circuit_key = Keyword.get(config, :circuit_breaker_key) || request.url.host
+
+      # Query circuit breaker state (read-only, loose coupling)
+      circuit_state = HTTPower.Middleware.CircuitBreaker.get_state(circuit_key)
+
+      adjust_rate_for_circuit(config, circuit_state, circuit_key)
+    else
+      config
+    end
+  end
+
+  defp adjust_rate_for_circuit(config, nil, _circuit_key) do
+    # Circuit breaker not initialized yet, use normal rate
+    config
+  end
+
+  defp adjust_rate_for_circuit(config, :closed, _circuit_key) do
+    # Service healthy - use full rate (100%)
+    config
+  end
+
+  defp adjust_rate_for_circuit(config, :half_open, circuit_key) do
+    # Service recovering - be conservative (50% of normal rate)
+    original_requests = Keyword.get(config, :requests, 100)
+    adjusted_requests = max(1, div(original_requests, 2))
+
+    :telemetry.execute(
+      [:httpower, :rate_limit, :adaptive_reduction],
+      %{original_rate: original_requests, adjusted_rate: adjusted_requests, reduction_factor: 0.5},
+      %{circuit_key: circuit_key, circuit_state: :half_open, coordination: :circuit_breaker_adaptive}
+    )
+
+    Keyword.put(config, :requests, adjusted_requests)
+  end
+
+  defp adjust_rate_for_circuit(config, :open, circuit_key) do
+    # Service down - minimal rate for health checks (10%)
+    original_requests = Keyword.get(config, :requests, 100)
+    adjusted_requests = max(1, div(original_requests, 10))
+
+    :telemetry.execute(
+      [:httpower, :rate_limit, :adaptive_reduction],
+      %{original_rate: original_requests, adjusted_rate: adjusted_requests, reduction_factor: 0.1},
+      %{circuit_key: circuit_key, circuit_state: :open, coordination: :circuit_breaker_adaptive}
+    )
+
+    Keyword.put(config, :requests, adjusted_requests)
   end
 end

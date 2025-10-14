@@ -36,10 +36,15 @@ defmodule HTTPower.Client do
   # - module: The middleware module implementing HTTPower.Middleware
   # - key: Used for both Application config AND request opts (e.g., :rate_limit, :deduplicate)
   # Middleware are only included in the pipeline if enabled: true in config
+  #
+  # IMPORTANT: Order matters for coordination!
+  # - Dedup runs FIRST so cache hits bypass rate limiting (5x effective capacity)
+  # - RateLimiter runs before circuit breaker (rate limit failures shouldn't open circuit)
+  # - CircuitBreaker runs last to protect the actual HTTP call
   @available_features [
+    {HTTPower.Middleware.Dedup, :deduplicate},
     {HTTPower.Middleware.RateLimiter, :rate_limit},
-    {HTTPower.Middleware.CircuitBreaker, :circuit_breaker},
-    {HTTPower.Middleware.Dedup, :deduplicate}
+    {HTTPower.Middleware.CircuitBreaker, :circuit_breaker}
   ]
 
   # Build request pipeline at compile-time based on enabled middleware
