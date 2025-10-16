@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0] - 2025-10-16
+
+### Fixed
+
+- **Critical: Conditional compilation for optional adapter dependencies**
+  - Wrapped all adapter modules (Finch, Req, Tesla) with `if Code.ensure_loaded?/1`
+  - Adapters now only compile when their dependencies are available
+  - Fixes compilation errors when using HTTPower with only one adapter installed
+  - Enables true optional dependencies - install only what you need
+  - Standard Elixir pattern used by Phoenix, Ecto, and other ecosystem libraries
+
+### Technical Details
+
+- Adapter modules check dependency availability at compile time via `Code.ensure_loaded?/1`
+- When dependency is missing, adapter module is not defined (compilation skipped entirely)
+- Runtime adapter detection (`detect_adapter/0`) already uses `Code.ensure_loaded?/1` - no changes needed
+- All 380 tests passing (368 tests + 12 doctests)
+- Verified compilation with various dependency combinations (Finch only, Req only, all three)
+
 ## [0.13.0] - 2025-10-13
 
 ### Added
@@ -667,7 +686,9 @@ OpentelemetryTelemetry.register_application_tracer(:httpower)
 - Production-ready error handling and logging
 - PCI DSS compliance considerations in design
 
-[unreleased]: https://github.com/mdepolli/httpower/compare/v0.12.0...HEAD
+[unreleased]: https://github.com/mdepolli/httpower/compare/v0.14.0...HEAD
+[0.14.0]: https://github.com/mdepolli/httpower/compare/v0.13.0...v0.14.0
+[0.13.0]: https://github.com/mdepolli/httpower/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/mdepolli/httpower/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/mdepolli/httpower/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/mdepolli/httpower/compare/v0.9.0...v0.10.0
