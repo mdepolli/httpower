@@ -1,156 +1,158 @@
-defmodule HTTPower.Adapter.Req do
-  @moduledoc """
-  Req adapter for HTTPower.
+if Code.ensure_loaded?(Req) do
+  defmodule HTTPower.Adapter.Req do
+    @moduledoc """
+      Req adapter for HTTPower.
 
-  This adapter uses the Req HTTP client library to make HTTP requests. Req is a
-  "batteries-included" HTTP client with features like automatic body encoding/decoding,
-  compression, and more.
+    This adapter uses the Req HTTP client library to make HTTP requests. Req is a
+    "batteries-included" HTTP client with features like automatic body encoding/decoding,
+    compression, and more.
 
-  ## Features
+    ## Features
 
-  - Automatic JSON encoding/decoding
-  - Response body decompression (gzip, brotli, zstd)
-  - SSL/TLS support with configurable verification
-  - Proxy support (system or custom)
-  - Integration with `Req.Test` for testing
+    - Automatic JSON encoding/decoding
+    - Response body decompression (gzip, brotli, zstd)
+    - SSL/TLS support with configurable verification
+    - Proxy support (system or custom)
+    - Integration with `Req.Test` for testing
 
-  ## Configuration
+    ## Configuration
 
-  The Req adapter accepts standard HTTPower options plus any Req-specific options:
+    The Req adapter accepts standard HTTPower options plus any Req-specific options:
 
-  - `timeout` - Request timeout in seconds (converted to milliseconds for Req)
-  - `ssl_verify` - Enable SSL verification (default: true)
-  - `proxy` - Proxy configuration (`:system`, `nil`, or custom options)
-  - `plug` - Req.Test plug for testing (e.g., `{Req.Test, MyApp}`)
+    - `timeout` - Request timeout in seconds (converted to milliseconds for Req)
+    - `ssl_verify` - Enable SSL verification (default: true)
+    - `proxy` - Proxy configuration (`:system`, `nil`, or custom options)
+    - `plug` - Req.Test plug for testing (e.g., `{Req.Test, MyApp}`)
 
-  ## Testing
+    ## Testing
 
-  The Req adapter works seamlessly with `Req.Test` for mocking HTTP requests in tests:
+    The Req adapter works seamlessly with `Req.Test` for mocking HTTP requests in tests:
 
-      # In your test
-      Req.Test.stub(MyApp, fn conn ->
-        Req.Test.json(conn, %{status: "success"})
-      end)
+        # In your test
+        Req.Test.stub(MyApp, fn conn ->
+          Req.Test.json(conn, %{status: "success"})
+        end)
 
-      HTTPower.get("https://api.example.com",
-        adapter: HTTPower.Adapter.Req,
-        plug: {Req.Test, MyApp})
+        HTTPower.get("https://api.example.com",
+          adapter: HTTPower.Adapter.Req,
+          plug: {Req.Test, MyApp})
 
-  ## Important
+    ## Important
 
-  This adapter **disables Req's built-in retry logic** by setting `retry: false`.
-  HTTPower's own retry logic (with exponential backoff and jitter) is used instead,
-  ensuring consistent retry behavior across all adapters.
-  """
+    This adapter **disables Req's built-in retry logic** by setting `retry: false`.
+    HTTPower's own retry logic (with exponential backoff and jitter) is used instead,
+    ensuring consistent retry behavior across all adapters.
+    """
 
-  @behaviour HTTPower.Adapter
+    @behaviour HTTPower.Adapter
 
-  alias HTTPower.Response
+    alias HTTPower.Response
 
-  @impl true
-  def request(method, url, body, headers, opts) do
-    case HTTPower.TestInterceptor.intercept(method, url, body, headers) do
-      {:intercepted, result} -> result
-      :continue -> do_request(method, url, body, headers, opts)
+    @impl true
+    def request(method, url, body, headers, opts) do
+      case HTTPower.TestInterceptor.intercept(method, url, body, headers) do
+        {:intercepted, result} -> result
+        :continue -> do_request(method, url, body, headers, opts)
+      end
     end
-  end
 
-  defp do_request(method, url, body, headers, opts) do
-    timeout = Keyword.get(opts, :timeout, 60)
-    ssl_verify = Keyword.get(opts, :ssl_verify, true)
-    proxy = Keyword.get(opts, :proxy, :system)
+    defp do_request(method, url, body, headers, opts) do
+      timeout = Keyword.get(opts, :timeout, 60)
+      ssl_verify = Keyword.get(opts, :ssl_verify, true)
+      proxy = Keyword.get(opts, :proxy, :system)
 
-    req_opts = build_req_opts(method, url, body, headers, timeout, ssl_verify, proxy, opts)
+      req_opts = build_req_opts(method, url, body, headers, timeout, ssl_verify, proxy, opts)
 
-    case safe_req_request(req_opts) do
-      {:ok, response} -> {:ok, convert_response(response)}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp build_req_opts(method, url, body, headers, timeout, ssl_verify, proxy, opts) do
-    base_opts = [
-      method: method,
-      url: url,
-      headers: prepare_headers(headers, method),
-      receive_timeout: timeout * 1000,
-      # IMPORTANT: Disable Req's built-in retry to avoid conflicts with HTTPower's retry logic
-      retry: false
-    ]
-
-    # Extract any additional options (like :plug for Req.Test)
-    additional_opts =
-      Keyword.drop(opts, [
-        :headers,
-        :max_retries,
-        :retry_safe,
-        :timeout,
-        :ssl_verify,
-        :proxy,
-        :body,
-        :base_delay,
-        :max_delay,
-        :jitter_factor,
-        :adapter
-      ])
-
-    base_opts
-    |> maybe_add_body(body)
-    |> maybe_add_ssl_options(url, ssl_verify)
-    |> maybe_add_proxy_options(proxy)
-    |> Keyword.merge(additional_opts)
-  end
-
-  defp maybe_add_body(opts, nil), do: opts
-  defp maybe_add_body(opts, body), do: Keyword.put(opts, :body, body)
-
-  defp maybe_add_ssl_options(opts, %URI{scheme: "https"}, ssl_verify) do
-    ssl_opts = [verify: if(ssl_verify, do: :verify_peer, else: :verify_none)]
-    Keyword.put(opts, :connect_options, transport_opts: ssl_opts)
-  end
-
-  defp maybe_add_ssl_options(opts, _url, _ssl_verify), do: opts
-
-  defp maybe_add_proxy_options(opts, :system),
-    do: Keyword.put(opts, :connect_options, proxy: :system)
-
-  defp maybe_add_proxy_options(opts, nil), do: opts
-
-  defp maybe_add_proxy_options(opts, proxy_opts) when is_list(proxy_opts) do
-    Keyword.put(opts, :connect_options, proxy: proxy_opts)
-  end
-
-  defp maybe_add_proxy_options(opts, _), do: opts
-
-  defp prepare_headers(headers, :post) do
-    default_post_headers = %{"Content-Type" => "application/x-www-form-urlencoded"}
-
-    Map.merge(default_post_headers, headers)
-    |> Map.put("connection", "close")
-  end
-
-  defp prepare_headers(headers, _method) do
-    Map.put(headers, "connection", "close")
-  end
-
-  defp safe_req_request(req_opts) do
-    try do
-      case Req.request(req_opts) do
-        {:ok, response} -> {:ok, response}
+      case safe_req_request(req_opts) do
+        {:ok, response} -> {:ok, convert_response(response)}
         {:error, reason} -> {:error, reason}
       end
-    rescue
-      error -> {:error, error}
-    catch
-      error -> {:error, error}
     end
-  end
 
-  defp convert_response(%Req.Response{status: status, headers: headers, body: body}) do
-    %Response{
-      status: status,
-      headers: Map.new(headers),
-      body: body
-    }
+    defp build_req_opts(method, url, body, headers, timeout, ssl_verify, proxy, opts) do
+      base_opts = [
+        method: method,
+        url: url,
+        headers: prepare_headers(headers, method),
+        receive_timeout: timeout * 1000,
+        # IMPORTANT: Disable Req's built-in retry to avoid conflicts with HTTPower's retry logic
+        retry: false
+      ]
+
+      # Extract any additional options (like :plug for Req.Test)
+      additional_opts =
+        Keyword.drop(opts, [
+          :headers,
+          :max_retries,
+          :retry_safe,
+          :timeout,
+          :ssl_verify,
+          :proxy,
+          :body,
+          :base_delay,
+          :max_delay,
+          :jitter_factor,
+          :adapter
+        ])
+
+      base_opts
+      |> maybe_add_body(body)
+      |> maybe_add_ssl_options(url, ssl_verify)
+      |> maybe_add_proxy_options(proxy)
+      |> Keyword.merge(additional_opts)
+    end
+
+    defp maybe_add_body(opts, nil), do: opts
+    defp maybe_add_body(opts, body), do: Keyword.put(opts, :body, body)
+
+    defp maybe_add_ssl_options(opts, %URI{scheme: "https"}, ssl_verify) do
+      ssl_opts = [verify: if(ssl_verify, do: :verify_peer, else: :verify_none)]
+      Keyword.put(opts, :connect_options, transport_opts: ssl_opts)
+    end
+
+    defp maybe_add_ssl_options(opts, _url, _ssl_verify), do: opts
+
+    defp maybe_add_proxy_options(opts, :system),
+      do: Keyword.put(opts, :connect_options, proxy: :system)
+
+    defp maybe_add_proxy_options(opts, nil), do: opts
+
+    defp maybe_add_proxy_options(opts, proxy_opts) when is_list(proxy_opts) do
+      Keyword.put(opts, :connect_options, proxy: proxy_opts)
+    end
+
+    defp maybe_add_proxy_options(opts, _), do: opts
+
+    defp prepare_headers(headers, :post) do
+      default_post_headers = %{"Content-Type" => "application/x-www-form-urlencoded"}
+
+      Map.merge(default_post_headers, headers)
+      |> Map.put("connection", "close")
+    end
+
+    defp prepare_headers(headers, _method) do
+      Map.put(headers, "connection", "close")
+    end
+
+    defp safe_req_request(req_opts) do
+      try do
+        case Req.request(req_opts) do
+          {:ok, response} -> {:ok, response}
+          {:error, reason} -> {:error, reason}
+        end
+      rescue
+        error -> {:error, error}
+      catch
+        error -> {:error, error}
+      end
+    end
+
+    defp convert_response(%Req.Response{status: status, headers: headers, body: body}) do
+      %Response{
+        status: status,
+        headers: Map.new(headers),
+        body: body
+      }
+    end
   end
 end
