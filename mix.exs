@@ -41,9 +41,9 @@ defmodule HTTPower.MixProject do
   defp deps do
     [
       # HTTP client adapters - at least one required
-      {:finch, "~> 0.20", optional: true},
-      {:req, "~> 0.4.0", optional: true},
-      {:tesla, "~> 1.11", optional: true},
+      {:finch, ">= 0.19", optional: true},
+      {:req, ">= 0.4", optional: true},
+      {:tesla, ">= 1.10", optional: true},
       # JSON encoding/decoding (required by Finch adapter for auto-decode)
       {:jason, "~> 1.4"},
       # Development dependencies
