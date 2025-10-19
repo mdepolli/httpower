@@ -14,9 +14,7 @@ defmodule HTTPower.TestInterceptor do
     end
   end
 
-  if Mix.env() == :test do
-    defp test_enabled?, do: HTTPower.Test.mock_enabled?()
-  else
-    defp test_enabled?, do: false
+  defp test_enabled? do
+    Code.ensure_loaded?(HTTPower.Test) and HTTPower.Test.mock_enabled?()
   end
 end
