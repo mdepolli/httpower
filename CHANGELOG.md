@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.1] - 2025-10-19
+
+### Changed
+
+- **Relaxed optional dependency version requirements to prevent conflicts**
+  - Changed Finch from `~> 0.20` to `>= 0.19.0` (optional)
+  - Changed Req from `~> 0.4.0` to `>= 0.4.0` (optional)
+  - Changed Tesla from `~> 1.11` to `>= 1.10.0` (optional)
+  - Prevents version conflicts in consuming applications that need different HTTP client versions
+  - For example, apps using Req 0.5+ alongside HTTPower will no longer encounter dependency conflicts
+  - Consuming apps should specify their preferred HTTP client versions in their own mix.exs
+
+### Technical Details
+
+- Optional dependencies now use `>=` instead of `~>` to maximize flexibility
+- Minimum version requirements still ensure compatibility with HTTPower's adapter code
+- All 368 tests passing with current dependency versions
+- This change particularly helps when multiple packages in an app have conflicting requirements for the same HTTP client
+
 ## [0.15.0] - 2025-10-19
 
 ### Fixed

@@ -1,7 +1,7 @@
 defmodule HTTPower.MixProject do
   use Mix.Project
 
-  @version "0.15.0"
+  @version "0.15.1"
   @source_url "https://github.com/mdepolli/httpower"
 
   def project do
@@ -41,9 +41,10 @@ defmodule HTTPower.MixProject do
   defp deps do
     [
       # HTTP client adapters - at least one required
-      {:finch, ">= 0.19", optional: true},
-      {:req, ">= 0.4", optional: true},
-      {:tesla, ">= 1.10", optional: true},
+      # Optional deps use >= with patch version to avoid conflicts in consuming apps
+      {:finch, ">= 0.19.0", optional: true},
+      {:req, ">= 0.4.0", optional: true},
+      {:tesla, ">= 1.10.0", optional: true},
       # JSON encoding/decoding (required by Finch adapter for auto-decode)
       {:jason, "~> 1.4"},
       # Development dependencies
