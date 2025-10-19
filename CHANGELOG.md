@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.0] - 2025-10-19
+
+### Fixed
+
+- **Critical: HTTPower.Test mocking now works when HTTPower is installed from Hex**
+  - Fixed `HTTPower.TestInterceptor` to use runtime checks instead of compile-time `Mix.env()` check
+  - Test interception now works regardless of how HTTPower was compiled (hex package or local path)
+  - Changed from `if Mix.env() == :test` to runtime `Code.ensure_loaded?(HTTPower.Test) and HTTPower.Test.mock_enabled?()`
+  - Enables `HTTPower.Test.stub/1` to work in consuming applications that install HTTPower from Hex
+  - Previously, test mocking only worked when HTTPower was compiled locally in test environment
+
+### Technical Details
+
+- `TestInterceptor.test_enabled?/0` now checks if `HTTPower.Test` module is loaded AND mock is enabled at runtime
+- No changes to test mode blocking logic in `HTTPower.Client` - that continues to work correctly
+- Separation of concerns: test_mode config blocks REAL requests, TestInterceptor enables MOCKED requests
+- All 368 tests passing with zero compilation warnings
+
 ## [0.14.0] - 2025-10-16
 
 ### Fixed
@@ -686,7 +704,8 @@ OpentelemetryTelemetry.register_application_tracer(:httpower)
 - Production-ready error handling and logging
 - PCI DSS compliance considerations in design
 
-[unreleased]: https://github.com/mdepolli/httpower/compare/v0.14.0...HEAD
+[unreleased]: https://github.com/mdepolli/httpower/compare/v0.15.0...HEAD
+[0.15.0]: https://github.com/mdepolli/httpower/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/mdepolli/httpower/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/mdepolli/httpower/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/mdepolli/httpower/compare/v0.11.0...v0.12.0
