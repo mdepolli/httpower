@@ -138,13 +138,11 @@ if Code.ensure_loaded?(Tesla) do
     defp convert_headers(_), do: []
 
     defp safe_tesla_request(client, opts) do
-      try do
-        Tesla.request(client, opts)
-      rescue
-        error -> {:error, error}
-      catch
-        error -> {:error, error}
-      end
+      Tesla.request(client, opts)
+    rescue
+      error -> {:error, error}
+    catch
+      error -> {:error, error}
     end
 
     defp convert_response(%Tesla.Env{} = env) do

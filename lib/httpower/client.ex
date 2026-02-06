@@ -264,7 +264,7 @@ defmodule HTTPower.Client do
     runtime_config = extract_runtime_config(request.opts, option_key)
     merged_config = Keyword.merge(compile_config, runtime_config)
 
-    case apply(module, :handle_request, [request, merged_config]) do
+    case module.handle_request(request, merged_config) do
       :ok -> run_request_steps(request, rest)
       {:ok, modified_request} -> run_request_steps(modified_request, rest)
       {:halt, response} -> {:halt, response}

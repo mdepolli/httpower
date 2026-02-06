@@ -1,6 +1,8 @@
 defmodule HTTPower.Middleware.RateLimiter do
   @behaviour HTTPower.Middleware
 
+  alias HTTPower.Middleware.CircuitBreaker
+
   @moduledoc """
   Token bucket rate limiter for HTTPower.
 
@@ -508,7 +510,7 @@ defmodule HTTPower.Middleware.RateLimiter do
       circuit_key = Keyword.get(config, :circuit_breaker_key) || request.url.host
 
       # Query circuit breaker state (read-only, loose coupling)
-      circuit_state = HTTPower.Middleware.CircuitBreaker.get_state(circuit_key)
+      circuit_state = CircuitBreaker.get_state(circuit_key)
 
       adjust_rate_for_circuit(config, circuit_state, circuit_key)
     else

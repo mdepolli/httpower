@@ -244,51 +244,50 @@ defmodule HTTPower.Test do
       """
     end
 
-    try do
-      # Prepare headers the same way adapters would
-      prepared_headers = prepare_headers(headers, method)
+    run_stub(stub, method, url, body, headers)
+  end
 
-      # Create Plug.Conn from request parameters
-      uri = URI.parse(url)
-      path = uri.path || "/"
+  defp run_stub(stub, method, url, body, headers) do
+    conn = build_conn(method, url, body, headers)
+    conn = stub.(conn)
+    conn_to_result(conn)
+  rescue
+    error ->
+      {:error,
+       %HTTPower.Error{
+         reason: :test_stub_error,
+         message: Exception.message(error)
+       }}
+  end
 
-      conn =
-        Plug.Test.conn(atom_to_http_method(method), path, body || "")
-        |> Map.put(:host, uri.host)
-        |> Map.put(:port, uri.port)
-        |> Map.put(:scheme, String.to_atom(uri.scheme || "https"))
-        |> put_request_headers(prepared_headers)
-        |> Map.put(:query_string, uri.query || "")
+  defp build_conn(method, url, body, headers) do
+    prepared_headers = prepare_headers(headers, method)
+    uri = URI.parse(url)
+    path = uri.path || "/"
 
-      # Execute stub
-      conn = stub.(conn)
+    Plug.Test.conn(atom_to_http_method(method), path, body || "")
+    |> Map.put(:host, uri.host)
+    |> Map.put(:port, uri.port)
+    |> Map.put(:scheme, String.to_atom(uri.scheme || "https"))
+    |> put_request_headers(prepared_headers)
+    |> Map.put(:query_string, uri.query || "")
+  end
 
-      # Check if a transport error was simulated
-      case conn.private[:httpower_transport_error] do
-        nil ->
-          # Normal response
-          {:ok,
-           %HTTPower.Response{
-             status: conn.status || 200,
-             headers: format_headers(conn.resp_headers),
-             body: parse_body(conn.resp_body)
-           }}
+  defp conn_to_result(conn) do
+    case conn.private[:httpower_transport_error] do
+      nil ->
+        {:ok,
+         %HTTPower.Response{
+           status: conn.status || 200,
+           headers: format_headers(conn.resp_headers),
+           body: parse_body(conn.resp_body)
+         }}
 
-        reason ->
-          # Transport error was simulated
-          {:error,
-           %HTTPower.Error{
-             reason: :test_transport_error,
-             message: "Simulated transport error: #{reason}"
-           }}
-      end
-    rescue
-      error ->
-        # Convert exceptions to error tuples, matching HTTPower's error handling
+      reason ->
         {:error,
          %HTTPower.Error{
-           reason: :test_stub_error,
-           message: Exception.message(error)
+           reason: :test_transport_error,
+           message: "Simulated transport error: #{reason}"
          }}
     end
   end

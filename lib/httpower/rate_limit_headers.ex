@@ -106,9 +106,8 @@ defmodule HTTPower.RateLimitHeaders do
   defp parse_auto(headers) do
     # Try formats in order of popularity
     with {:error, :not_found} <- parse_github_style(headers),
-         {:error, :not_found} <- parse_rfc_style(headers),
-         {:error, :not_found} <- parse_stripe_style(headers) do
-      {:error, :not_found}
+         {:error, :not_found} <- parse_rfc_style(headers) do
+      parse_stripe_style(headers)
     end
   end
 

@@ -550,26 +550,18 @@ defmodule HTTPower.Logger do
   defp sanitize_map(map) when is_map(map) do
     sanitize_fields = get_sanitize_body_fields()
 
-    Enum.reduce(map, %{}, fn {key, value}, acc ->
+    Map.new(map, fn {key, value} ->
       normalized_key = key |> to_string() |> String.downcase()
 
-      sanitized_value =
-        if normalized_key in sanitize_fields do
-          "[REDACTED]"
-        else
-          case value do
-            v when is_map(v) -> sanitize_map(v)
-            v when is_list(v) -> Enum.map(v, &sanitize_value/1)
-            v when is_binary(v) -> sanitize_string_value(v)
-            v -> v
-          end
-        end
+      sanitized =
+        if normalized_key in sanitize_fields, do: "[REDACTED]", else: sanitize_value(value)
 
-      Map.put(acc, key, sanitized_value)
+      {key, sanitized}
     end)
   end
 
   defp sanitize_value(value) when is_map(value), do: sanitize_map(value)
+  defp sanitize_value(value) when is_list(value), do: Enum.map(value, &sanitize_value/1)
   defp sanitize_value(value) when is_binary(value), do: sanitize_string_value(value)
   defp sanitize_value(value), do: value
 

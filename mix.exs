@@ -49,7 +49,8 @@ defmodule HTTPower.MixProject do
       {:jason, "~> 1.4"},
       # Development dependencies
       {:plug, "~> 1.15", only: :test},
-      {:ex_doc, "~> 0.31", only: :dev, runtime: false}
+      {:ex_doc, "~> 0.31", only: :dev, runtime: false},
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false}
     ]
   end
 

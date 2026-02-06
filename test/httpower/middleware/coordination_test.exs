@@ -114,7 +114,7 @@ defmodule HTTPower.Middleware.CoordinationTest do
       events = Agent.get(agent, & &1)
 
       # Should have at least one cache hit event
-      assert length(events) >= 1
+      assert events != []
 
       # Check that coordination metadata is present
       {measurements, metadata} = List.first(events)
@@ -174,7 +174,7 @@ defmodule HTTPower.Middleware.CoordinationTest do
       events = Agent.get(agent, & &1)
 
       # Should have recorded an adaptive reduction
-      assert length(events) >= 1
+      assert events != []
 
       event = List.first(events)
       assert event.measurements[:original_rate] == 100
@@ -235,7 +235,7 @@ defmodule HTTPower.Middleware.CoordinationTest do
 
       # Note: This test may not trigger if circuit breaker doesn't support half-open state
       # In that case, we'll verify the logic exists
-      if length(events) > 0 do
+      if events != [] do
         event = List.first(events)
         # Either half-open or open
         assert event.measurements[:reduction_factor] in [0.5, 0.1]

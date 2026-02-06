@@ -180,34 +180,35 @@ defmodule HTTPower.Middleware.CircuitBreaker do
           {:ok, term()} | {:error, term()}
   def call(circuit_key, fun, config \\ []) do
     if circuit_breaker_enabled?(config) do
-      case check_and_allow_request(circuit_key, config) do
-        {:ok, :allowed} ->
-          # Record result asynchronously (non-blocking)
-          result = fun.()
-
-          case result do
-            {:ok, _} ->
-              GenServer.cast(__MODULE__, {:record_success, circuit_key, config})
-
-            {:error, _} ->
-              GenServer.cast(__MODULE__, {:record_failure, circuit_key, config})
-          end
-
-          result
-
-        {:error, :service_unavailable} ->
-          :telemetry.execute(
-            [:httpower, :circuit_breaker, :open],
-            %{},
-            %{circuit_key: circuit_key}
-          )
-
-          {:error, :service_unavailable}
-      end
+      execute_with_circuit(circuit_key, fun, config)
     else
       fun.()
     end
   end
+
+  defp execute_with_circuit(circuit_key, fun, config) do
+    case check_and_allow_request(circuit_key, config) do
+      {:ok, :allowed} ->
+        result = fun.()
+        record_result(result, circuit_key, config)
+        result
+
+      {:error, :service_unavailable} ->
+        :telemetry.execute(
+          [:httpower, :circuit_breaker, :open],
+          %{},
+          %{circuit_key: circuit_key}
+        )
+
+        {:error, :service_unavailable}
+    end
+  end
+
+  defp record_result({:ok, _}, circuit_key, config),
+    do: GenServer.cast(__MODULE__, {:record_success, circuit_key, config})
+
+  defp record_result({:error, _}, circuit_key, config),
+    do: GenServer.cast(__MODULE__, {:record_failure, circuit_key, config})
 
   @doc """
   Records a successful request for the circuit.

@@ -134,13 +134,11 @@ if Code.ensure_loaded?(Req) do
     end
 
     defp safe_req_request(req_opts) do
-      try do
-        Req.request(req_opts)
-      rescue
-        error -> {:error, error}
-      catch
-        error -> {:error, error}
-      end
+      Req.request(req_opts)
+    rescue
+      error -> {:error, error}
+    catch
+      error -> {:error, error}
     end
 
     defp convert_response(%Req.Response{status: status, headers: headers, body: body}) do

@@ -108,7 +108,7 @@ defmodule HTTPower.Middleware do
   See individual module documentation for details.
   """
 
-  alias HTTPower.{Request, Response, Error}
+  alias HTTPower.{Error, Request, Response}
 
   @doc """
   Handles a request in the pipeline.

@@ -300,7 +300,7 @@ defmodule HTTPower.RateLimitHeadersTest do
     test "handles large values" do
       headers = %{"retry-after" => "86400"}
 
-      assert {:ok, 86400} = RateLimitHeaders.parse_retry_after(headers)
+      assert {:ok, 86_400} = RateLimitHeaders.parse_retry_after(headers)
     end
 
     test "handles integer value directly (some adapters)" do
