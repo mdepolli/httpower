@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Retry-After HTTP date format support (RFC 7231)** - `parse_retry_after/1` now parses
+  IMF-fixdate values (e.g., `Wed, 21 Oct 2015 07:28:00 GMT`) in addition to integer seconds.
+  Converts the date to seconds-until-that-time for use in retry backoff. Dates in the past
+  are treated as missing. Previously only integer seconds were supported.
+
+### Changed
+
+- **CI matrix updated for Elixir 1.19 / OTP 28** - Added Elixir 1.19 and OTP 28 to test
+  matrix, dropped OTP 25. Format, deps, and coverage jobs now run on latest versions.
+- **Credo strict compliance** - Resolved all 14 credo strict issues: implicit try in adapters,
+  reduced function nesting/complexity, sorted aliases, removed redundant with clause, replaced
+  apply/3 with direct call, and other cleanups.
+- **Telemetry warning fix** - Replaced anonymous function handlers with module-qualified
+  captures to eliminate `:telemetry` performance warnings.
+- **Code simplification** - Consolidated duplicate `error_message/1` into `Error.message/1`,
+  removed dead code, simplified control flow. Net -159 lines.
+
 ## [0.15.1] - 2025-10-19
 
 ### Changed
@@ -422,7 +441,7 @@ OpentelemetryTelemetry.register_application_tracer(:httpower)
 - Parser handles all adapter header formats (Req's list of tuples, Tesla's various formats)
 - Integration updates token bucket state to match server's remaining count
 - Comprehensive test coverage: 38 tests for parser, 7 tests for integration, 5 tests for Retry-After
-- HTTP date format in `Retry-After` not yet supported (only integer seconds)
+- HTTP date format in `Retry-After` supported since [Unreleased] (previously only integer seconds)
 - **Automatic backoff** - Retry logic respects `Retry-After` header on 429/503 responses
   - When server provides `Retry-After` header (integer seconds), HTTPower uses that exact wait time
   - Falls back to exponential backoff when header is missing
