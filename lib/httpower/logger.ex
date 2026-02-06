@@ -186,7 +186,7 @@ defmodule HTTPower.Logger do
     :telemetry.attach_many(
       @handler_id,
       events,
-      &handle_event/4,
+      &HTTPower.Logger.handle_event/4,
       config
     )
   end

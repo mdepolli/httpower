@@ -2,6 +2,8 @@ defmodule HTTPowerTest do
   use ExUnit.Case, async: true
   doctest HTTPower
 
+  alias HTTPower.TelemetryTestHelper
+
   setup do
     HTTPower.Test.setup()
   end
@@ -715,10 +717,8 @@ defmodule HTTPowerTest do
       :telemetry.attach_many(
         ref,
         events,
-        fn event, measurements, metadata, _config ->
-          send(test_pid, {:telemetry, event, measurements, metadata})
-        end,
-        nil
+        &TelemetryTestHelper.forward_event/4,
+        %{test_pid: test_pid}
       )
 
       on_exit(fn -> :telemetry.detach(ref) end)

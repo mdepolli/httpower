@@ -12,6 +12,7 @@ defmodule HTTPower.Middleware.DedupTest do
 
   use ExUnit.Case, async: true
   alias HTTPower.Middleware.Dedup
+  alias HTTPower.TelemetryTestHelper
 
   setup do
     # Request deduplicator starts with Application
@@ -400,10 +401,8 @@ defmodule HTTPower.Middleware.DedupTest do
       :telemetry.attach_many(
         ref,
         events,
-        fn event, measurements, metadata, _config ->
-          send(test_pid, {:telemetry, event, measurements, metadata})
-        end,
-        nil
+        &TelemetryTestHelper.forward_event/4,
+        %{test_pid: test_pid}
       )
 
       on_exit(fn -> :telemetry.detach(ref) end)

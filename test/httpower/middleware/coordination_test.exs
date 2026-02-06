@@ -2,6 +2,7 @@ defmodule HTTPower.Middleware.CoordinationTest do
   use ExUnit.Case, async: false
 
   alias HTTPower.Middleware.{CircuitBreaker, RateLimiter}
+  alias HTTPower.TelemetryTestHelper
 
   setup_all do
     Application.put_env(:httpower, :test_mode, true)
@@ -34,20 +35,8 @@ defmodule HTTPower.Middleware.CoordinationTest do
           [:httpower, :dedup, :cache_hit],
           [:httpower, :rate_limit, :ok]
         ],
-        fn
-          [:httpower, :dedup, :cache_hit], measurements, _metadata, _config ->
-            bypassed = Map.get(measurements, :bypassed_rate_limit, 0)
-
-            Agent.update(agent, fn state ->
-              Map.update!(state, :rate_limit_bypassed, &(&1 + bypassed))
-            end)
-
-          [:httpower, :rate_limit, :ok], _measurements, _metadata, _config ->
-            Agent.update(agent, fn state ->
-              Map.update!(state, :rate_limit_consumed, &(&1 + 1))
-            end)
-        end,
-        nil
+        &TelemetryTestHelper.dedup_bypass_counter/4,
+        %{agent: agent}
       )
 
       # Configure: strict rate limit (5 req/sec) + dedup enabled
@@ -98,12 +87,8 @@ defmodule HTTPower.Middleware.CoordinationTest do
       :telemetry.attach(
         ref,
         [:httpower, :dedup, :cache_hit],
-        fn _event, measurements, metadata, _config ->
-          Agent.update(agent, fn events ->
-            [{measurements, metadata} | events]
-          end)
-        end,
-        nil
+        &TelemetryTestHelper.agent_collect_tuple/4,
+        %{agent: agent}
       )
 
       HTTPower.Test.stub(fn conn ->
@@ -178,12 +163,8 @@ defmodule HTTPower.Middleware.CoordinationTest do
       :telemetry.attach(
         ref,
         [:httpower, :rate_limit, :adaptive_reduction],
-        fn _event, measurements, metadata, _config ->
-          Agent.update(agent, fn events ->
-            [%{measurements: measurements, metadata: metadata} | events]
-          end)
-        end,
-        nil
+        &TelemetryTestHelper.agent_collect_event/4,
+        %{agent: agent}
       )
 
       # Make a request - should trigger adaptive reduction
@@ -243,12 +224,8 @@ defmodule HTTPower.Middleware.CoordinationTest do
       :telemetry.attach(
         ref,
         [:httpower, :rate_limit, :adaptive_reduction],
-        fn _event, measurements, metadata, _config ->
-          Agent.update(agent, fn events ->
-            [%{measurements: measurements, metadata: metadata} | events]
-          end)
-        end,
-        nil
+        &TelemetryTestHelper.agent_collect_event/4,
+        %{agent: agent}
       )
 
       RateLimiter.handle_request(request, config)
@@ -300,12 +277,8 @@ defmodule HTTPower.Middleware.CoordinationTest do
       :telemetry.attach(
         ref,
         [:httpower, :rate_limit, :adaptive_reduction],
-        fn _event, measurements, metadata, _config ->
-          Agent.update(agent, fn events ->
-            [%{measurements: measurements, metadata: metadata} | events]
-          end)
-        end,
-        nil
+        &TelemetryTestHelper.agent_collect_event/4,
+        %{agent: agent}
       )
 
       RateLimiter.handle_request(request, config)
@@ -350,12 +323,8 @@ defmodule HTTPower.Middleware.CoordinationTest do
       :telemetry.attach(
         ref,
         [:httpower, :rate_limit, :adaptive_reduction],
-        fn _event, measurements, metadata, _config ->
-          Agent.update(agent, fn events ->
-            [%{measurements: measurements, metadata: metadata} | events]
-          end)
-        end,
-        nil
+        &TelemetryTestHelper.agent_collect_event/4,
+        %{agent: agent}
       )
 
       RateLimiter.handle_request(request, config)

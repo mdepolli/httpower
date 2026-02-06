@@ -3,6 +3,7 @@ defmodule HTTPower.Middleware.RateLimiterTest do
 
   alias HTTPower.Middleware.RateLimiter
   alias HTTPower.RateLimitHeaders
+  alias HTTPower.TelemetryTestHelper
 
   setup do
     # Reset any existing buckets before each test
@@ -534,10 +535,8 @@ defmodule HTTPower.Middleware.RateLimiterTest do
       :telemetry.attach_many(
         ref,
         events,
-        fn event, measurements, metadata, _config ->
-          send(test_pid, {:telemetry, event, measurements, metadata})
-        end,
-        nil
+        &TelemetryTestHelper.forward_event/4,
+        %{test_pid: test_pid}
       )
 
       on_exit(fn -> :telemetry.detach(ref) end)

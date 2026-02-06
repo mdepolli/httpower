@@ -2,6 +2,7 @@ defmodule HTTPower.Middleware.CircuitBreakerTest do
   use ExUnit.Case, async: false
 
   alias HTTPower.Middleware.CircuitBreaker
+  alias HTTPower.TelemetryTestHelper
 
   # Helper function to wait for async state changes (cast-based recording)
   defp await_state(circuit_key, expected_state, timeout \\ 100) do
@@ -634,10 +635,8 @@ defmodule HTTPower.Middleware.CircuitBreakerTest do
       :telemetry.attach_many(
         ref,
         events,
-        fn event, measurements, metadata, _config ->
-          send(test_pid, {:telemetry, event, measurements, metadata})
-        end,
-        nil
+        &TelemetryTestHelper.forward_event/4,
+        %{test_pid: test_pid}
       )
 
       on_exit(fn -> :telemetry.detach(ref) end)
