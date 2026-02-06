@@ -188,9 +188,64 @@ defmodule HTTPower.RateLimitHeaders do
   defp parse_retry_after_value(value) when is_binary(value) do
     case Integer.parse(value) do
       {seconds, ""} -> {:ok, seconds}
-      _ -> {:error, :not_found}
+      _ -> parse_http_date(value)
     end
   end
 
   defp parse_retry_after_value(_), do: {:error, :not_found}
+
+  # Parses RFC 7231 HTTP date format: "Wed, 21 Oct 2015 07:28:00 GMT"
+  # Returns {:ok, seconds_until} or {:error, :not_found}
+  defp parse_http_date(value) do
+    with {:ok, datetime} <- parse_imf_fixdate(String.trim(value)),
+         seconds_until = DateTime.diff(datetime, DateTime.utc_now()),
+         true <- seconds_until >= 0 do
+      {:ok, seconds_until}
+    else
+      _ -> {:error, :not_found}
+    end
+  end
+
+  @months %{
+    "Jan" => 1,
+    "Feb" => 2,
+    "Mar" => 3,
+    "Apr" => 4,
+    "May" => 5,
+    "Jun" => 6,
+    "Jul" => 7,
+    "Aug" => 8,
+    "Sep" => 9,
+    "Oct" => 10,
+    "Nov" => 11,
+    "Dec" => 12
+  }
+
+  # Parses IMF-fixdate: "Wed, 21 Oct 2015 07:28:00 GMT"
+  defp parse_imf_fixdate(value) do
+    case Regex.run(
+           ~r/^\w{3}, (\d{2}) (\w{3}) (\d{4}) (\d{2}):(\d{2}):(\d{2}) GMT$/,
+           value
+         ) do
+      [_, day, month_name, year, hour, minute, second] ->
+        with {:ok, month} <- Map.fetch(@months, month_name),
+             {:ok, date} <-
+               Date.new(
+                 String.to_integer(year),
+                 month,
+                 String.to_integer(day)
+               ),
+             {:ok, time} <-
+               Time.new(
+                 String.to_integer(hour),
+                 String.to_integer(minute),
+                 String.to_integer(second)
+               ) do
+          DateTime.new(date, time, "Etc/UTC")
+        end
+
+      _ ->
+        {:error, :not_found}
+    end
+  end
 end

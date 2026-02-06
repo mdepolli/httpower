@@ -273,8 +273,40 @@ defmodule HTTPower.RateLimitHeadersTest do
       assert {:ok, 90} = RateLimitHeaders.parse_retry_after(headers)
     end
 
-    test "returns error for HTTP date format (not yet supported)" do
+    test "parses HTTP date format (IMF-fixdate)" do
+      # Set a date 60 seconds in the future
+      future = DateTime.add(DateTime.utc_now(), 60, :second)
+
+      date_string =
+        Calendar.strftime(future, "%a, %d %b %Y %H:%M:%S GMT")
+
+      headers = %{"retry-after" => date_string}
+
+      assert {:ok, seconds} = RateLimitHeaders.parse_retry_after(headers)
+      # Allow 2 seconds of tolerance for test execution time
+      assert seconds >= 58 and seconds <= 62
+    end
+
+    test "parses HTTP date format with various dates" do
+      future = DateTime.add(DateTime.utc_now(), 3600, :second)
+
+      date_string =
+        Calendar.strftime(future, "%a, %d %b %Y %H:%M:%S GMT")
+
+      headers = %{"retry-after" => date_string}
+
+      assert {:ok, seconds} = RateLimitHeaders.parse_retry_after(headers)
+      assert seconds >= 3598 and seconds <= 3602
+    end
+
+    test "returns error for HTTP date in the past" do
       headers = %{"retry-after" => "Wed, 21 Oct 2015 07:28:00 GMT"}
+
+      assert {:error, :not_found} = RateLimitHeaders.parse_retry_after(headers)
+    end
+
+    test "returns error for malformed HTTP date" do
+      headers = %{"retry-after" => "NotADate, 99 Foo 2099 99:99:99 GMT"}
 
       assert {:error, :not_found} = RateLimitHeaders.parse_retry_after(headers)
     end
