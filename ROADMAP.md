@@ -1,15 +1,16 @@
 # HTTPower Roadmap
 
-A reliable HTTP client library for Elixir with advanced reliability patterns for production applications. Works with Req or Tesla through an adapter pattern.
+A reliable HTTP client library for Elixir with advanced reliability patterns for production applications. Works with Finch (default), Req, or Tesla through an adapter pattern.
 
 ## Current Status ✅
 
-**Core Foundation (v0.1.0 - v0.8.1)**
+**Core Foundation (v0.1.0 - v0.15.1)**
 
 - ✅ Basic HTTP methods (GET, POST, PUT, DELETE)
-- ✅ Adapter pattern supporting Req and Tesla HTTP clients
-- ✅ Test mode request blocking with Req.Test integration
-- ✅ Smart retry logic with exponential backoff and jitter
+- ✅ Adapter pattern supporting Finch (default), Req, and Tesla HTTP clients
+- ✅ All adapters optional, conditionally compiled via `Code.ensure_loaded?/1`
+- ✅ Adapter-agnostic testing via `HTTPower.Test`
+- ✅ Smart retry logic with exponential backoff and jitter (extracted to `HTTPower.Retry`)
 - ✅ HTTP status code retry logic (408, 429, 500-504)
 - ✅ Automatic backoff respecting Retry-After headers (429/503)
 - ✅ Clean error handling (never raises exceptions)
@@ -18,15 +19,23 @@ A reliable HTTP client library for Elixir with advanced reliability patterns for
 - ✅ Request timeout management
 - ✅ Client configuration pattern with reusable configs
 - ✅ PCI-compliant request/response logging with automatic sanitization
+- ✅ Structured logging with metadata for log aggregation (Datadog, Splunk, ELK, Loki)
 - ✅ Request correlation IDs for distributed tracing
 - ✅ Request timing and duration tracking
 - ✅ Built-in rate limiting with token bucket algorithm
+- ✅ Adaptive rate limiting based on circuit breaker health
 - ✅ Rate limit headers parsing and synchronization
 - ✅ Per-endpoint and per-client rate limit configuration
 - ✅ Circuit breaker pattern with three states (closed, open, half-open)
 - ✅ Failure threshold tracking with sliding window
-- ✅ Request deduplication with hash-based fingerprinting
-- ✅ Comprehensive test suite (328 tests, 98%+ coverage)
+- ✅ Request deduplication with hash-based fingerprinting and response sharing
+- ✅ Middleware pipeline architecture (compile-time assembly, zero overhead for disabled middleware)
+- ✅ Intelligent middleware coordination (dedup bypasses rate limiter, adaptive rate limiting)
+- ✅ Configuration profiles (payment_processing, high_volume_api, microservices_mesh)
+- ✅ Comprehensive telemetry integration (HTTP lifecycle, retry, rate limiter, circuit breaker, dedup)
+- ✅ Compile-time config caching, ETS write concurrency, async circuit breaker recording
+- ✅ OTP supervision tree with Finch connection pool management
+- ✅ Comprehensive test suite (368 tests + 12 doctests, 86%+ coverage)
 
 ## Phase 1: Production Reliability ✅ COMPLETED
 
@@ -61,62 +70,49 @@ A reliable HTTP client library for Elixir with advanced reliability patterns for
 - ✅ Per-client and per-endpoint circuit breaker keys
 - ✅ Works seamlessly with existing retry logic
 
-## Phase 2: Advanced Features 🔮
+## Phase 2: Advanced Features
 
-**Priority 1: Core Reliability Enhancements**
+**Completed ✅**
 
-- [x] **Request deduplication** ✅ - Prevent duplicate requests from double-clicks, retries, or race conditions
+- [x] **Request deduplication** ✅ (v0.7.0)
   - ✅ Hash-based deduplication (method + URL + body)
   - ✅ Response sharing - duplicate requests wait for in-flight request
-  - ✅ Automatic cleanup with 500ms TTL
+  - ✅ Automatic cleanup with configurable TTL
   - ✅ Custom deduplication keys for fine-grained control
-  - ✅ Critical for payment processing and order creation
 
-**Priority 2: Observability & Monitoring**
-
-- [x] **Telemetry integration** ✅ - Complete observability with Elixir's :telemetry
+- [x] **Telemetry integration** ✅ (v0.9.0)
   - ✅ HTTP request lifecycle events (start, stop, exception)
-  - ✅ Retry attempt tracking with delay and reason
-  - ✅ Rate limiter events (ok, wait, exceeded)
-  - ✅ Circuit breaker state transitions and open events
-  - ✅ Deduplication events (execute, wait, cache_hit)
-  - ✅ Rich measurements and metadata for all events
+  - ✅ Retry, rate limiter, circuit breaker, dedup events
+  - ✅ Rich measurements and metadata
   - ✅ URL sanitization for low cardinality metrics
-  - ✅ Integration examples for Prometheus, OpenTelemetry, LiveDashboard
-  - ✅ Comprehensive observability guide
+  - ✅ Observability guide with Prometheus, OpenTelemetry, LiveDashboard examples
 
-**Priority 3: Smart Rate Limiting**
-
-- [x] **Rate limit headers parsing** ✅ - Automatic detection from server responses
+- [x] **Rate limit headers parsing** ✅ (v0.7.0)
   - ✅ Support X-RateLimit-*, RateLimit-*, Retry-After headers
   - ✅ Dynamic rate limit adjustment based on server responses
-  - ✅ Rate limit quota tracking and reporting
-  - ✅ Automatic backoff when server indicates limits (respects Retry-After on 429/503)
 
-**Priority 4: Circuit Breaker Enhancements**
+- [x] **Middleware pipeline architecture** ✅ (v0.11.0-v0.13.0)
+  - ✅ `HTTPower.Middleware` behaviour for composable pre-request middleware
+  - ✅ Compile-time pipeline assembly with zero overhead for disabled middleware
+  - ✅ Per-client and per-request middleware configuration
+  - ✅ Custom middleware support via `@behaviour HTTPower.Middleware`
+  - ✅ Middleware coordination (dedup bypasses rate limiter, adaptive rate limiting)
+
+- [x] **Configuration profiles** ✅ (v0.13.0)
+  - ✅ Pre-configured profiles: payment_processing, high_volume_api, microservices_mesh
+  - ✅ Deep merge with explicit option overrides
+
+**Next Up**
+
+- [ ] **Post-response middleware pipeline** - Extend middleware to post-response transformations
+  - Generic post-response hook system (currently hardcoded for circuit breaker/dedup)
+  - Post-response middleware for logging, caching, response transformation
+  - Lifecycle hooks (on_success, on_failure, on_retry)
 
 - [ ] **Circuit state notifications/callbacks** - Enable alerting and monitoring
   - Callbacks for state transitions (closed → open, etc.)
   - Configurable notification handlers
   - Integration with monitoring systems
-
-**Priority 5: Middleware & Extensibility**
-
-- [ ] **Request/response middleware pipeline** - Composable request/response transformations
-  - Middleware chain execution (pre-request, post-response)
-  - Built-in middleware: logging, caching, authentication
-  - Custom middleware support (user-defined transformations)
-  - Per-client and per-request middleware configuration
-  - Compatible with existing adapter system (Req, Tesla)
-
-- [ ] **Plugin/hook system** - Extensibility points for custom behavior
-  - Pre-request hooks (modify request before execution)
-  - Post-response hooks (transform response data)
-  - Error hooks (custom error handling/recovery)
-  - Lifecycle hooks (on_success, on_failure, on_retry)
-  - Plug-style composability
-
-**Priority 6: Authentication & Caching**
 
 - [ ] **OAuth 2.0 token management** - Automatic token refresh and management
   - Automatic token refresh before expiry
@@ -137,17 +133,19 @@ A reliable HTTP client library for Elixir with advanced reliability patterns for
   - Common pagination patterns (offset, cursor, page number)
   - Lazy enumeration of all pages
   - Configurable page size and limits
-  - Works with existing retry and rate limiting
 - [ ] Response validation helpers
 - [ ] Bulk operation batching
 
 ## Phase 3: Ecosystem Integration 🌐
 
+- [ ] Prometheus metrics export
+- [ ] Response streaming for large payloads
+
 ## Design Principles
 
 1. **Production First**: Every feature must be production-ready with comprehensive tests
-2. **Adapter-Based**: Support multiple HTTP clients (Req, Tesla) through adapter pattern, ensuring production features work consistently across all adapters
-3. **Zero-Config Sensible Defaults**: Work great out of the box with Req adapter, configure when needed
+2. **Adapter-Based**: Support multiple HTTP clients (Finch, Req, Tesla) through adapter pattern, ensuring production features work consistently across all adapters
+3. **Zero-Config Sensible Defaults**: Work great out of the box with Finch adapter, configure when needed
 4. **Elixir Idiomatic**: Use proper Elixir patterns (GenServer, supervision, etc.)
 5. **Never Break**: Comprehensive backward compatibility and smooth upgrades
 6. **PCI Compliance**: Built-in security features for payment processing ✅
