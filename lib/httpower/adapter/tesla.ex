@@ -103,9 +103,8 @@ if Code.ensure_loaded?(Tesla) do
       # Build Tesla request options
       tesla_opts = build_tesla_opts(method, url, body, headers)
 
-      case safe_tesla_request(tesla_client, tesla_opts) do
-        {:ok, env} -> {:ok, convert_response(env)}
-        {:error, reason} -> {:error, reason}
+      with {:ok, env} <- safe_tesla_request(tesla_client, tesla_opts) do
+        {:ok, convert_response(env)}
       end
     end
 
@@ -140,10 +139,7 @@ if Code.ensure_loaded?(Tesla) do
 
     defp safe_tesla_request(client, opts) do
       try do
-        case Tesla.request(client, opts) do
-          {:ok, env} -> {:ok, env}
-          {:error, reason} -> {:error, reason}
-        end
+        Tesla.request(client, opts)
       rescue
         error -> {:error, error}
       catch

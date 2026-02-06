@@ -55,7 +55,6 @@ defmodule HTTPower.Middleware.Dedup do
   """
 
   use GenServer
-  require Logger
 
   # Compile-time config caching for performance (avoids repeated Application.get_env calls)
   @default_config Application.compile_env(:httpower, :deduplicate, [])

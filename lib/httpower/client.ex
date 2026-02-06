@@ -15,7 +15,6 @@ defmodule HTTPower.Client do
   HTTP client.
   """
 
-  require Logger
   alias HTTPower.{Error, Request, Response}
   alias HTTPower.Middleware.{CircuitBreaker, Dedup}
 
@@ -109,7 +108,7 @@ defmodule HTTPower.Client do
         {:error, %Error{reason: :network_blocked, message: "Network access blocked in test mode"}}
 
       {:error, reason} ->
-        {:error, %Error{reason: reason, message: error_message(reason)}}
+        {:error, %Error{reason: reason, message: Error.message(reason)}}
     end
   end
 
@@ -158,16 +157,9 @@ defmodule HTTPower.Client do
       result =
         case run_request_steps(request, pipeline) do
           {:ok, %Request{} = final_request} ->
-            # Pipeline completed - execute HTTP request
-            case execute_http_with_retry(final_request) do
-              {:ok, response} ->
-                handle_post_request(final_request, {:ok, response})
-                {:ok, response}
-
-              {:error, _} = error ->
-                handle_post_request(final_request, error)
-                error
-            end
+            result = execute_http_with_retry(final_request)
+            handle_post_request(final_request, result)
+            result
 
           {:halt, %Response{} = response} ->
             # Pipeline short-circuited (e.g., dedup cache hit, circuit breaker open)
@@ -178,7 +170,7 @@ defmodule HTTPower.Client do
             error
 
           {:error, reason} ->
-            {:error, %Error{reason: reason, message: error_message(reason)}}
+            {:error, %Error{reason: reason, message: Error.message(reason)}}
         end
 
       response_metadata =
@@ -244,37 +236,29 @@ defmodule HTTPower.Client do
   end
 
   defp handle_post_request(request, result) do
-    case Request.get_private(request, :circuit_breaker) do
-      {circuit_key, circuit_config} ->
-        case result do
-          {:ok, _} -> CircuitBreaker.record_success(circuit_key, circuit_config)
-          {:error, _} -> CircuitBreaker.record_failure(circuit_key, circuit_config)
-        end
+    if cb = Request.get_private(request, :circuit_breaker) do
+      {circuit_key, circuit_config} = cb
 
-      nil ->
-        :ok
+      case result do
+        {:ok, _} -> CircuitBreaker.record_success(circuit_key, circuit_config)
+        {:error, _} -> CircuitBreaker.record_failure(circuit_key, circuit_config)
+      end
     end
 
-    case Request.get_private(request, :dedup) do
-      {dedup_hash, dedup_config} ->
-        case result do
-          {:ok, response} -> Dedup.complete(dedup_hash, response, dedup_config)
-          {:error, _} -> Dedup.cancel(dedup_hash)
-        end
+    if dedup = Request.get_private(request, :dedup) do
+      {dedup_hash, dedup_config} = dedup
 
-      nil ->
-        :ok
+      case result do
+        {:ok, response} -> Dedup.complete(dedup_hash, response, dedup_config)
+        {:error, _} -> Dedup.cancel(dedup_hash)
+      end
     end
   end
 
   # Pipeline Execution - Generic recursive step executor
 
-  @doc false
-  # Fast path: empty pipeline (all features disabled)
   defp run_request_steps(request, []), do: {:ok, request}
 
-  @doc false
-  # Generic step execution - works for ANY middleware
   defp run_request_steps(request, [{module, option_key, compile_config} | rest]) do
     # Merge runtime config from request.opts (runtime takes precedence)
     runtime_config = extract_runtime_config(request.opts, option_key)
@@ -395,23 +379,4 @@ defmodule HTTPower.Client do
 
     not test_mode or httpower_test_enabled or has_plug or has_adapter_with_config
   end
-
-  # Error Handling
-
-  defp error_message(%Mint.TransportError{reason: reason}), do: error_message(reason)
-  defp error_message({:http_status, status, _response}), do: "HTTP #{status} error"
-
-  # Plug-compatible error atoms
-  defp error_message(:too_many_requests), do: "Too many requests"
-  defp error_message(:service_unavailable), do: "Service unavailable"
-
-  # HTTPower-specific error atoms (transport/network errors)
-  defp error_message(:timeout), do: "Request timeout"
-  defp error_message(:econnrefused), do: "Connection refused"
-  defp error_message(:econnreset), do: "Connection reset"
-  defp error_message(:nxdomain), do: "Domain not found"
-  defp error_message(:closed), do: "Connection closed"
-  defp error_message(:dedup_timeout), do: "Request deduplication timeout"
-
-  defp error_message(reason), do: inspect(reason)
 end

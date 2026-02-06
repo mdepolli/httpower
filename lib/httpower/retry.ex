@@ -347,14 +347,5 @@ defmodule HTTPower.Retry do
   end
 
   defp wrap_error(%Error{} = error), do: {:error, error}
-  defp wrap_error(reason), do: {:error, %Error{reason: reason, message: error_message(reason)}}
-
-  defp error_message(%Mint.TransportError{reason: reason}), do: error_message(reason)
-  defp error_message({:http_status, status, _response}), do: "HTTP #{status} error"
-  defp error_message(:timeout), do: "Request timeout"
-  defp error_message(:econnrefused), do: "Connection refused"
-  defp error_message(:econnreset), do: "Connection reset"
-  defp error_message(:nxdomain), do: "Domain not found"
-  defp error_message(:closed), do: "Connection closed"
-  defp error_message(reason), do: inspect(reason)
+  defp wrap_error(reason), do: {:error, %Error{reason: reason, message: Error.message(reason)}}
 end

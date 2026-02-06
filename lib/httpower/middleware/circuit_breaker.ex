@@ -338,7 +338,7 @@ defmodule HTTPower.Middleware.CircuitBreaker do
           {:ok, :allowed}
 
         :open ->
-          timeout = get_timeout(config)
+          timeout = get_config(config, :timeout)
 
           if circuit_state.opened_at && now - circuit_state.opened_at >= timeout do
             new_circuit_state = %{circuit_state | state: :half_open, half_open_attempts: 0}
@@ -355,7 +355,7 @@ defmodule HTTPower.Middleware.CircuitBreaker do
           end
 
         :half_open ->
-          half_open_requests = get_half_open_requests(config)
+          half_open_requests = get_config(config, :half_open_requests)
 
           if circuit_state.half_open_attempts >= half_open_requests do
             {:error, :service_unavailable}
@@ -440,13 +440,13 @@ defmodule HTTPower.Middleware.CircuitBreaker do
   end
 
   defp add_success(circuit_state, now, config) do
-    window_size = get_window_size(config)
+    window_size = get_config(config, :window_size)
     requests = [{:success, now} | circuit_state.requests] |> Enum.take(window_size)
     %{circuit_state | requests: requests}
   end
 
   defp add_failure(circuit_state, now, config) do
-    window_size = get_window_size(config)
+    window_size = get_config(config, :window_size)
     requests = [{:failure, now} | circuit_state.requests] |> Enum.take(window_size)
     %{circuit_state | requests: requests}
   end
@@ -454,7 +454,7 @@ defmodule HTTPower.Middleware.CircuitBreaker do
   defp maybe_transition_from_half_open_to_closed(circuit_state, config) do
     # In half-open, we need to successfully complete ALL test requests before closing
     with :half_open <- circuit_state.state,
-         half_open_requests <- get_half_open_requests(config),
+         half_open_requests <- get_config(config, :half_open_requests),
          successful_attempts <- count_successes(circuit_state.requests),
          true <- successful_attempts >= half_open_requests do
       Logger.info(
@@ -510,9 +510,9 @@ defmodule HTTPower.Middleware.CircuitBreaker do
   end
 
   defp should_open?(circuit_state, config) do
-    failure_threshold = get_failure_threshold(config)
-    failure_percentage = get_failure_threshold_percentage(config)
-    window_size = get_window_size(config)
+    failure_threshold = get_config(config, :failure_threshold)
+    failure_percentage = get_config(config, :failure_threshold_percentage)
+    window_size = get_config(config, :window_size)
 
     failure_count = count_failures(circuit_state.requests)
     total_count = length(circuit_state.requests)
@@ -538,53 +538,17 @@ defmodule HTTPower.Middleware.CircuitBreaker do
     Enum.count(requests, fn {result, _timestamp} -> result == :success end)
   end
 
-  defp get_failure_threshold(config) do
+  @config_defaults %{
+    failure_threshold: @default_failure_threshold,
+    failure_threshold_percentage: @default_failure_threshold_percentage,
+    window_size: @default_window_size,
+    timeout: @default_timeout,
+    half_open_requests: @default_half_open_requests
+  }
+
+  defp get_config(config, key) do
     runtime_config = Application.get_env(:httpower, :circuit_breaker, [])
-
-    Keyword.get(
-      config,
-      :failure_threshold,
-      Keyword.get(runtime_config, :failure_threshold, @default_failure_threshold)
-    )
-  end
-
-  defp get_failure_threshold_percentage(config) do
-    runtime_config = Application.get_env(:httpower, :circuit_breaker, [])
-
-    Keyword.get(
-      config,
-      :failure_threshold_percentage,
-      Keyword.get(
-        runtime_config,
-        :failure_threshold_percentage,
-        @default_failure_threshold_percentage
-      )
-    )
-  end
-
-  defp get_window_size(config) do
-    runtime_config = Application.get_env(:httpower, :circuit_breaker, [])
-
-    Keyword.get(
-      config,
-      :window_size,
-      Keyword.get(runtime_config, :window_size, @default_window_size)
-    )
-  end
-
-  defp get_timeout(config) do
-    runtime_config = Application.get_env(:httpower, :circuit_breaker, [])
-    Keyword.get(config, :timeout, Keyword.get(runtime_config, :timeout, @default_timeout))
-  end
-
-  defp get_half_open_requests(config) do
-    runtime_config = Application.get_env(:httpower, :circuit_breaker, [])
-
-    Keyword.get(
-      config,
-      :half_open_requests,
-      Keyword.get(runtime_config, :half_open_requests, @default_half_open_requests)
-    )
+    Keyword.get(config, key, Keyword.get(runtime_config, key, @config_defaults[key]))
   end
 
   # Telemetry Helpers

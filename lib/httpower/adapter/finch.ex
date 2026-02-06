@@ -68,9 +68,8 @@ if Code.ensure_loaded?(Finch) do
 
       finch_opts = build_finch_opts(url, timeout, ssl_verify, proxy)
 
-      case safe_finch_request(method, url, body, headers, finch_opts) do
-        {:ok, response} -> {:ok, convert_response(response)}
-        {:error, reason} -> {:error, reason}
+      with {:ok, response} <- safe_finch_request(method, url, body, headers, finch_opts) do
+        {:ok, convert_response(response)}
       end
     end
 
@@ -126,10 +125,7 @@ if Code.ensure_loaded?(Finch) do
         url_string = if is_binary(url), do: url, else: URI.to_string(url)
         request = Finch.build(method, url_string, format_headers(prepared_headers), body || "")
 
-        case Finch.request(request, HTTPower.Finch, opts) do
-          {:ok, response} -> {:ok, response}
-          {:error, reason} -> {:error, reason}
-        end
+        Finch.request(request, HTTPower.Finch, opts)
       rescue
         error -> {:error, error}
       catch

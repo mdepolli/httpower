@@ -98,14 +98,9 @@ defmodule HTTPower.RateLimitHeaders do
   # Private functions
 
   defp normalize_headers(headers) do
-    headers
-    |> Enum.map(fn {key, value} ->
-      # Normalize key to lowercase string
-      normalized_key = key |> to_string() |> String.downcase()
-      # Keep value as-is (might be string or list)
-      {normalized_key, value}
+    Map.new(headers, fn {key, value} ->
+      {key |> to_string() |> String.downcase(), value}
     end)
-    |> Enum.into(%{})
   end
 
   defp parse_auto(headers) do
@@ -192,25 +187,11 @@ defmodule HTTPower.RateLimitHeaders do
   defp get_integer_header(_headers, _key, _value), do: {:error, :not_found}
 
   defp parse_retry_after_value(value) when is_binary(value) do
-    # Try parsing as integer (seconds)
     case Integer.parse(value) do
-      {seconds, ""} ->
-        {:ok, seconds}
-
-      _ ->
-        # Try parsing as HTTP date
-        parse_http_date(value)
+      {seconds, ""} -> {:ok, seconds}
+      _ -> {:error, :not_found}
     end
   end
 
   defp parse_retry_after_value(_), do: {:error, :not_found}
-
-  defp parse_http_date(date_string) do
-    # Parse HTTP date format and calculate seconds until that time
-    # Format: "Wed, 21 Oct 2015 07:28:00 GMT"
-    # For now, we'll return an error for HTTP dates and require integer seconds
-    # This can be enhanced later if needed
-    _ = date_string
-    {:error, :not_found}
-  end
 end

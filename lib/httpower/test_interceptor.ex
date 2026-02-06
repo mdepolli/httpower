@@ -15,6 +15,6 @@ defmodule HTTPower.TestInterceptor do
   end
 
   defp test_enabled? do
-    Code.ensure_loaded?(HTTPower.Test) and HTTPower.Test.mock_enabled?()
+    HTTPower.Test.mock_enabled?()
   end
 end

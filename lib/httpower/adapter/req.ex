@@ -63,9 +63,8 @@ if Code.ensure_loaded?(Req) do
 
       req_opts = build_req_opts(method, url, body, headers, timeout, ssl_verify, proxy, opts)
 
-      case safe_req_request(req_opts) do
-        {:ok, response} -> {:ok, convert_response(response)}
-        {:error, reason} -> {:error, reason}
+      with {:ok, response} <- safe_req_request(req_opts) do
+        {:ok, convert_response(response)}
       end
     end
 
@@ -136,10 +135,7 @@ if Code.ensure_loaded?(Req) do
 
     defp safe_req_request(req_opts) do
       try do
-        case Req.request(req_opts) do
-          {:ok, response} -> {:ok, response}
-          {:error, reason} -> {:error, reason}
-        end
+        Req.request(req_opts)
       rescue
         error -> {:error, error}
       catch

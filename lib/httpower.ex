@@ -361,37 +361,13 @@ defmodule HTTPower do
     |> Keyword.put(:headers, merged_headers)
   end
 
-  # Deep merge keyword lists, handling nested middleware configs
-  # For keys like :rate_limit, :circuit_breaker, :deduplicate, merge the nested options
-  # rather than replacing them entirely
+  @nested_config_keys [:rate_limit, :circuit_breaker, :deduplicate]
+
   defp deep_merge_options(profile_config, user_opts) do
-    # Keys that should be deep merged (nested keyword lists)
-    nested_keys = [:rate_limit, :circuit_breaker, :deduplicate]
-
-    # First, handle nested key merging
-    merged_nested =
-      Enum.reduce(nested_keys, [], fn key, acc ->
-        case {Keyword.get(profile_config, key), Keyword.get(user_opts, key)} do
-          {profile_val, user_val} when is_list(profile_val) and is_list(user_val) ->
-            # Both exist - deep merge them (user opts override profile)
-            [{key, Keyword.merge(profile_val, user_val)} | acc]
-
-          _ ->
-            # One or both are missing/non-list - will be handled by regular merge
-            acc
-        end
-      end)
-
-    # Start with profile config, add deep-merged nested keys, then merge user opts
-    # User opts for non-nested keys will override, but nested keys are already merged
-    profile_config
-    |> Keyword.merge(merged_nested)
-    |> Keyword.merge(user_opts, fn key, _profile_val, user_val ->
-      if key in nested_keys and Keyword.has_key?(merged_nested, key) do
-        # Use the deep-merged value we already computed
-        Keyword.get(merged_nested, key)
+    Keyword.merge(profile_config, user_opts, fn key, profile_val, user_val ->
+      if key in @nested_config_keys and is_list(profile_val) and is_list(user_val) do
+        Keyword.merge(profile_val, user_val)
       else
-        # Use user value
         user_val
       end
     end)

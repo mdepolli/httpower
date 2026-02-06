@@ -367,81 +367,45 @@ defmodule HTTPower.Logger do
   ## Private Functions
 
   defp build_request_metadata(correlation_id, metadata, config) do
-    base_metadata = [
+    [
       httpower_correlation_id: correlation_id,
       httpower_event: :request,
       httpower_method: metadata.method,
       httpower_url: metadata.url
-    ]
-
-    headers_metadata =
-      if config.log_headers do
-        headers = Map.get(metadata, :headers, %{})
-
-        if map_size(headers) > 0 do
-          sanitized_headers = sanitize_headers(headers)
-          [httpower_headers: sanitized_headers]
-        else
-          []
-        end
-      else
-        []
-      end
-
-    body_metadata =
-      if config.log_body do
-        body = Map.get(metadata, :body)
-
-        if body do
-          sanitized_body = sanitize_body(body)
-          [httpower_body: truncate_for_metadata(sanitized_body)]
-        else
-          []
-        end
-      else
-        []
-      end
-
-    base_metadata ++ headers_metadata ++ body_metadata
+    ] ++
+      maybe_headers_metadata(:httpower_headers, metadata, config) ++
+      maybe_body_metadata(:httpower_body, metadata, config)
   end
 
   defp build_response_metadata(correlation_id, status, duration_ms, metadata, config) do
-    base_metadata = [
+    [
       httpower_correlation_id: correlation_id,
       httpower_event: :response,
       httpower_status: status,
       httpower_duration_ms: duration_ms
-    ]
+    ] ++
+      maybe_headers_metadata(:httpower_response_headers, metadata, config) ++
+      maybe_body_metadata(:httpower_response_body, metadata, config)
+  end
 
-    headers_metadata =
-      if config.log_headers do
-        headers = Map.get(metadata, :headers, %{})
+  defp maybe_headers_metadata(key, metadata, config) do
+    headers = Map.get(metadata, :headers, %{})
 
-        if map_size(headers) > 0 do
-          sanitized_headers = sanitize_headers(headers)
-          [httpower_response_headers: sanitized_headers]
-        else
-          []
-        end
-      else
-        []
-      end
+    if config.log_headers and map_size(headers) > 0 do
+      [{key, sanitize_headers(headers)}]
+    else
+      []
+    end
+  end
 
-    body_metadata =
-      if config.log_body do
-        body = Map.get(metadata, :body)
+  defp maybe_body_metadata(key, metadata, config) do
+    body = Map.get(metadata, :body)
 
-        if body do
-          sanitized_body = sanitize_body(body)
-          [httpower_response_body: truncate_for_metadata(sanitized_body)]
-        else
-          []
-        end
-      else
-        []
-      end
-
-    base_metadata ++ headers_metadata ++ body_metadata
+    if config.log_body and body do
+      [{key, body |> sanitize_body() |> truncate_for_metadata()}]
+    else
+      []
+    end
   end
 
   defp truncate_for_metadata(body) when is_binary(body) do
