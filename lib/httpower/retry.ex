@@ -199,10 +199,6 @@ defmodule HTTPower.Retry do
     retryable_status?(status)
   end
 
-  def retryable_error?(%Mint.TransportError{reason: reason}, retry_safe) do
-    retryable_transport_error?(reason, retry_safe)
-  end
-
   def retryable_error?(reason, retry_safe) when is_atom(reason) do
     retryable_transport_error?(reason, retry_safe)
   end

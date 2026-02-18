@@ -141,10 +141,13 @@ if Code.ensure_loaded?(Req) do
     defp safe_req_request(req_opts) do
       Req.request(req_opts)
     rescue
-      error -> {:error, error}
+      error -> {:error, unwrap_transport_error(error)}
     catch
       error -> {:error, error}
     end
+
+    defp unwrap_transport_error(%{__struct__: Mint.TransportError, reason: reason}), do: reason
+    defp unwrap_transport_error(error), do: error
 
     defp convert_response(%Req.Response{status: status, headers: headers, body: body}) do
       %Response{

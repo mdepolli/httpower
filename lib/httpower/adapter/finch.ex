@@ -126,10 +126,13 @@ if Code.ensure_loaded?(Finch) do
 
       Finch.request(request, HTTPower.Finch, opts)
     rescue
-      error -> {:error, error}
+      error -> {:error, unwrap_transport_error(error)}
     catch
       error -> {:error, error}
     end
+
+    defp unwrap_transport_error(%{__struct__: Mint.TransportError, reason: reason}), do: reason
+    defp unwrap_transport_error(error), do: error
 
     defp prepare_headers(headers, :post) do
       default_post_headers = %{"Content-Type" => "application/x-www-form-urlencoded"}

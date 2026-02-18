@@ -17,7 +17,6 @@ defmodule HTTPower.Error do
         }
 
   @doc false
-  def message(%Mint.TransportError{reason: reason}), do: message(reason)
   def message({:http_status, status, _response}), do: "HTTP #{status} error"
   def message(:timeout), do: "Request timeout"
   def message(:econnrefused), do: "Connection refused"
