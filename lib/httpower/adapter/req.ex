@@ -106,18 +106,25 @@ if Code.ensure_loaded?(Req) do
 
     defp maybe_add_ssl_options(opts, %URI{scheme: "https"}, ssl_verify) do
       ssl_opts = [verify: if(ssl_verify, do: :verify_peer, else: :verify_none)]
-      Keyword.put(opts, :connect_options, transport_opts: ssl_opts)
+      existing = Keyword.get(opts, :connect_options, [])
+      updated = Keyword.put(existing, :transport_opts, ssl_opts)
+      Keyword.put(opts, :connect_options, updated)
     end
 
     defp maybe_add_ssl_options(opts, _url, _ssl_verify), do: opts
 
-    defp maybe_add_proxy_options(opts, :system),
-      do: Keyword.put(opts, :connect_options, proxy: :system)
+    defp maybe_add_proxy_options(opts, :system) do
+      existing = Keyword.get(opts, :connect_options, [])
+      updated = Keyword.put(existing, :proxy, :system)
+      Keyword.put(opts, :connect_options, updated)
+    end
 
     defp maybe_add_proxy_options(opts, nil), do: opts
 
     defp maybe_add_proxy_options(opts, proxy_opts) when is_list(proxy_opts) do
-      Keyword.put(opts, :connect_options, proxy: proxy_opts)
+      existing = Keyword.get(opts, :connect_options, [])
+      updated = Keyword.put(existing, :proxy, proxy_opts)
+      Keyword.put(opts, :connect_options, updated)
     end
 
     defp maybe_add_proxy_options(opts, _), do: opts

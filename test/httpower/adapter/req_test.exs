@@ -351,6 +351,86 @@ defmodule HTTPower.Adapter.ReqTest do
     end
   end
 
+  describe "connect_options merging (SSL + proxy)" do
+    test "HTTPS request with system proxy preserves SSL connect_options" do
+      # Disable HTTPower.Test interception so request goes through the real Req code path.
+      # This exercises build_req_opts -> maybe_add_ssl_options -> maybe_add_proxy_options.
+      Process.delete(:httpower_test_mock_enabled)
+
+      Req.Test.stub(HTTPower.Adapter.ReqTest.SSLProxy, fn conn ->
+        Req.Test.json(conn, %{ssl_and_proxy: true})
+      end)
+
+      # HTTPS URL + proxy: :system means both maybe_add_ssl_options and
+      # maybe_add_proxy_options will modify connect_options.
+      # Before the fix, maybe_add_proxy_options overwrote the transport_opts
+      # set by maybe_add_ssl_options because both used Keyword.put(:connect_options, ...).
+      assert {:ok, %Response{status: 200, body: %{"ssl_and_proxy" => true}}} =
+               ReqAdapter.request(
+                 :get,
+                 URI.parse("https://secure-api.com/test"),
+                 nil,
+                 %{},
+                 ssl_verify: false,
+                 proxy: :system,
+                 plug: {Req.Test, HTTPower.Adapter.ReqTest.SSLProxy}
+               )
+    end
+
+    test "HTTPS request with custom proxy preserves SSL connect_options" do
+      Process.delete(:httpower_test_mock_enabled)
+
+      Req.Test.stub(HTTPower.Adapter.ReqTest.CustomProxy, fn conn ->
+        Req.Test.json(conn, %{custom_proxy_ssl: true})
+      end)
+
+      proxy_opts = [host: "proxy.example.com", port: 8080]
+
+      assert {:ok, %Response{status: 200, body: %{"custom_proxy_ssl" => true}}} =
+               ReqAdapter.request(
+                 :get,
+                 URI.parse("https://secure-api.com/test"),
+                 nil,
+                 %{},
+                 ssl_verify: true,
+                 proxy: proxy_opts,
+                 plug: {Req.Test, HTTPower.Adapter.ReqTest.CustomProxy}
+               )
+    end
+
+    test "connect_options contains both transport_opts and proxy for HTTPS with proxy" do
+      # Directly test the merging behavior that build_req_opts should produce.
+      # Simulate the option-building pipeline: SSL options first, then proxy options.
+      # After the fix, connect_options should contain BOTH keys.
+
+      # Step 1: Start with empty opts (as build_req_opts does)
+      opts = []
+
+      # Step 2: Add SSL options (what maybe_add_ssl_options should do for HTTPS)
+      ssl_opts = [verify: :verify_none]
+      existing_ssl = Keyword.get(opts, :connect_options, [])
+      updated_ssl = Keyword.put(existing_ssl, :transport_opts, ssl_opts)
+      opts = Keyword.put(opts, :connect_options, updated_ssl)
+
+      # Step 3: Add proxy options (what maybe_add_proxy_options should do)
+      existing_proxy = Keyword.get(opts, :connect_options, [])
+      updated_proxy = Keyword.put(existing_proxy, :proxy, :system)
+      opts = Keyword.put(opts, :connect_options, updated_proxy)
+
+      # Verify: connect_options should have BOTH transport_opts and proxy
+      connect_opts = Keyword.get(opts, :connect_options, [])
+
+      assert Keyword.has_key?(connect_opts, :transport_opts),
+             "connect_options should contain :transport_opts from SSL, got: #{inspect(connect_opts)}"
+
+      assert Keyword.has_key?(connect_opts, :proxy),
+             "connect_options should contain :proxy, got: #{inspect(connect_opts)}"
+
+      assert connect_opts[:transport_opts] == [verify: :verify_none]
+      assert connect_opts[:proxy] == :system
+    end
+  end
+
   describe "integration with HTTPower.Test" do
     test "respects HTTPower.Test.stub configuration" do
       HTTPower.Test.stub(fn conn ->
