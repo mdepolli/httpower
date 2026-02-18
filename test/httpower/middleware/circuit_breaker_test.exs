@@ -644,7 +644,9 @@ defmodule HTTPower.Middleware.CircuitBreakerTest do
 
       Process.sleep(100)
 
-      assert_received {[:httpower, :circuit_breaker, :state_change], ^ref, _measurements, metadata}
+      assert_received {[:httpower, :circuit_breaker, :state_change], ^ref, _measurements,
+                       metadata}
+
       assert metadata.circuit_key == circuit_key
       refute metadata.circuit_key == "unknown"
     end

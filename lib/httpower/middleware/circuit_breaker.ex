@@ -414,7 +414,11 @@ defmodule HTTPower.Middleware.CircuitBreaker do
   ## Private Functions
 
   defp circuit_breaker_enabled?(config) do
-    HTTPower.Config.enabled?(config, :circuit_breaker, Keyword.get(@default_config, :enabled, false))
+    HTTPower.Config.enabled?(
+      config,
+      :circuit_breaker,
+      Keyword.get(@default_config, :enabled, false)
+    )
   end
 
   defp check_and_allow_request(circuit_key, config) do
