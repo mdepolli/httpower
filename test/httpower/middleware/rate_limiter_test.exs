@@ -352,6 +352,46 @@ defmodule HTTPower.Middleware.RateLimiterTest do
       assert {:error, :too_many_requests, _} =
                RateLimiter.check_rate_limit("concurrent_bucket", config)
     end
+
+    test "consume atomically checks and consumes in a single GenServer call" do
+      # consume/2 must check token availability and consume in a single atomic
+      # GenServer.call to prevent race conditions where concurrent callers both
+      # pass the check before either consumes.
+      config = [enabled: true, requests: 3, per: :hour, strategy: :error]
+
+      # Three consumes should succeed (3 tokens available)
+      assert :ok = RateLimiter.consume("atomic_bucket", config)
+      assert :ok = RateLimiter.consume("atomic_bucket", config)
+      assert :ok = RateLimiter.consume("atomic_bucket", config)
+
+      # Fourth should fail
+      assert {:error, :too_many_requests} = RateLimiter.consume("atomic_bucket", config)
+
+      # Verify token state: tokens should be exactly 0 (not negative)
+      {tokens, _ts} = RateLimiter.get_bucket_state("atomic_bucket")
+
+      assert tokens >= 0.0,
+             "Tokens went negative (#{tokens}), indicating consume subtracted without checking"
+    end
+
+    test "consume is atomic — tokens cannot go negative" do
+      # consume/2 uses a single atomic GenServer.call that checks and consumes
+      # in one step. This prevents the race condition where separate check+consume
+      # calls allowed multiple processes to pass the check before any consumed.
+      config = [enabled: true, requests: 1, per: :hour, strategy: :error]
+
+      # Consume the only token
+      assert :ok = RateLimiter.consume("atomic_single_bucket", config)
+
+      # Second consume must fail
+      assert {:error, :too_many_requests} = RateLimiter.consume("atomic_single_bucket", config)
+
+      # Tokens must never go negative — the failed consume should not decrement
+      {tokens, _ts} = RateLimiter.get_bucket_state("atomic_single_bucket")
+
+      assert tokens >= 0.0,
+             "Tokens went to #{tokens} — failed consume should not decrement tokens"
+    end
   end
 
   describe "rate limit header integration" do

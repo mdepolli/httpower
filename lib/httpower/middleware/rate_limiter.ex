@@ -72,7 +72,7 @@ defmodule HTTPower.Middleware.RateLimiter do
   - Uses ETS table for fast in-memory storage
   - Tokens refill continuously based on elapsed time
   - Buckets are automatically cleaned up after inactivity
-  - Thread-safe with atomic ETS operations
+  - Thread-safe with atomic check-and-consume via GenServer serialization
   - Adaptive mode queries circuit breaker state (read-only, no coupling)
   """
 
@@ -198,13 +198,8 @@ defmodule HTTPower.Middleware.RateLimiter do
     if rate_limiting_enabled?(config) do
       strategy = get_strategy(config)
 
-      case check_rate_limit(bucket_key, config) do
-        {:ok, :disabled} ->
-          :ok
-
+      case GenServer.call(__MODULE__, {:check_and_consume, bucket_key, config}) do
         {:ok, remaining} ->
-          GenServer.call(__MODULE__, {:consume_token, bucket_key, config})
-
           :telemetry.execute(
             [:httpower, :rate_limit, :ok],
             %{tokens_remaining: remaining, wait_time_ms: 0},
@@ -326,47 +321,30 @@ defmodule HTTPower.Middleware.RateLimiter do
 
   @impl true
   def handle_call({:check_rate_limit, bucket_key, config}, _from, state) do
-    {max_tokens, refill_rate} = get_bucket_params(config, state.default_config)
-    now_ms = System.monotonic_time(:millisecond)
-
-    {current_tokens, last_refill_ms} =
-      case :ets.lookup(@table_name, bucket_key) do
-        [{^bucket_key, bucket_state}] -> bucket_state
-        [] -> {max_tokens, now_ms}
-      end
-
-    elapsed_ms = now_ms - last_refill_ms
-    refilled_tokens = min(max_tokens, current_tokens + elapsed_ms * refill_rate)
+    {refill_rate, refilled_tokens, now_ms} = refill_bucket(bucket_key, config, state)
 
     if refilled_tokens >= 1.0 do
-      # Update bucket state (but don't consume yet)
       :ets.insert(@table_name, {bucket_key, {refilled_tokens, now_ms}})
       {:reply, {:ok, refilled_tokens}, state}
     else
-      tokens_needed = 1.0 - refilled_tokens
-      wait_time_ms = trunc(Float.ceil(tokens_needed / refill_rate))
+      wait_time_ms = calculate_wait_time(refilled_tokens, refill_rate)
       {:reply, {:error, :too_many_requests, wait_time_ms}, state}
     end
   end
 
   @impl true
-  def handle_call({:consume_token, bucket_key, config}, _from, state) do
-    {max_tokens, refill_rate} = get_bucket_params(config, state.default_config)
-    now_ms = System.monotonic_time(:millisecond)
+  def handle_call({:check_and_consume, bucket_key, config}, _from, state) do
+    {refill_rate, refilled_tokens, now_ms} = refill_bucket(bucket_key, config, state)
 
-    {current_tokens, last_refill_ms} =
-      case :ets.lookup(@table_name, bucket_key) do
-        [{^bucket_key, bucket_state}] -> bucket_state
-        [] -> {max_tokens, now_ms}
-      end
-
-    elapsed_ms = now_ms - last_refill_ms
-    refilled_tokens = min(max_tokens, current_tokens + elapsed_ms * refill_rate)
-    new_tokens = refilled_tokens - 1.0
-
-    :ets.insert(@table_name, {bucket_key, {new_tokens, now_ms}})
-
-    {:reply, :ok, state}
+    if refilled_tokens >= 1.0 do
+      new_tokens = refilled_tokens - 1.0
+      :ets.insert(@table_name, {bucket_key, {new_tokens, now_ms}})
+      {:reply, {:ok, new_tokens}, state}
+    else
+      :ets.insert(@table_name, {bucket_key, {refilled_tokens, now_ms}})
+      wait_time_ms = calculate_wait_time(refilled_tokens, refill_rate)
+      {:reply, {:error, :too_many_requests, wait_time_ms}, state}
+    end
   end
 
   @impl true
@@ -398,6 +376,27 @@ defmodule HTTPower.Middleware.RateLimiter do
   end
 
   ## Private Functions
+
+  defp refill_bucket(bucket_key, config, state) do
+    {max_tokens, refill_rate} = get_bucket_params(config, state.default_config)
+    now_ms = System.monotonic_time(:millisecond)
+
+    {current_tokens, last_refill_ms} =
+      case :ets.lookup(@table_name, bucket_key) do
+        [{^bucket_key, bucket_state}] -> bucket_state
+        [] -> {max_tokens, now_ms}
+      end
+
+    elapsed_ms = now_ms - last_refill_ms
+    refilled_tokens = min(max_tokens, current_tokens + elapsed_ms * refill_rate)
+
+    {refill_rate, refilled_tokens, now_ms}
+  end
+
+  defp calculate_wait_time(refilled_tokens, refill_rate) do
+    tokens_needed = 1.0 - refilled_tokens
+    trunc(Float.ceil(tokens_needed / refill_rate))
+  end
 
   defp rate_limiting_enabled?(config) do
     case Keyword.get(config, :enabled) do

@@ -103,6 +103,13 @@ defmodule HTTPower.Middleware.Dedup do
           {:ok, modified_request}
 
         {:ok, :wait, ref} ->
+          # The ref is shared across all waiters for the same in-flight request.
+          # It's created when the first request starts and used to correlate the
+          # response broadcast in handle_cast(:complete). If the ETS entry is
+          # cleaned up and recreated between this point and the receive (e.g., the
+          # original request completes and a new one starts with the same hash),
+          # the waiter will not match the new ref and will fall through to the
+          # 30-second timeout. This is safe — the timeout produces a clean error.
           receive do
             {:dedup_response, ^ref, response} ->
               :telemetry.execute(
@@ -259,7 +266,10 @@ defmodule HTTPower.Middleware.Dedup do
         {:reply, {:ok, :execute}, state}
 
       [{^hash, {:in_flight, waiters}, ref, _ts}] ->
-        # Monitor the waiter to detect if it dies/times out
+        # Return the original request's ref so the waiter can match the response
+        # broadcast in handle_cast(:complete). All waiters for the same in-flight
+        # request share this ref, which is safe because the complete broadcast
+        # sends to all registered waiters using the same ref.
         Process.monitor(caller_pid)
         :ets.update_element(state.table, hash, {2, {:in_flight, [caller_pid | waiters]}})
         {:reply, {:ok, :wait, ref}, state}
