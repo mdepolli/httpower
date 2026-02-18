@@ -384,7 +384,7 @@ defmodule HTTPower.Middleware.CircuitBreaker do
     new_circuit_state =
       circuit_state
       |> add_success(now, config)
-      |> maybe_transition_from_half_open_to_closed(config)
+      |> maybe_transition_from_half_open_to_closed(config, circuit_key)
 
     :ets.insert(@table_name, {circuit_key, new_circuit_state})
 
@@ -399,10 +399,15 @@ defmodule HTTPower.Middleware.CircuitBreaker do
     new_circuit_state =
       circuit_state
       |> add_failure(now, config)
-      |> maybe_transition_to_open(config, now)
+      |> maybe_transition_to_open(config, now, circuit_key)
 
     :ets.insert(@table_name, {circuit_key, new_circuit_state})
 
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info(_msg, state) do
     {:noreply, state}
   end
 
@@ -452,7 +457,7 @@ defmodule HTTPower.Middleware.CircuitBreaker do
     %{circuit_state | requests: requests}
   end
 
-  defp maybe_transition_from_half_open_to_closed(circuit_state, config) do
+  defp maybe_transition_from_half_open_to_closed(circuit_state, config, circuit_key) do
     # In half-open, we need to successfully complete ALL test requests before closing
     with :half_open <- circuit_state.state,
          half_open_requests <- get_config(config, :half_open_requests),
@@ -470,14 +475,14 @@ defmodule HTTPower.Middleware.CircuitBreaker do
           half_open_attempts: 0
       }
 
-      emit_state_change_event(circuit_state, new_state, config)
+      emit_state_change_event(circuit_state, new_state, config, circuit_key)
       new_state
     else
       _ -> circuit_state
     end
   end
 
-  defp maybe_transition_to_open(circuit_state, config, now) do
+  defp maybe_transition_to_open(circuit_state, config, now, circuit_key) do
     cond do
       circuit_state.state == :half_open ->
         Logger.warning("Circuit breaker reopening from half-open due to failure")
@@ -489,7 +494,7 @@ defmodule HTTPower.Middleware.CircuitBreaker do
             half_open_attempts: 0
         }
 
-        emit_state_change_event(circuit_state, new_state, config)
+        emit_state_change_event(circuit_state, new_state, config, circuit_key)
         new_state
 
       circuit_state.state == :closed && should_open?(circuit_state, config) ->
@@ -502,7 +507,7 @@ defmodule HTTPower.Middleware.CircuitBreaker do
             half_open_attempts: 0
         }
 
-        emit_state_change_event(circuit_state, new_state, config)
+        emit_state_change_event(circuit_state, new_state, config, circuit_key)
         new_state
 
       true ->
@@ -554,8 +559,8 @@ defmodule HTTPower.Middleware.CircuitBreaker do
 
   # Telemetry Helpers
 
-  defp emit_state_change_event(old_state, new_state, config, circuit_key \\ nil) do
-    key = circuit_key || Keyword.get(config, :circuit_key, "unknown")
+  defp emit_state_change_event(old_state, new_state, _config, circuit_key) do
+    key = circuit_key
 
     failure_count = count_failures(new_state.requests)
     total_count = length(new_state.requests)

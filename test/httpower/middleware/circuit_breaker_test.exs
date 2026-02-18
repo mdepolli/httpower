@@ -618,6 +618,38 @@ defmodule HTTPower.Middleware.CircuitBreakerTest do
     end
   end
 
+  describe "handle_info/2" do
+    test "ignores unexpected messages without crashing" do
+      send(HTTPower.Middleware.CircuitBreaker, {:unexpected_message, "test"})
+      Process.sleep(50)
+      assert Process.alive?(Process.whereis(HTTPower.Middleware.CircuitBreaker))
+      state = HTTPower.Middleware.CircuitBreaker.get_state("handle_info_test")
+      assert state == nil
+    end
+  end
+
+  describe "telemetry events" do
+    test "state_change event always includes a real circuit_key" do
+      ref =
+        :telemetry_test.attach_event_handlers(self(), [
+          [:httpower, :circuit_breaker, :state_change]
+        ])
+
+      circuit_key = "telemetry_key_test_#{System.unique_integer([:positive])}"
+      config = [enabled: true, failure_threshold: 2, window_size: 60_000]
+
+      for _ <- 1..3 do
+        HTTPower.Middleware.CircuitBreaker.record_failure(circuit_key, config)
+      end
+
+      Process.sleep(100)
+
+      assert_received {[:httpower, :circuit_breaker, :state_change], ^ref, _measurements, metadata}
+      assert metadata.circuit_key == circuit_key
+      refute metadata.circuit_key == "unknown"
+    end
+  end
+
   describe "telemetry - circuit breaker events" do
     setup do
       # Reset circuit state
@@ -664,7 +696,7 @@ defmodule HTTPower.Middleware.CircuitBreakerTest do
                        metadata}
 
       assert measurements.timestamp
-      assert metadata.circuit_key == "unknown"
+      assert metadata.circuit_key == "test_circuit"
       assert metadata.from_state == :closed
       assert metadata.to_state == :open
       assert metadata.failure_count >= 3
