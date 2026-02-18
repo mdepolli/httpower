@@ -1026,15 +1026,24 @@ defmodule HTTPowerTest do
 
     test "builds URL with base_url ending in slash" do
       HTTPower.Test.stub(fn conn ->
-        # With trailing slash in base_url and no leading slash in path,
-        # we get a double slash which is valid (//users)
+        # Trailing slash in base_url is stripped before joining
+        assert conn.request_path == "/users"
         HTTPower.Test.json(conn, %{success: true})
       end)
 
       client = HTTPower.new(base_url: "https://api.example.com/")
 
-      # Should still work, even if it creates //users
       assert {:ok, _} = HTTPower.get(client, "users")
+    end
+
+    test "builds URL without double slash when base_url has trailing slash" do
+      HTTPower.Test.stub(fn conn ->
+        assert conn.request_path == "/users"
+        HTTPower.Test.json(conn, %{success: true})
+      end)
+
+      client = HTTPower.new(base_url: "https://api.example.com/")
+      assert {:ok, _} = HTTPower.get(client, "/users")
     end
 
     test "builds URL with nested path" do

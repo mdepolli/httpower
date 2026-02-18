@@ -352,8 +352,8 @@ defmodule HTTPower do
 
   defp build_url(nil, path), do: path
   defp build_url(base_url, ""), do: base_url
-  defp build_url(base_url, "/" <> _ = path), do: base_url <> path
-  defp build_url(base_url, path), do: base_url <> "/" <> path
+  defp build_url(base_url, "/" <> _ = path), do: String.trim_trailing(base_url, "/") <> path
+  defp build_url(base_url, path), do: String.trim_trailing(base_url, "/") <> "/" <> path
 
   defp merge_client_options(client_opts, request_opts) do
     # Merge headers specially - combine rather than replace
