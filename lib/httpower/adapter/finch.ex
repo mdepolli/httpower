@@ -133,13 +133,11 @@ if Code.ensure_loaded?(Finch) do
 
     defp prepare_headers(headers, :post) do
       default_post_headers = %{"Content-Type" => "application/x-www-form-urlencoded"}
-
       Map.merge(default_post_headers, headers)
-      |> Map.put("connection", "close")
     end
 
     defp prepare_headers(headers, _method) do
-      Map.put(headers, "connection", "close")
+      headers
     end
 
     defp format_headers(headers) when is_map(headers) do

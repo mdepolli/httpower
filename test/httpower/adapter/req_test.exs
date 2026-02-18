@@ -79,9 +79,10 @@ defmodule HTTPower.Adapter.ReqTest do
                ReqAdapter.request(:get, "https://api.example.com/test", nil, headers, [])
     end
 
-    test "adds connection: close header" do
+    test "does not inject connection: close header" do
       HTTPower.Test.stub(fn conn ->
-        assert conn.req_headers |> Enum.into(%{}) |> Map.get("connection") == "close"
+        connection_header = conn.req_headers |> Enum.into(%{}) |> Map.get("connection")
+        assert connection_header == nil
         HTTPower.Test.json(conn, %{success: true})
       end)
 

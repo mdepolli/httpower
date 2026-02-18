@@ -301,16 +301,13 @@ defmodule HTTPower.Test do
   defp atom_to_http_method(:options), do: "OPTIONS"
 
   defp prepare_headers(headers, :post) do
-    # Mimic adapter behavior: add default Content-Type for POST and connection: close
+    # Mimic adapter behavior: add default Content-Type for POST
     default_post_headers = %{"Content-Type" => "application/x-www-form-urlencoded"}
-
     Map.merge(default_post_headers, headers || %{})
-    |> Map.put("connection", "close")
   end
 
   defp prepare_headers(headers, _method) do
-    # For other methods, just add connection: close
-    Map.put(headers || %{}, "connection", "close")
+    headers || %{}
   end
 
   defp put_request_headers(conn, headers) when is_map(headers) do

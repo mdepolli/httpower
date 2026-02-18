@@ -35,7 +35,6 @@ defmodule HTTPowerTest do
       HTTPower.Test.stub(fn conn ->
         # Verify custom headers are present
         assert Plug.Conn.get_req_header(conn, "authorization") == ["Bearer test-token"]
-        assert Plug.Conn.get_req_header(conn, "connection") == ["close"]
 
         HTTPower.Test.json(conn, %{success: true})
       end)
@@ -507,8 +506,6 @@ defmodule HTTPowerTest do
 
     test "headers are properly merged for non-POST requests" do
       HTTPower.Test.stub(fn conn ->
-        # Verify connection: close header is added for non-POST
-        assert Plug.Conn.get_req_header(conn, "connection") == ["close"]
         assert Plug.Conn.get_req_header(conn, "custom-header") == ["custom-value"]
 
         HTTPower.Test.json(conn, %{success: true})
