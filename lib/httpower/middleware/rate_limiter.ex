@@ -399,14 +399,7 @@ defmodule HTTPower.Middleware.RateLimiter do
   end
 
   defp rate_limiting_enabled?(config) do
-    case Keyword.get(config, :enabled) do
-      nil ->
-        Application.get_env(:httpower, :rate_limit, [])
-        |> Keyword.get(:enabled, false)
-
-      enabled ->
-        enabled
-    end
+    HTTPower.Config.enabled?(config, :rate_limit, false)
   end
 
   # Use cached default_config instead of Application.get_env

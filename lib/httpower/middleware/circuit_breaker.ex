@@ -414,16 +414,7 @@ defmodule HTTPower.Middleware.CircuitBreaker do
   ## Private Functions
 
   defp circuit_breaker_enabled?(config) do
-    # Check request config first, then compile-time cached config, then runtime config, then default
-    Keyword.get(
-      config,
-      :enabled,
-      Keyword.get(
-        @default_config,
-        :enabled,
-        Keyword.get(Application.get_env(:httpower, :circuit_breaker, []), :enabled, false)
-      )
-    )
+    HTTPower.Config.enabled?(config, :circuit_breaker, Keyword.get(@default_config, :enabled, false))
   end
 
   defp check_and_allow_request(circuit_key, config) do
@@ -553,8 +544,7 @@ defmodule HTTPower.Middleware.CircuitBreaker do
   }
 
   defp get_config(config, key) do
-    runtime_config = Application.get_env(:httpower, :circuit_breaker, [])
-    Keyword.get(config, key, Keyword.get(runtime_config, key, @config_defaults[key]))
+    HTTPower.Config.get(config, key, :circuit_breaker, @config_defaults[key])
   end
 
   # Telemetry Helpers
