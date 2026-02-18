@@ -32,6 +32,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `connection: close` on every request. This was defeating HTTP connection pooling. Connection
   management is now left to the underlying client.
 
+- **URL double-slash with trailing base_url slash** - `build_url("https://api.com/", "/users")`
+  now produces `https://api.com/users` instead of `https://api.com//users`.
+
+- **Telemetry `circuit_key: "unknown"` fallback removed** - `emit_state_change_event` now
+  requires a real circuit key. All call sites updated to pass the actual key.
+
+### Added
+
+- **PATCH, HEAD, and OPTIONS HTTP methods** - Added `HTTPower.patch/2`, `HTTPower.head/2`,
+  and `HTTPower.options/2` to the public API, with full client instance support.
+
+- **`HTTPower.Config` module** - Standardized config resolution (request → application env →
+  default) used by CircuitBreaker and RateLimiter, replacing inconsistent ad-hoc patterns.
+
 ### Changed
 
 - **Plug is now an optional dependency** - Changed from `only: :test` to `optional: true` so
@@ -43,6 +57,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Updated moduledocs** - `HTTPower` and `HTTPower.Adapter` moduledocs now correctly describe
   the adapter-based architecture with Finch as the default.
+
+- **Mint.TransportError decoupled from core** - Adapters now unwrap `Mint.TransportError`
+  structs to plain atoms at the adapter boundary. `HTTPower.Error` and `HTTPower.Retry` no
+  longer depend on Mint directly.
+
+- **CircuitBreaker catch-all `handle_info/2`** - Silently ignores unexpected messages instead
+  of logging GenServer warnings.
+
+- **Generic deep merge for profile options** - `deep_merge_options` now uses `Keyword.keyword?/1`
+  instead of a hardcoded key list, automatically deep-merging any nested keyword list config.
 
 ## [0.15.2] - 2026-02-06
 
