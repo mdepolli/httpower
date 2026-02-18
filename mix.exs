@@ -47,8 +47,8 @@ defmodule HTTPower.MixProject do
       {:tesla, ">= 1.10.0", optional: true},
       # JSON encoding/decoding (required by Finch adapter for auto-decode)
       {:jason, "~> 1.4"},
-      # Development dependencies
-      {:plug, "~> 1.15", only: :test},
+      # Plug - required for HTTPower.Test mock utilities
+      {:plug, ">= 1.15.0", optional: true},
       {:ex_doc, "~> 0.31", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false}
     ]
