@@ -45,6 +45,8 @@ defmodule HTTPower.MixProject do
       {:finch, ">= 0.19.0", optional: true},
       {:req, ">= 0.4.0", optional: true},
       {:tesla, ">= 1.10.0", optional: true},
+      # Telemetry - used directly for instrumentation events
+      {:telemetry, "~> 0.4.3 or ~> 1.0"},
       # JSON encoding/decoding (required by Finch adapter for auto-decode)
       {:jason, "~> 1.4"},
       # Plug - required for HTTPower.Test mock utilities

@@ -353,6 +353,13 @@ defmodule HTTPower.Adapter.ReqTest do
   end
 
   describe "connect_options merging (SSL + proxy)" do
+    setup do
+      # Ensure Req application is started (needed for Req.Test.Ownership on Elixir 1.14
+      # where optional dep applications may not be auto-started)
+      Application.ensure_all_started(:req)
+      :ok
+    end
+
     test "HTTPS request with system proxy preserves SSL connect_options" do
       # Disable HTTPower.Test interception so request goes through the real Req code path.
       # This exercises build_req_opts -> maybe_add_ssl_options -> maybe_add_proxy_options.
