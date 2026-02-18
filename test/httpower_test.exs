@@ -136,6 +136,36 @@ defmodule HTTPowerTest do
       assert response.status == 204
       assert response.body == ""
     end
+
+    test "patch/2 makes a PATCH request" do
+      HTTPower.Test.stub(fn conn ->
+        assert conn.method == "PATCH"
+        HTTPower.Test.json(conn, %{patched: true})
+      end)
+
+      assert {:ok, %HTTPower.Response{status: 200, body: %{"patched" => true}}} =
+               HTTPower.patch("https://api.example.com/users/1", body: "name=Jane")
+    end
+
+    test "head/2 makes a HEAD request" do
+      HTTPower.Test.stub(fn conn ->
+        assert conn.method == "HEAD"
+        HTTPower.Test.text(conn, "")
+      end)
+
+      assert {:ok, %HTTPower.Response{status: 200}} =
+               HTTPower.head("https://api.example.com/users")
+    end
+
+    test "options/2 makes an OPTIONS request" do
+      HTTPower.Test.stub(fn conn ->
+        assert conn.method == "OPTIONS"
+        HTTPower.Test.text(conn, "")
+      end)
+
+      assert {:ok, %HTTPower.Response{status: 200}} =
+               HTTPower.options("https://api.example.com/users")
+    end
   end
 
   describe "test mode blocking" do
@@ -820,6 +850,18 @@ defmodule HTTPowerTest do
       client = HTTPower.new()
 
       assert %HTTPower{base_url: nil, options: []} = client
+    end
+
+    test "deep merges nested keyword list options from profiles" do
+      client =
+        HTTPower.new(
+          profile: :high_volume_api,
+          rate_limit: [strategy: :error]
+        )
+
+      rate_config = Keyword.get(client.options, :rate_limit, [])
+      assert Keyword.get(rate_config, :strategy) == :error
+      assert Keyword.get(rate_config, :requests) == 1000
     end
   end
 

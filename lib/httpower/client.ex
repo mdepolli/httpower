@@ -89,6 +89,31 @@ defmodule HTTPower.Client do
     request(:delete, url, nil, opts)
   end
 
+  @doc """
+  Makes an HTTP PATCH request.
+  """
+  @spec patch(String.t(), keyword()) :: {:ok, Response.t()} | {:error, Error.t()}
+  def patch(url, opts \\ []) do
+    body = Keyword.get(opts, :body)
+    request(:patch, url, body, opts)
+  end
+
+  @doc """
+  Makes an HTTP HEAD request.
+  """
+  @spec head(String.t(), keyword()) :: {:ok, Response.t()} | {:error, Error.t()}
+  def head(url, opts \\ []) do
+    request(:head, url, nil, opts)
+  end
+
+  @doc """
+  Makes an HTTP OPTIONS request.
+  """
+  @spec options(String.t(), keyword()) :: {:ok, Response.t()} | {:error, Error.t()}
+  def options(url, opts \\ []) do
+    request(:options, url, nil, opts)
+  end
+
   # Private
 
   defp request(method, url, body, opts) do

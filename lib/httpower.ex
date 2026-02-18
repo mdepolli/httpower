@@ -339,6 +339,105 @@ defmodule HTTPower do
     Client.delete(url, merged_opts)
   end
 
+  @doc """
+  Makes an HTTP PATCH request.
+
+  Accepts either a URL string or a configured client as the first argument.
+
+  ## Examples
+
+      HTTPower.patch("https://api.example.com/users/1", body: "name=Jane")
+
+      client = HTTPower.new(base_url: "https://api.example.com")
+      HTTPower.patch(client, "/users/1", body: %{name: "Jane"})
+
+  """
+  def patch(url_or_client, opts_or_path \\ [])
+
+  @spec patch(String.t(), keyword()) ::
+          {:ok, HTTPower.Response.t()} | {:error, HTTPower.Error.t()}
+  def patch(url, opts) when is_binary(url) do
+    Client.patch(url, opts)
+  end
+
+  @spec patch(client(), String.t()) :: {:ok, HTTPower.Response.t()} | {:error, HTTPower.Error.t()}
+  def patch(%__MODULE__{} = client, path) when is_binary(path) do
+    patch(client, path, [])
+  end
+
+  @spec patch(client(), String.t(), keyword()) ::
+          {:ok, HTTPower.Response.t()} | {:error, HTTPower.Error.t()}
+  def patch(%__MODULE__{} = client, path, opts) when is_binary(path) and is_list(opts) do
+    {url, merged_opts} = prepare_client_request(client, path, opts)
+    Client.patch(url, merged_opts)
+  end
+
+  @doc """
+  Makes an HTTP HEAD request.
+
+  Accepts either a URL string or a configured client as the first argument.
+
+  ## Examples
+
+      HTTPower.head("https://api.example.com/users")
+
+      client = HTTPower.new(base_url: "https://api.example.com")
+      HTTPower.head(client, "/users")
+
+  """
+  def head(url_or_client, opts_or_path \\ [])
+
+  @spec head(String.t(), keyword()) :: {:ok, HTTPower.Response.t()} | {:error, HTTPower.Error.t()}
+  def head(url, opts) when is_binary(url) do
+    Client.head(url, opts)
+  end
+
+  @spec head(client(), String.t()) :: {:ok, HTTPower.Response.t()} | {:error, HTTPower.Error.t()}
+  def head(%__MODULE__{} = client, path) when is_binary(path) do
+    head(client, path, [])
+  end
+
+  @spec head(client(), String.t(), keyword()) ::
+          {:ok, HTTPower.Response.t()} | {:error, HTTPower.Error.t()}
+  def head(%__MODULE__{} = client, path, opts) when is_binary(path) and is_list(opts) do
+    {url, merged_opts} = prepare_client_request(client, path, opts)
+    Client.head(url, merged_opts)
+  end
+
+  @doc """
+  Makes an HTTP OPTIONS request.
+
+  Accepts either a URL string or a configured client as the first argument.
+
+  ## Examples
+
+      HTTPower.options("https://api.example.com/users")
+
+      client = HTTPower.new(base_url: "https://api.example.com")
+      HTTPower.options(client, "/users")
+
+  """
+  def options(url_or_client, opts_or_path \\ [])
+
+  @spec options(String.t(), keyword()) ::
+          {:ok, HTTPower.Response.t()} | {:error, HTTPower.Error.t()}
+  def options(url, opts) when is_binary(url) do
+    Client.options(url, opts)
+  end
+
+  @spec options(client(), String.t()) ::
+          {:ok, HTTPower.Response.t()} | {:error, HTTPower.Error.t()}
+  def options(%__MODULE__{} = client, path) when is_binary(path) do
+    options(client, path, [])
+  end
+
+  @spec options(client(), String.t(), keyword()) ::
+          {:ok, HTTPower.Response.t()} | {:error, HTTPower.Error.t()}
+  def options(%__MODULE__{} = client, path, opts) when is_binary(path) and is_list(opts) do
+    {url, merged_opts} = prepare_client_request(client, path, opts)
+    Client.options(url, merged_opts)
+  end
+
   # Private helper function to prepare client requests
   defp prepare_client_request(
          %__MODULE__{base_url: base_url, options: client_opts},
@@ -367,11 +466,9 @@ defmodule HTTPower do
     |> Keyword.put(:headers, merged_headers)
   end
 
-  @nested_config_keys [:rate_limit, :circuit_breaker, :deduplicate]
-
   defp deep_merge_options(profile_config, user_opts) do
-    Keyword.merge(profile_config, user_opts, fn key, profile_val, user_val ->
-      if key in @nested_config_keys and is_list(profile_val) and is_list(user_val) do
+    Keyword.merge(profile_config, user_opts, fn _key, profile_val, user_val ->
+      if Keyword.keyword?(profile_val) and Keyword.keyword?(user_val) do
         Keyword.merge(profile_val, user_val)
       else
         user_val
