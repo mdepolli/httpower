@@ -24,3 +24,6 @@ httpower-*.tar
 
 # Claude Code configuration file
 CLAUDE.md
+
+# Implementation plans
+/docs/plans/
