@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Elixir 1.14 test failures due to missing telemetry dependency** - Added `:telemetry` as a
+  direct dependency. It was used in 6 source files but only available transitively through
+  optional deps (Finch, Req, Plug), causing 69 test failures on Elixir 1.14 where the telemetry
+  application wasn't auto-started.
+
+- **Req.Test.Ownership not started on Elixir 1.14** - SSL+proxy tests that use `Req.Test.stub/2`
+  directly now explicitly start the Req application, fixing 2 test failures on Elixir 1.14.
+
 ## [0.16.0] - 2026-02-18
 
 ### Fixed
