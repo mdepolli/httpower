@@ -20,6 +20,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reference mechanism in request deduplication and its safe timeout fallback when ETS entries
   are cleaned up between deduplicate and receive.
 
+- **Req adapter connect_options overwrite** - `maybe_add_ssl_options` and
+  `maybe_add_proxy_options` now merge into existing `:connect_options` instead of overwriting.
+  Previously, configuring both SSL and proxy on an HTTPS request would lose the SSL settings.
+
+- **Inconsistent response header format across adapters** - Tesla adapter now normalizes
+  response headers to `%{"key" => ["value"]}` (list values), matching Finch and Req. The
+  `Response.t()` type spec is updated to `%{optional(String.t()) => [String.t()]}`.
+
+- **Hardcoded `connection: close` header removed** - Finch and Req adapters no longer inject
+  `connection: close` on every request. This was defeating HTTP connection pooling. Connection
+  management is now left to the underlying client.
+
+### Changed
+
+- **Plug is now an optional dependency** - Changed from `only: :test` to `optional: true` so
+  library consumers can use `HTTPower.Test` without independently adding Plug to their deps.
+
+- **Dedup cleanup interval increased from 1s to 5s** - Reduces GenServer message processing
+  overhead. Completed entries with a 500ms TTL sit harmlessly in memory for a few extra seconds
+  before being cleaned up.
+
+- **Updated moduledocs** - `HTTPower` and `HTTPower.Adapter` moduledocs now correctly describe
+  the adapter-based architecture with Finch as the default.
+
 ## [0.15.2] - 2026-02-06
 
 ### Added
