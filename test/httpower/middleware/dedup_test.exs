@@ -207,8 +207,8 @@ defmodule HTTPower.Middleware.DedupTest do
       Process.sleep(10)
       assert {:ok, ^response} = Dedup.deduplicate(hash, enabled: true)
 
-      # Wait for cleanup (completed_ttl is 500ms, cleanup runs every 1s)
-      Process.sleep(1_600)
+      # Wait for cleanup (completed_ttl is 500ms, cleanup runs every 5s)
+      Process.sleep(5_600)
 
       # Should be cleaned up - new request starts fresh
       assert {:ok, :execute} = Dedup.deduplicate(hash, enabled: true)

@@ -351,8 +351,10 @@ defmodule HTTPower.Middleware.Dedup do
     Keyword.get(config, :enabled, Keyword.get(@default_config, :enabled, false))
   end
 
+  @cleanup_interval 5_000
+
   defp schedule_cleanup do
-    Process.send_after(self(), :cleanup, 1_000)
+    Process.send_after(self(), :cleanup, @cleanup_interval)
   end
 
   defp timestamp do
