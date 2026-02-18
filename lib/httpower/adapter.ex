@@ -22,16 +22,17 @@ defmodule HTTPower.Adapter do
 
   ## Built-in Adapters
 
-  HTTPower ships with two built-in adapters:
+  HTTPower ships with three built-in adapters:
 
-  - `HTTPower.Adapter.Req` - Uses Req HTTP client (default)
-  - `HTTPower.Adapter.Tesla` - Uses Tesla HTTP client
+  - `HTTPower.Adapter.Finch` - Uses Finch HTTP client, built on Mint + NimblePool (default)
+  - `HTTPower.Adapter.Req` - Uses Req HTTP client (batteries-included)
+  - `HTTPower.Adapter.Tesla` - Uses Tesla HTTP client (bring-your-own-config)
 
   ## Using an Adapter
 
   Specify the adapter when making requests:
 
-      # Use default (Req) adapter
+      # Use default (Finch) adapter
       HTTPower.get("https://api.example.com")
 
       # Use explicit Req adapter

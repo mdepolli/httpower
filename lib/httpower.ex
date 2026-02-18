@@ -1,14 +1,20 @@
 defmodule HTTPower do
   @moduledoc """
-  A reliable HTTP client that wraps Req with advanced features.
+  A production-ready HTTP client library for Elixir that adds reliability patterns
+  and enterprise features on top of existing HTTP clients through an adapter system.
 
-  HTTPower provides a clean, production-ready HTTP client with advanced features like:
+  HTTPower supports multiple HTTP clients via adapters — Finch (high-performance, default),
+  Req (batteries-included), and Tesla (bring-your-own-config) — while providing production
+  reliability features that work consistently across all of them:
 
-  - **Test mode blocking**: Prevents real HTTP requests during testing
-  - **Smart retries**: Intelligent retry logic with configurable policies
+  - **Adapter pattern**: Choose between Finch, Req, or Tesla HTTP clients
+  - **Middleware pipeline**: Rate limiting, circuit breaker, and request deduplication
+  - **Smart retries**: Exponential backoff with jitter and Retry-After header support
+  - **PCI-compliant logging**: Automatic sanitization of sensitive data with structured metadata
+  - **Telemetry integration**: Comprehensive observability for all operations
+  - **Configuration profiles**: Pre-built profiles for payment processing, high-volume APIs, and microservices
   - **Clean error handling**: Never raises exceptions, always returns `{:ok, response}` or `{:error, reason}`
-  - **SSL/Proxy support**: Full SSL verification and proxy configuration
-  - **Request timeout management**: Configurable timeouts with sensible defaults
+  - **Test utilities**: Adapter-agnostic test helpers via `HTTPower.Test`
 
   ## Basic Usage
 
