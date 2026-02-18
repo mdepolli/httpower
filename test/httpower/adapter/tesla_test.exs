@@ -229,6 +229,107 @@ defmodule HTTPower.Adapter.TeslaTest do
     end
   end
 
+  describe "response header normalization" do
+    # These tests verify the Tesla adapter's convert_response_headers function
+    # by using Tesla.Mock to control Tesla's response, bypassing HTTPower.Test
+    # so the adapter's actual response conversion code runs.
+
+    setup do
+      # Tesla.Mock requires global mode for non-async tests, but we can use
+      # it in this setup. We disable HTTPower.Test mock for these tests
+      # so the adapter's do_request path runs.
+      Process.delete(:httpower_test_mock_enabled)
+      Tesla.Mock.mock(fn _env -> %Tesla.Env{status: 200, body: ""} end)
+      :ok
+    end
+
+    test "normalizes list-of-tuples headers to map with list values" do
+      Tesla.Mock.mock(fn _env ->
+        %Tesla.Env{
+          status: 200,
+          headers: [{"x-custom", "value1"}, {"content-type", "application/json"}],
+          body: "{}"
+        }
+      end)
+
+      tesla_client = Tesla.client([], Tesla.Mock)
+      opts = [adapter_config: tesla_client]
+
+      assert {:ok, response} =
+               TeslaAdapter.request(:get, "https://api.example.com/test", nil, %{}, opts)
+
+      assert is_list(response.headers["x-custom"]),
+             "Expected header value to be a list, got: #{inspect(response.headers["x-custom"])}"
+
+      assert response.headers["x-custom"] == ["value1"]
+      assert response.headers["content-type"] == ["application/json"]
+    end
+
+    test "groups duplicate header keys into lists" do
+      Tesla.Mock.mock(fn _env ->
+        %Tesla.Env{
+          status: 200,
+          headers: [
+            {"set-cookie", "session=abc"},
+            {"set-cookie", "tracking=xyz"},
+            {"content-type", "text/html"}
+          ],
+          body: ""
+        }
+      end)
+
+      tesla_client = Tesla.client([], Tesla.Mock)
+      opts = [adapter_config: tesla_client]
+
+      assert {:ok, response} =
+               TeslaAdapter.request(:get, "https://api.example.com/test", nil, %{}, opts)
+
+      assert response.headers["set-cookie"] == ["session=abc", "tracking=xyz"]
+      assert response.headers["content-type"] == ["text/html"]
+    end
+
+    test "wraps bare string values from map headers in lists" do
+      Tesla.Mock.mock(fn _env ->
+        %Tesla.Env{
+          status: 200,
+          headers: %{"x-custom" => "bare-value", "content-type" => "application/json"},
+          body: "{}"
+        }
+      end)
+
+      tesla_client = Tesla.client([], Tesla.Mock)
+      opts = [adapter_config: tesla_client]
+
+      assert {:ok, response} =
+               TeslaAdapter.request(:get, "https://api.example.com/test", nil, %{}, opts)
+
+      assert is_list(response.headers["x-custom"]),
+             "Expected header value to be a list, got: #{inspect(response.headers["x-custom"])}"
+
+      assert response.headers["x-custom"] == ["bare-value"]
+      assert response.headers["content-type"] == ["application/json"]
+    end
+
+    test "preserves list values from map headers" do
+      Tesla.Mock.mock(fn _env ->
+        %Tesla.Env{
+          status: 200,
+          headers: %{"x-custom" => ["val1", "val2"], "content-type" => ["application/json"]},
+          body: "{}"
+        }
+      end)
+
+      tesla_client = Tesla.client([], Tesla.Mock)
+      opts = [adapter_config: tesla_client]
+
+      assert {:ok, response} =
+               TeslaAdapter.request(:get, "https://api.example.com/test", nil, %{}, opts)
+
+      assert response.headers["x-custom"] == ["val1", "val2"]
+      assert response.headers["content-type"] == ["application/json"]
+    end
+  end
+
   describe "error handling" do
     test "handles network errors gracefully" do
       HTTPower.Test.stub(fn conn ->

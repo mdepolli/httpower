@@ -14,7 +14,7 @@ defmodule HTTPower.Response do
 
   @type t :: %__MODULE__{
           status: integer(),
-          headers: map(),
-          body: String.t()
+          headers: %{optional(String.t()) => [String.t()]},
+          body: term()
         }
 end

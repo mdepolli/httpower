@@ -153,12 +153,24 @@ if Code.ensure_loaded?(Tesla) do
       }
     end
 
-    # Convert Tesla response headers (list of tuples) to map
+    # Convert Tesla response headers to normalized map with list values.
+    # Matches the Finch adapter format: %{"key" => ["val1", "val2"]}
+    # This correctly handles HTTP headers that may have multiple values
+    # (e.g., Set-Cookie) by grouping them into lists.
     defp convert_response_headers(headers) when is_list(headers) do
-      Map.new(headers, fn {k, v} -> {to_string(k), v} end)
+      Enum.reduce(headers, %{}, fn {k, v}, acc ->
+        key = to_string(k)
+        Map.update(acc, key, [v], fn existing -> existing ++ [v] end)
+      end)
     end
 
-    defp convert_response_headers(headers) when is_map(headers), do: headers
+    defp convert_response_headers(headers) when is_map(headers) do
+      Map.new(headers, fn
+        {k, v} when is_list(v) -> {k, v}
+        {k, v} -> {k, [v]}
+      end)
+    end
+
     defp convert_response_headers(_), do: %{}
   end
 end
