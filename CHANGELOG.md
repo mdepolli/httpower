@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Race condition in RateLimiter.consume/2** - `consume/2` previously used two separate
+  GenServer calls (`check_rate_limit` then `consume_token`). Under concurrency, multiple
+  processes could pass the check before any consumed, allowing over-consumption and negative
+  token counts. Replaced with a single atomic `{:check_and_consume, ...}` GenServer call
+  that checks availability and subtracts in one step. Extracted shared `refill_bucket/3`
+  helper to reduce duplication between `check_rate_limit` and `check_and_consume`.
+
+- **Documented dedup waiter ref-sharing edge case** - Added comments explaining the shared
+  reference mechanism in request deduplication and its safe timeout fallback when ETS entries
+  are cleaned up between deduplicate and receive.
+
 ## [0.15.2] - 2026-02-06
 
 ### Added
