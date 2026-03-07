@@ -11,8 +11,13 @@ defmodule HTTPower.Error do
     :message
   ]
 
+  @type reason ::
+          atom()
+          | {:http_status, integer(), HTTPower.Response.t()}
+          | {:feature_error, module(), term()}
+
   @type t :: %__MODULE__{
-          reason: atom(),
+          reason: reason(),
           message: String.t()
         }
 
