@@ -374,6 +374,11 @@ defmodule HTTPower.Middleware.RateLimiter do
     {:noreply, state}
   end
 
+  @impl true
+  def handle_info(_msg, state) do
+    {:noreply, state}
+  end
+
   ## Private Functions
 
   defp refill_bucket(bucket_key, config, state) do

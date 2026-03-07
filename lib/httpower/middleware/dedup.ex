@@ -349,6 +349,11 @@ defmodule HTTPower.Middleware.Dedup do
     {:noreply, state}
   end
 
+  @impl true
+  def handle_info(_msg, state) do
+    {:noreply, state}
+  end
+
   # Private Functions
 
   defp deduplication_enabled?(config) do
