@@ -86,6 +86,7 @@ defmodule HTTPower.Profiles do
       # Aggressive circuit breaker - payment APIs must be reliable
       circuit_breaker: [
         enabled: true,
+        failure_threshold: 6,
         failure_threshold_percentage: 30.0,
         window_size: 20,
         timeout: 30_000,
@@ -127,6 +128,7 @@ defmodule HTTPower.Profiles do
       # Tolerant circuit breaker - expect some failures at high volume
       circuit_breaker: [
         enabled: true,
+        failure_threshold: 50,
         failure_threshold_percentage: 50.0,
         window_size: 100,
         timeout: 5_000,
@@ -168,6 +170,7 @@ defmodule HTTPower.Profiles do
       # Balanced circuit breaker - protect against cascades
       circuit_breaker: [
         enabled: true,
+        failure_threshold: 20,
         failure_threshold_percentage: 40.0,
         window_size: 50,
         timeout: 10_000,
