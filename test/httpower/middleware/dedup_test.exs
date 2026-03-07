@@ -192,6 +192,36 @@ defmodule HTTPower.Middleware.DedupTest do
       # New request should be treated as first request
       assert {:ok, :execute} = Dedup.deduplicate(hash, enabled: true)
     end
+
+    test "notifies waiters when request is cancelled" do
+      hash = Dedup.hash(:post, "https://api.com/cancel-notify-test", "data")
+
+      # First request
+      assert {:ok, :execute} = Dedup.deduplicate(hash, enabled: true)
+
+      # Spawn a waiter
+      waiter_task =
+        Task.async(fn ->
+          {:ok, :wait, ref} = Dedup.deduplicate(hash, enabled: true)
+
+          receive do
+            {:dedup_response, ^ref, response} -> {:got_response, response}
+            {:dedup_error, ^ref, reason} -> {:got_error, reason}
+          after
+            2_000 -> :timeout
+          end
+        end)
+
+      # Give waiter time to register
+      Process.sleep(20)
+
+      # Cancel the request (simulating error)
+      Dedup.cancel(hash)
+
+      # Waiter should receive an error, not hang until timeout
+      result = Task.await(waiter_task, 2_000)
+      assert {:got_error, :request_cancelled} = result
+    end
   end
 
   describe "cleanup" do
@@ -271,11 +301,17 @@ defmodule HTTPower.Middleware.DedupTest do
           Task.async(fn ->
             case Dedup.deduplicate(hash, enabled: true) do
               {:ok, :execute} ->
-                {:execute, i}
+                # Simulate request execution — stay alive until response is ready
+                receive do
+                  :complete -> {:execute, i}
+                after
+                  5_000 -> {:execute_timeout, i}
+                end
 
               {:ok, :wait, ref} ->
                 receive do
                   {:dedup_response, ^ref, response} -> {:waited, i, response}
+                  {:dedup_error, ^ref, reason} -> {:error, i, reason}
                 after
                   5_000 -> {:timeout, i}
                 end
@@ -289,19 +325,18 @@ defmodule HTTPower.Middleware.DedupTest do
       # Small delay to let all tasks start
       Process.sleep(50)
 
-      # Find the executor task
-      results = Task.await_many(tasks, 5_000)
-      executes = Enum.filter(results, fn {type, _} -> type == :execute end)
-
       # Complete the request
       response = %{status: 200, body: "concurrent success"}
       Dedup.complete(hash, response, enabled: true)
 
+      # Signal the executor to finish
+      Enum.each(tasks, fn task -> send(task.pid, :complete) end)
+
+      results = Task.await_many(tasks, 5_000)
+      executes = Enum.filter(results, fn result -> elem(result, 0) == :execute end)
+
       # Should have exactly one executor
       assert length(executes) == 1
-
-      # All waiters should eventually get the response
-      # (some might have gotten cached response if they came after completion)
     end
   end
 
@@ -406,6 +441,76 @@ defmodule HTTPower.Middleware.DedupTest do
 
       # Test passes if no errors occurred
       :ok
+    end
+  end
+
+  describe "original requester death" do
+    test "waiters receive error when original requester dies" do
+      hash = Dedup.hash(:post, "https://api.com/requester-death-test", "data")
+
+      # Spawn a process that starts the request then dies
+      {requester_pid, requester_ref} =
+        spawn_monitor(fn ->
+          {:ok, :execute} = Dedup.deduplicate(hash, enabled: true)
+          # Die without calling complete or cancel
+        end)
+
+      # Wait for requester to die
+      receive do
+        {:DOWN, ^requester_ref, :process, ^requester_pid, :normal} -> :ok
+      after
+        1_000 -> flunk("Requester didn't die")
+      end
+
+      # Give GenServer time to process the DOWN message
+      Process.sleep(50)
+
+      # A new request for the same hash should get :execute (entry was cleaned up)
+      assert {:ok, :execute} = Dedup.deduplicate(hash, enabled: true)
+    end
+
+    test "waiters are notified when original requester crashes" do
+      hash = Dedup.hash(:post, "https://api.com/requester-crash-notify-test", "data")
+
+      # Start original request in a process we control
+      {requester_pid, requester_ref} =
+        spawn_monitor(fn ->
+          {:ok, :execute} = Dedup.deduplicate(hash, enabled: true)
+          # Wait to be killed
+          Process.sleep(:infinity)
+        end)
+
+      # Give requester time to register
+      Process.sleep(20)
+
+      # Start a waiter
+      waiter_task =
+        Task.async(fn ->
+          {:ok, :wait, ref} = Dedup.deduplicate(hash, enabled: true)
+
+          receive do
+            {:dedup_response, ^ref, response} -> {:got_response, response}
+            {:dedup_error, ^ref, reason} -> {:got_error, reason}
+          after
+            2_000 -> :timeout
+          end
+        end)
+
+      # Give waiter time to register
+      Process.sleep(20)
+
+      # Kill the original requester
+      Process.exit(requester_pid, :kill)
+
+      receive do
+        {:DOWN, ^requester_ref, :process, ^requester_pid, :killed} -> :ok
+      after
+        1_000 -> flunk("Requester didn't die")
+      end
+
+      # Waiter should receive an error, not hang until timeout
+      result = Task.await(waiter_task, 2_000)
+      assert {:got_error, :requester_down} = result
     end
   end
 

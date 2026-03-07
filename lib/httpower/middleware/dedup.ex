@@ -126,6 +126,13 @@ defmodule HTTPower.Middleware.Dedup do
               )
 
               {:halt, response}
+
+            {:dedup_error, ^ref, reason} ->
+              {:error,
+               %HTTPower.Error{
+                 reason: reason,
+                 message: "Deduplication failed: #{reason}"
+               }}
           after
             wait_timeout ->
               {:error,
@@ -241,8 +248,8 @@ defmodule HTTPower.Middleware.Dedup do
   @impl true
   def init(_opts) do
     # ETS table for tracking requests
-    # Format: {hash, state, data, timestamp}
-    # States: {:in_flight, [waiters]} | {:completed, response}
+    # Format: {hash, state, ref, timestamp}
+    # States: {:in_flight, [waiter_pids], owner_pid} | {:completed, response}
     # heir: :none ensures table dies with process (prevents orphaning on crash)
     # read/write_concurrency improves performance under high concurrent load (2-3x throughput)
     table =
@@ -258,7 +265,9 @@ defmodule HTTPower.Middleware.Dedup do
     # Schedule periodic cleanup
     schedule_cleanup()
 
-    {:ok, %{table: table}}
+    # pid_to_hash: reverse index for O(1) lookup on process death
+    # monitors: %{pid => monitor_ref} for cleanup (demonitoring)
+    {:ok, %{table: table, pid_to_hash: %{}, monitors: %{}}}
   end
 
   @impl true
@@ -266,17 +275,12 @@ defmodule HTTPower.Middleware.Dedup do
     case :ets.lookup(state.table, hash) do
       [] ->
         ref = make_ref()
-        :ets.insert(state.table, {hash, {:in_flight, []}, ref, timestamp()})
-        {:reply, {:ok, :execute}, state}
+        :ets.insert(state.table, {hash, {:in_flight, [], caller_pid}, ref, timestamp()})
+        {:reply, {:ok, :execute}, monitor_pid(state, caller_pid, hash)}
 
-      [{^hash, {:in_flight, waiters}, ref, _ts}] ->
-        # Return the original request's ref so the waiter can match the response
-        # broadcast in handle_cast(:complete). All waiters for the same in-flight
-        # request share this ref, which is safe because the complete broadcast
-        # sends to all registered waiters using the same ref.
-        Process.monitor(caller_pid)
-        :ets.update_element(state.table, hash, {2, {:in_flight, [caller_pid | waiters]}})
-        {:reply, {:ok, :wait, ref}, state}
+      [{^hash, {:in_flight, waiters, owner}, ref, _ts}] ->
+        :ets.update_element(state.table, hash, {2, {:in_flight, [caller_pid | waiters], owner}})
+        {:reply, {:ok, :wait, ref}, monitor_pid(state, caller_pid, hash)}
 
       [{^hash, {:completed, response}, _ref, _ts}] ->
         {:reply, {:ok, response}, state}
@@ -286,7 +290,7 @@ defmodule HTTPower.Middleware.Dedup do
   @impl true
   def handle_cast({:complete, hash, response}, state) do
     case :ets.lookup(state.table, hash) do
-      [{^hash, {:in_flight, waiters}, ref, _ts}] ->
+      [{^hash, {:in_flight, waiters, owner}, ref, _ts}] ->
         Enum.each(waiters, fn pid ->
           send(pid, {:dedup_response, ref, response})
         end)
@@ -294,41 +298,51 @@ defmodule HTTPower.Middleware.Dedup do
         # Mark as completed with short TTL for race conditions
         :ets.insert(state.table, {hash, {:completed, response}, ref, timestamp()})
 
-      _ ->
-        :ok
-    end
+        # Clean up monitors for all participants
+        state = demonitor_pids(state, [owner | waiters])
+        {:noreply, state}
 
-    {:noreply, state}
+      _ ->
+        {:noreply, state}
+    end
   end
 
   @impl true
   def handle_cast({:cancel, hash}, state) do
-    :ets.delete(state.table, hash)
-    {:noreply, state}
+    case :ets.lookup(state.table, hash) do
+      [{^hash, {:in_flight, _waiters, _owner}, _ref, _ts}] ->
+        {:noreply, abort_in_flight(state, hash, :request_cancelled)}
+
+      _ ->
+        :ets.delete(state.table, hash)
+        {:noreply, state}
+    end
   end
 
   @impl true
-  def handle_info({:DOWN, _ref, :process, pid, _reason}, state) do
-    # This prevents memory leaks when waiters timeout or crash
-    :ets.foldl(
-      fn
-        {hash, {:in_flight, waiters}, ref, ts}, acc ->
-          new_waiters = List.delete(waiters, pid)
+  def handle_info({:DOWN, _mon_ref, :process, pid, _reason}, state) do
+    case Map.pop(state.pid_to_hash, pid) do
+      {nil, _} ->
+        {:noreply, state}
 
-          if new_waiters != waiters do
-            :ets.insert(state.table, {hash, {:in_flight, new_waiters}, ref, ts})
-          end
+      {hash, pid_to_hash} ->
+        state = %{state | pid_to_hash: pid_to_hash}
 
-          acc
+        case :ets.lookup(state.table, hash) do
+          [{^hash, {:in_flight, _waiters, ^pid}, _ref, _ts}] ->
+            # Original requester died — notify all waiters and clean up
+            {:noreply, abort_in_flight(state, hash, :requester_down)}
 
-        _other, acc ->
-          acc
-      end,
-      nil,
-      state.table
-    )
+          [{^hash, {:in_flight, waiters, owner}, ref, ts}] ->
+            # A waiter died — remove from waiter list
+            new_waiters = List.delete(waiters, pid)
+            :ets.insert(state.table, {hash, {:in_flight, new_waiters, owner}, ref, ts})
+            {:noreply, state}
 
-    {:noreply, state}
+          _ ->
+            {:noreply, state}
+        end
+    end
   end
 
   @impl true
@@ -355,6 +369,35 @@ defmodule HTTPower.Middleware.Dedup do
   end
 
   # Private Functions
+
+  defp monitor_pid(state, pid, hash) do
+    mon_ref = Process.monitor(pid)
+
+    state
+    |> put_in([:pid_to_hash, pid], hash)
+    |> put_in([:monitors, pid], mon_ref)
+  end
+
+  defp abort_in_flight(state, hash, reason) do
+    [{^hash, {:in_flight, waiters, owner}, ref, _ts}] = :ets.lookup(state.table, hash)
+
+    Enum.each(waiters, fn pid ->
+      send(pid, {:dedup_error, ref, reason})
+    end)
+
+    :ets.delete(state.table, hash)
+    demonitor_pids(state, [owner | waiters])
+  end
+
+  defp demonitor_pids(state, pids) do
+    Enum.reduce(pids, state, fn pid, acc -> cleanup_pid(acc, pid) end)
+  end
+
+  defp cleanup_pid(state, pid) do
+    {mon_ref, monitors} = Map.pop(state.monitors, pid)
+    if mon_ref, do: Process.demonitor(mon_ref, [:flush])
+    %{state | monitors: monitors, pid_to_hash: Map.delete(state.pid_to_hash, pid)}
+  end
 
   defp deduplication_enabled?(config) do
     Keyword.get(config, :enabled, Keyword.get(@default_config, :enabled, false))
