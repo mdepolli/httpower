@@ -335,19 +335,33 @@ defmodule HTTPower.LoggerTest do
     end
 
     test "sanitizes 13-digit cards (Visa old format)" do
-      body = "Card: 4222222222225"
+      body = "Card: 4222222222222"
       sanitized = HTTPowerLogger.sanitize_body(body)
 
       assert sanitized =~ "[REDACTED]"
-      refute sanitized =~ "4222222222225"
+      refute sanitized =~ "4222222222222"
     end
 
     test "sanitizes 19-digit cards (extended PAN)" do
-      body = "Card: 4111111111111111234"
+      body = "Card: 4111111111111111110"
       sanitized = HTTPowerLogger.sanitize_body(body)
 
       assert sanitized =~ "[REDACTED]"
-      refute sanitized =~ "4111111111111111234"
+      refute sanitized =~ "4111111111111111110"
+    end
+
+    test "preserves non-Luhn numeric sequences" do
+      body = "Order ID: 1234567890123"
+      sanitized = HTTPowerLogger.sanitize_body(body)
+
+      assert sanitized =~ "1234567890123"
+    end
+
+    test "preserves formatted non-Luhn numeric sequences" do
+      body = "ID: 1234-5678-9012-3"
+      sanitized = HTTPowerLogger.sanitize_body(body)
+
+      assert sanitized =~ "1234-5678-9012-3"
     end
   end
 

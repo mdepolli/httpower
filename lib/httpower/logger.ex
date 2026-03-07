@@ -530,7 +530,32 @@ defmodule HTTPower.Logger do
   end
 
   defp sanitize_credit_cards(text) when is_binary(text) do
-    Regex.replace(@credit_card_pattern, text, "[REDACTED]")
+    Regex.replace(@credit_card_pattern, text, fn match ->
+      digits = String.replace(match, ~r/[\s\-]/, "")
+
+      if luhn_valid?(digits), do: "[REDACTED]", else: match
+    end)
+  end
+
+  # Luhn checksum: https://en.wikipedia.org/wiki/Luhn_algorithm
+  defp luhn_valid?(digits) when byte_size(digits) < 13 or byte_size(digits) > 19, do: false
+
+  defp luhn_valid?(digits) do
+    digits
+    |> String.graphemes()
+    |> Enum.reverse()
+    |> Enum.with_index()
+    |> Enum.reduce(0, fn {char, idx}, sum ->
+      d = String.to_integer(char)
+
+      if rem(idx, 2) == 1 do
+        doubled = d * 2
+        sum + if(doubled > 9, do: doubled - 9, else: doubled)
+      else
+        sum + d
+      end
+    end)
+    |> then(&(rem(&1, 10) == 0))
   end
 
   defp sanitize_cvv(text) when is_binary(text) do
