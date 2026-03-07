@@ -259,22 +259,16 @@ defmodule HTTPower.Retry do
 
     with {:ok, response} <-
            HTTPower.Client.call_adapter(adapter, method, url, body, headers, opts),
-         {:ok, :final_response} <- check_if_response_is_retryable(response, attempt, retry_opts) do
+         {:ok, :final_response} <- check_if_response_is_retryable(response) do
       {:ok, response}
     else
-      {:error, :should_retry, reason} ->
-        handle_retry(request_params, retry_opts, attempt, reason)
-
-      {:error, reason} when attempt < retry_opts.max_retries ->
-        handle_retry(request_params, retry_opts, attempt, reason)
-
-      {:error, reason} ->
-        wrap_error(reason)
+      {:error, :should_retry, reason} -> handle_retry(request_params, retry_opts, attempt, reason)
+      {:error, reason} -> handle_retry(request_params, retry_opts, attempt, reason)
     end
   end
 
   defp handle_retry(request_params, retry_opts, attempt, reason) do
-    if retryable_error?(reason, retry_opts.retry_safe) do
+    if attempt < retry_opts.max_retries and retryable_error?(reason, retry_opts.retry_safe) do
       log_retry_attempt(attempt, reason, retry_opts.max_retries)
       delay = calculate_retry_delay(reason, attempt, retry_opts)
 
@@ -292,7 +286,9 @@ defmodule HTTPower.Retry do
       execute_http_request(request_params, retry_opts, attempt + 1)
     else
       case reason do
-        {:http_status, status, response} when status >= 200 and status < 300 ->
+        # HTTP responses are always {:ok, response}, even retryable statuses
+        # after retries are exhausted — only transport errors become {:error, ...}
+        {:http_status, _status, response} ->
           {:ok, response}
 
         _ ->
@@ -301,8 +297,8 @@ defmodule HTTPower.Retry do
     end
   end
 
-  defp check_if_response_is_retryable(response, attempt, retry_opts) do
-    if retryable_status?(response.status) and attempt < retry_opts.max_retries do
+  defp check_if_response_is_retryable(response) do
+    if retryable_status?(response.status) do
       {:error, :should_retry, {:http_status, response.status, response}}
     else
       {:ok, :final_response}
