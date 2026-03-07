@@ -148,8 +148,8 @@ defmodule HTTPower.Logger do
     "social_security"
   ]
 
-  # Credit card pattern: 13-19 digits with optional spaces/dashes
-  @credit_card_pattern ~r/\b\d{4}[\s\-]?\d{4}[\s\-]?\d{4}[\s\-]?\d{1,7}\b/
+  # Credit card pattern: 13-19 digits with optional spaces/dashes in any grouping
+  @credit_card_pattern ~r/\b(?:\d[\s\-]*){12,18}\d\b/
 
   # CVV pattern: 3-4 digits often after keywords
   @cvv_pattern ~r/\b(cvv|cvc|cvv2|security_?code)[\s\"\:]+\d{3,4}\b/i
@@ -541,8 +541,8 @@ defmodule HTTPower.Logger do
     sanitize_fields = get_sanitize_body_fields()
 
     Enum.reduce(sanitize_fields, text, fn field, acc ->
-      # Match JSON field patterns: "field": "value" or "field": value
-      pattern = ~r/"#{field}"\s*:\s*"[^"]*"/i
+      # Match JSON field patterns: "field": "value", "field": 123, "field": true/false/null
+      pattern = ~r/"#{Regex.escape(field)}"\s*:\s*(?:"[^"]*"|[\d.]+(?:[eE][+-]?\d+)?|true|false|null)/i
       Regex.replace(pattern, acc, "\"#{field}\": \"[REDACTED]\"")
     end)
   end

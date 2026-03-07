@@ -204,7 +204,6 @@ defmodule HTTPower.LoggerTest do
       assert log =~ "(truncated)"
       refute log =~ large_body
     end
-
   end
 
   describe "error logging via telemetry" do
@@ -228,7 +227,6 @@ defmodule HTTPower.LoggerTest do
       assert log =~ "req_"
       assert log =~ "500"
     end
-
   end
 
   describe "header sanitization" do
@@ -327,6 +325,30 @@ defmodule HTTPower.LoggerTest do
       assert sanitized =~ "[REDACTED]"
       refute sanitized =~ "378282246310005"
     end
+
+    test "sanitizes AmEx cards with non-standard grouping" do
+      body = "AmEx: 3782 822463 10005"
+      sanitized = HTTPowerLogger.sanitize_body(body)
+
+      assert sanitized =~ "[REDACTED]"
+      refute sanitized =~ "10005"
+    end
+
+    test "sanitizes 13-digit cards (Visa old format)" do
+      body = "Card: 4222222222225"
+      sanitized = HTTPowerLogger.sanitize_body(body)
+
+      assert sanitized =~ "[REDACTED]"
+      refute sanitized =~ "4222222222225"
+    end
+
+    test "sanitizes 19-digit cards (extended PAN)" do
+      body = "Card: 4111111111111111234"
+      sanitized = HTTPowerLogger.sanitize_body(body)
+
+      assert sanitized =~ "[REDACTED]"
+      refute sanitized =~ "4111111111111111234"
+    end
   end
 
   describe "body sanitization - CVV codes" do
@@ -393,6 +415,31 @@ defmodule HTTPower.LoggerTest do
 
       assert sanitized =~ ~s("custom_secret": "[REDACTED]")
       assert sanitized =~ "normal"
+    end
+
+    test "sanitizes numeric JSON values" do
+      body = ~s({"pin": 1234, "name": "John"})
+      sanitized = HTTPowerLogger.sanitize_body(body)
+
+      assert sanitized =~ ~s("pin": "[REDACTED]")
+      refute sanitized =~ "1234"
+      assert sanitized =~ "John"
+    end
+
+    test "sanitizes boolean JSON values" do
+      body = ~s({"secret": true, "public": "data"})
+      sanitized = HTTPowerLogger.sanitize_body(body)
+
+      assert sanitized =~ ~s("secret": "[REDACTED]")
+      assert sanitized =~ "public"
+    end
+
+    test "sanitizes null JSON values" do
+      body = ~s({"token": null, "user": "alice"})
+      sanitized = HTTPowerLogger.sanitize_body(body)
+
+      assert sanitized =~ ~s("token": "[REDACTED]")
+      assert sanitized =~ "alice"
     end
   end
 
