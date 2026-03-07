@@ -42,6 +42,29 @@ defmodule HTTPower.Test do
   - **Simple API**: One `stub/1` function for all mocking needs
   - **Zero coupling**: Doesn't depend on Req.Test or Tesla.Mock
   - **Convenient helpers**: `json/2`, `html/2`, `text/2` for responses
+
+  ## Cross-Process Support
+
+  Mocks are automatically visible to processes spawned from the test
+  (e.g., `Task.async`, `Task.async_stream`) via `$callers` chain walking.
+
+  For pre-existing processes like GenServers, use `allow/2`:
+
+      setup do
+        HTTPower.Test.setup()
+        HTTPower.Test.allow(Process.whereis(MyApp.HttpWorker))
+      end
+
+      test "worker uses mock" do
+        HTTPower.Test.stub(fn conn ->
+          HTTPower.Test.json(conn, %{ok: true})
+        end)
+
+        assert {:ok, response} = MyApp.HttpWorker.fetch()
+      end
+
+  Allowances are transitive: if you allow a GenServer and it spawns a
+  Task, the Task will also see the mock.
   """
 
   @doc """

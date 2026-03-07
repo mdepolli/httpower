@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Cross-process mock support in HTTPower.Test** — Mocks are now visible to processes
+  spawned from the test (`Task.async`, `Task.async_stream`) via `$callers` chain walking.
+  For pre-existing processes (GenServers, Agents), use the new `HTTPower.Test.allow/2`.
+  Mock storage moved from process dictionary to ETS for cross-process accessibility.
+
 ## [0.17.0] - 2026-03-06
 
 ### Added
