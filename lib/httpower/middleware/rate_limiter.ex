@@ -460,8 +460,11 @@ defmodule HTTPower.Middleware.RateLimiter do
 
   defp handle_rate_limit_exceeded(:wait, wait_time_ms, config, bucket_key) do
     max_wait_time = get_max_wait_time(config)
+    wait_and_retry(:wait, wait_time_ms, config, bucket_key, max_wait_time, 0)
+  end
 
-    if wait_time_ms <= max_wait_time do
+  defp wait_and_retry(:wait, wait_time_ms, config, bucket_key, max_wait_time, total_waited) do
+    if total_waited + wait_time_ms <= max_wait_time do
       Logger.debug("Rate limit reached, waiting #{wait_time_ms}ms")
 
       :telemetry.execute(
@@ -471,10 +474,26 @@ defmodule HTTPower.Middleware.RateLimiter do
       )
 
       :timer.sleep(wait_time_ms)
-      :ok
+
+      # Re-check and consume after waiting — another request may have
+      # consumed the token that refilled during our sleep
+      case GenServer.call(__MODULE__, {:check_and_consume, bucket_key, config}) do
+        {:ok, _remaining} ->
+          :ok
+
+        {:error, :too_many_requests, new_wait_time_ms} ->
+          wait_and_retry(
+            :wait,
+            new_wait_time_ms,
+            config,
+            bucket_key,
+            max_wait_time,
+            total_waited + wait_time_ms
+          )
+      end
     else
       Logger.warning(
-        "Rate limit wait time (#{wait_time_ms}ms) exceeds max_wait_time (#{max_wait_time}ms)"
+        "Rate limit total wait time would exceed max_wait_time (#{max_wait_time}ms)"
       )
 
       {:error, :rate_limit_wait_timeout}
