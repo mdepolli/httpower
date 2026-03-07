@@ -247,14 +247,13 @@ defmodule HTTPower.Client do
   end
 
   defp execute_http_with_retry(%Request{} = request) do
-    headers = Keyword.get(request.opts, :headers, %{})
     adapter = get_adapter(request.opts)
 
     HTTPower.Retry.execute_with_retry(
       request.method,
       request.url,
       request.body,
-      headers,
+      request.headers,
       adapter,
       request.opts
     )
