@@ -145,7 +145,6 @@ defmodule HTTPower.Middleware.RateLimiter do
 
   defp error_message(:too_many_requests), do: "Too many requests"
   defp error_message(:rate_limit_wait_timeout), do: "Rate limit wait timeout"
-  defp error_message(reason), do: inspect(reason)
 
   @doc """
   Checks if a request can proceed under rate limit constraints.
