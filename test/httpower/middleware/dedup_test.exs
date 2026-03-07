@@ -224,6 +224,32 @@ defmodule HTTPower.Middleware.DedupTest do
       assert {:ok, :wait, _ref} = Dedup.deduplicate(hash, enabled: true)
     end
 
+    test "respects custom wait_timeout" do
+      hash = Dedup.hash(:post, "https://api.com/wait-timeout-test", "data")
+      config = [enabled: true, wait_timeout: 100]
+
+      assert {:ok, :execute} = Dedup.deduplicate(hash, config)
+
+      # Spawn a waiter with a short wait_timeout
+      request = %HTTPower.Request{
+        method: :post,
+        url: URI.parse("https://api.com/wait-timeout-test"),
+        body: "data",
+        headers: %{},
+        opts: [],
+        private: %{}
+      }
+
+      task =
+        Task.async(fn ->
+          Dedup.handle_request(request, config)
+        end)
+
+      # Wait for timeout to expire (100ms + buffer)
+      result = Task.await(task, 1_000)
+      assert {:error, %HTTPower.Error{reason: :dedup_timeout}} = result
+    end
+
     test "disabled config skips deduplication" do
       hash = Dedup.hash(:post, "https://api.com/test11", "data")
 

@@ -40,6 +40,7 @@ defmodule HTTPower.Middleware.Dedup do
         deduplicate: [
           enabled: true,
           ttl: 10_000,
+          wait_timeout: 60_000,   # How long waiters block for in-flight request (default: 30s)
           key: "custom-dedup-key"  # Optional: override hash generation
         ]
       )
@@ -60,6 +61,7 @@ defmodule HTTPower.Middleware.Dedup do
   @default_config Application.compile_env(:httpower, :deduplicate, [])
 
   @completed_ttl 500
+  @default_wait_timeout 30_000
 
   # Client API
 
@@ -109,7 +111,9 @@ defmodule HTTPower.Middleware.Dedup do
           # cleaned up and recreated between this point and the receive (e.g., the
           # original request completes and a new one starts with the same hash),
           # the waiter will not match the new ref and will fall through to the
-          # 30-second timeout. This is safe — the timeout produces a clean error.
+          # wait timeout. This is safe — the timeout produces a clean error.
+          wait_timeout = Keyword.get(config, :wait_timeout, @default_wait_timeout)
+
           receive do
             {:dedup_response, ^ref, response} ->
               :telemetry.execute(
@@ -123,7 +127,7 @@ defmodule HTTPower.Middleware.Dedup do
 
               {:halt, response}
           after
-            30_000 ->
+            wait_timeout ->
               {:error,
                %HTTPower.Error{reason: :dedup_timeout, message: "Request deduplication timeout"}}
           end
