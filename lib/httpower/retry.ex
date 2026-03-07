@@ -122,8 +122,10 @@ defmodule HTTPower.Retry do
 
   ## Returns
 
-  - `{:ok, HTTPower.Response.t()}` on success
-  - `{:error, HTTPower.Error.t()}` on failure (after exhausting retries)
+  - `{:ok, HTTPower.Response.t()}` - an HTTP response was received (any status code,
+    including 5xx after retries are exhausted)
+  - `{:error, HTTPower.Error.t()}` - a transport/network error occurred after
+    exhausting retries
 
   ## Examples
 

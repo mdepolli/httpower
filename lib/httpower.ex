@@ -59,8 +59,23 @@ defmodule HTTPower do
   ## Return Values
 
   All HTTP methods return either:
-  - `{:ok, %HTTPower.Response{}}` on success
-  - `{:error, %HTTPower.Error{}}` on failure
+  - `{:ok, %HTTPower.Response{}}` - an HTTP response was received (any status code)
+  - `{:error, %HTTPower.Error{}}` - a transport/network error occurred
+
+  **Important:** `{:ok, response}` means the server responded, not that the request
+  "succeeded" in a business logic sense. This includes 4xx and 5xx responses. After
+  retries are exhausted for retryable status codes (500, 502, 503, 504), the final
+  server response is still returned as `{:ok, response}`. Always check
+  `response.status` to determine the HTTP outcome:
+
+      case HTTPower.get("https://api.example.com/users") do
+        {:ok, %{status: status}} when status in 200..299 ->
+          # Success
+        {:ok, %{status: status} = response} ->
+          # Server responded with non-2xx (including 5xx after retries exhausted)
+        {:error, %HTTPower.Error{reason: reason}} ->
+          # Transport error (timeout, connection refused, etc.)
+      end
 
   HTTPower never raises exceptions for network errors, ensuring your application
   stays stable even when external services fail.
