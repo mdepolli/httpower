@@ -171,10 +171,17 @@ defmodule HTTPower.Middleware.CircuitBreaker do
 
   ## Examples
 
+      # When circuit is closed (healthy), executes the function and returns its result:
       iex> HTTPower.CircuitBreaker.call("api.example.com", fn ->
       ...>   HTTPower.get("https://api.example.com/users")
       ...> end)
-      {:ok, response}
+      {:ok, %HTTPower.Response{status: 200, body: ...}}
+
+      # When circuit is open (too many failures), short-circuits immediately:
+      iex> HTTPower.CircuitBreaker.call("api.example.com", fn ->
+      ...>   HTTPower.get("https://api.example.com/users")
+      ...> end)
+      {:error, %HTTPower.Error{reason: :service_unavailable}}
   """
   @spec call(circuit_key(), (-> {:ok, term()} | {:error, term()}), circuit_breaker_config()) ::
           {:ok, term()} | {:error, term()}

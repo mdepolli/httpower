@@ -1,7 +1,7 @@
 if Code.ensure_loaded?(Finch) do
   defmodule HTTPower.Adapter.Finch do
     @moduledoc """
-      Finch adapter for HTTPower.
+    Finch adapter for HTTPower.
 
     This adapter uses the Finch HTTP client library to make HTTP requests. Finch is a
     performance-focused HTTP client built on Mint and NimblePool, with explicit connection

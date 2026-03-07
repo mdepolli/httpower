@@ -1,7 +1,7 @@
 if Code.ensure_loaded?(Tesla) do
   defmodule HTTPower.Adapter.Tesla do
     @moduledoc """
-      Tesla adapter for HTTPower.
+    Tesla adapter for HTTPower.
 
     This adapter allows HTTPower to work with existing Tesla clients, enabling you
     to add HTTPower's production features (circuit breakers, rate limiting, retry

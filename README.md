@@ -68,14 +68,14 @@ Add `httpower` and at least one HTTP client adapter to your dependencies in `mix
 ```elixir
 def deps do
   [
-    {:httpower, "~> 0.15.0"},
+    {:httpower, "~> 0.18.0"},
 
     # Choose at least one adapter:
-    {:finch, "~> 0.20"},       # Recommended - high performance
+    {:finch, ">= 0.19.0"},     # Recommended - high performance
     # OR
-    {:req, "~> 0.4.0"},        # Batteries-included with auto-JSON
+    {:req, ">= 0.4.0"},        # Batteries-included with auto-JSON
     # OR
-    {:tesla, "~> 1.11"}        # If you already use Tesla
+    {:tesla, ">= 1.10.0"}      # If you already use Tesla
   ]
 end
 ```
@@ -142,11 +142,14 @@ config :httpower,
     timeout: 60_000
   ],
 
-  # Logging
-  logging: [
-    enabled: true,
-    level: :info
-  ]
+  # Adapter selection (optional, defaults to Finch → Req → Tesla)
+  adapter: HTTPower.Adapter.Finch
+
+# Logging is configured separately and enabled via HTTPower.Logger.attach()
+config :httpower, :logging,
+  level: :info,
+  log_headers: true,
+  log_body: true
 
 # All requests use global configuration
 {:ok, response} = HTTPower.get("https://api.example.com/users")
@@ -190,10 +193,14 @@ Application.put_env(:httpower, :test_mode, true)
 defmodule MyAppTest do
   use ExUnit.Case
 
+  setup do
+    HTTPower.Test.setup()
+  end
+
   test "API integration with mocking" do
     # Use HTTPower.Test for adapter-agnostic mocking
     HTTPower.Test.stub(fn conn ->
-      Plug.Conn.resp(conn, 200, Jason.encode!(%{status: "success"}))
+      HTTPower.Test.json(conn, %{status: "success"})
     end)
 
     {:ok, response} = HTTPower.get("https://api.example.com/test")

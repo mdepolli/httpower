@@ -1,7 +1,7 @@
 if Code.ensure_loaded?(Req) do
   defmodule HTTPower.Adapter.Req do
     @moduledoc """
-      Req adapter for HTTPower.
+    Req adapter for HTTPower.
 
     This adapter uses the Req HTTP client library to make HTTP requests. Req is a
     "batteries-included" HTTP client with features like automatic body encoding/decoding,

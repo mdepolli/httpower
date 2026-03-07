@@ -273,10 +273,7 @@ defmodule HTTPower.Middleware.RateLimiter do
       iex> HTTPower.RateLimiter.get_info("api.github.com")
       %{
         current_tokens: 55.0,
-        last_refill_ms: 1234567890,
-        server_limit: 60,
-        server_remaining: 55,
-        server_reset_at: ~U[2025-10-01 12:00:00Z]
+        last_refill_ms: 1234567890
       }
   """
   @spec get_info(bucket_key()) :: map() | nil
