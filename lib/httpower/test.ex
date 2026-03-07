@@ -111,6 +111,50 @@ defmodule HTTPower.Test do
   end
 
   @doc """
+  Allows `pid` to use the mock registered by `owner` (defaults to `self()`).
+
+  Use this for pre-existing processes (e.g., GenServers started in the supervision
+  tree) that need to see test mocks. For processes spawned from the test
+  (Task.async, spawn, etc.), this is not needed — they automatically find
+  the parent's mock via `$callers`.
+
+  Allowances are transitive: if you allow a GenServer, and that GenServer
+  spawns a Task, the Task will also see the mock.
+
+  ## Example
+
+      setup do
+        HTTPower.Test.setup()
+        HTTPower.Test.allow(MyApp.HttpWorker)
+      end
+
+      test "worker uses mock" do
+        HTTPower.Test.stub(fn conn ->
+          HTTPower.Test.json(conn, %{ok: true})
+        end)
+
+        assert {:ok, response} = MyApp.HttpWorker.fetch()
+      end
+  """
+  def allow(pid, owner \\ self()) when is_pid(pid) do
+    unless has_stub?(owner) do
+      raise """
+      HTTPower.Test.allow/2 called but owner has no mock registered.
+
+      Make sure to call HTTPower.Test.setup() first:
+
+        setup do
+          HTTPower.Test.setup()
+          HTTPower.Test.allow(some_pid)
+        end
+      """
+    end
+
+    :ets.insert(:httpower_test_stubs, {{:allow, pid}, owner})
+    :ok
+  end
+
+  @doc """
   Sends a JSON response with the given data.
 
   ## Options
