@@ -5,6 +5,50 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Dedup abort telemetry event** — New `[:httpower, :dedup, :abort]` telemetry event emitted
+  when the original requester dies or cancels, notifying waiting processes of the abort.
+
+### Changed
+
+- **Short-circuit `can_do_request?` when test_mode is false** — Skips mock/plug checks entirely
+  when test mode is disabled, avoiding unnecessary work in production.
+
+- **Removed redundant `Logger.debug` from rate limiter wait path** — The debug log in the
+  wait-and-retry loop was redundant with the telemetry event already emitted.
+
+- **Removed redundant URI.parse in Finch adapter** — `maybe_add_ssl_options/3` now uses the
+  `%URI{}` struct directly instead of re-parsing it from a string.
+
+- **Consolidated retry attempt count check** — Retry attempt validation is now handled in a
+  single location rather than being duplicated.
+
+- **Set explicit `failure_threshold` in profiles** — Configuration profiles now set
+  `failure_threshold` explicitly to match their percentage-based intent.
+
+### Fixed
+
+- **Dedup waiters hanging when original requester dies or request is cancelled** — Waiters now
+  receive an abort message and re-issue the request instead of hanging indefinitely.
+
+- **Logger credit card regex now handles all PAN formats** — The sanitization regex now matches
+  any 13-19 digit sequence regardless of grouping (AmEx non-standard grouping, old 13-digit
+  Visa, extended 19-digit PANs), not just 4+4+4+N formatted cards.
+
+- **Logger JSON field sanitization now redacts non-string values** — Sensitive JSON fields with
+  numeric (`"pin": 1234`), boolean (`"secret": true`), or null values are now properly
+  redacted, not just double-quoted string values.
+
+### Removed
+
+- **Removed redundant tests** — Eliminated ~30 overlapping tests: exact duplicate transport
+  error tests, redundant "no logs when not attached" logger tests, adapter integration tests
+  that only exercised HTTPower.Test interception rather than actual adapter code, and SSL/proxy
+  smoke tests already covered by adapter unit tests.
+
 ## [0.18.0] - 2026-03-06
 
 ### Added
