@@ -402,11 +402,9 @@ defmodule HTTPower.Client do
   # Test Mode
 
   defp can_do_request?(opts) do
-    test_mode = Application.get_env(:httpower, :test_mode, false)
-    has_plug = Keyword.has_key?(opts, :plug)
-    has_adapter_with_config = match?({_module, _config}, Keyword.get(opts, :adapter))
-    httpower_test_enabled = HTTPower.Test.mock_enabled?()
-
-    not test_mode or httpower_test_enabled or has_plug or has_adapter_with_config
+    not Application.get_env(:httpower, :test_mode, false) or
+      HTTPower.Test.mock_enabled?() or
+      Keyword.has_key?(opts, :plug) or
+      match?({_module, _config}, Keyword.get(opts, :adapter))
   end
 end
