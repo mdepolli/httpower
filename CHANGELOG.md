@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Direct test coverage for `HTTPower.Error` module** - Added unit tests for error struct
+  creation and the `error_message/1` helper function.
+
+- **Configurable dedup wait timeout** - The dedup `wait_timeout` option is now user-configurable
+  via the `deduplicate` keyword list (e.g., `deduplicate: [wait_timeout: 30_000]`).
+
+### Changed
+
+- **Elixir 1.20.0-rc.2** - Updated `.tool-versions` to Elixir 1.20.0-rc.2.
+
+- **Adaptive rate limiting telemetry only emits on state transitions** - The
+  `[:httpower, :rate_limit, :adaptive_reduction]` telemetry event now only fires when the
+  adaptive multiplier actually changes, reducing noise under sustained circuit breaker states.
+
+- **Tesla header conversion aligned with Finch** - Tesla adapter now uses the same
+  prepend+reverse approach as the Finch adapter for header conversion, ensuring consistent
+  header ordering.
+
+- **mix.exs description includes Finch** - Updated the package description to mention Finch
+  as the default adapter.
+
+- **Retry documentation improvements** - Clarified the distinction between retryable HTTP
+  status codes and transport errors. Documented that `{:ok, response}` may include 5xx
+  responses after retries are exhausted.
+
 ### Fixed
 
 - **Elixir 1.14 test failures due to missing telemetry dependency** - Added `:telemetry` as a
@@ -16,6 +43,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Req.Test.Ownership not started on Elixir 1.14** - SSL+proxy tests that use `Req.Test.stub/2`
   directly now explicitly start the Req application, fixing 2 test failures on Elixir 1.14.
+
+- **Circuit breaker now records 5xx and 429 responses as failures** - Previously,
+  `handle_post_request` treated any `{:ok, response}` as a success, including 5xx and 429
+  responses returned after retry exhaustion. This meant sustained server errors would never
+  trip the circuit breaker. Now responses with `status >= 500` or `status == 429` are correctly
+  recorded as failures.
+
+- **Rate limiter `:wait` strategy re-checks tokens after sleeping** - Previously, the `:wait`
+  strategy would sleep and then consume without re-checking availability, which could lead to
+  negative token counts under concurrency. Now it re-checks after waking up.
+
+- **`handle_info` catch-all in RateLimiter and Dedup GenServers** - Added catch-all
+  `handle_info/2` clauses to prevent crashes from unexpected messages.
+
+- **`Error.reason` type spec includes tuple variants** - Fixed the typespec to reflect that
+  `reason` can be a tuple (e.g., `{:circuit_breaker, :open}`), not just an atom.
+
+- **Removed unreachable `error_message/1` catch-all clause** - Cleaned up dead code in the
+  Error module.
+
+- **Client uses `request.headers` instead of re-extracting from opts** - Fixed the client to
+  use the already-built request headers rather than re-reading raw options.
 
 ## [0.16.0] - 2026-02-18
 
