@@ -542,7 +542,9 @@ defmodule HTTPower.Logger do
 
     Enum.reduce(sanitize_fields, text, fn field, acc ->
       # Match JSON field patterns: "field": "value", "field": 123, "field": true/false/null
-      pattern = ~r/"#{Regex.escape(field)}"\s*:\s*(?:"[^"]*"|[\d.]+(?:[eE][+-]?\d+)?|true|false|null)/i
+      pattern =
+        ~r/"#{Regex.escape(field)}"\s*:\s*(?:"[^"]*"|[\d.]+(?:[eE][+-]?\d+)?|true|false|null)/i
+
       Regex.replace(pattern, acc, "\"#{field}\": \"[REDACTED]\"")
     end)
   end
