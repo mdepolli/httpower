@@ -59,8 +59,8 @@ defmodule HTTPower.MixProject do
   defp description do
     """
     HTTP client library with advanced reliability patterns built-in. Features circuit breaker, rate limiting,
-    PCI-compliant logging, and smart retries. Works with Req or Tesla adapters. Built for payment processing,
-    microservices, and high-volume APIs.
+    PCI-compliant logging, and smart retries. Works with Finch (default), Req, or Tesla adapters. Built for
+    payment processing, microservices, and high-volume APIs.
     """
   end
 
