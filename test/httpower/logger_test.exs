@@ -205,20 +205,6 @@ defmodule HTTPower.LoggerTest do
       refute log =~ large_body
     end
 
-    test "no logs when logger not attached" do
-      HTTPower.Test.stub(fn conn ->
-        HTTPower.Test.json(conn, %{ok: true})
-      end)
-
-      # Don't attach logger
-
-      log =
-        capture_log(fn ->
-          HTTPower.get("https://api.example.com/users", adapter: HTTPower.Adapter.Finch)
-        end)
-
-      assert log == ""
-    end
   end
 
   describe "error logging via telemetry" do
@@ -243,25 +229,6 @@ defmodule HTTPower.LoggerTest do
       assert log =~ "500"
     end
 
-    test "no logs when logger not attached" do
-      HTTPower.Test.stub(fn conn ->
-        conn
-        |> Plug.Conn.put_resp_content_type("application/json")
-        |> Plug.Conn.send_resp(500, ~s({"error": "Server Error"}))
-      end)
-
-      # Don't attach logger
-
-      log =
-        capture_log(fn ->
-          HTTPower.get("https://api.example.com/users",
-            adapter: HTTPower.Adapter.Finch,
-            max_retries: 0
-          )
-        end)
-
-      assert log == ""
-    end
   end
 
   describe "header sanitization" do

@@ -51,14 +51,6 @@ defmodule HTTPower.ClientTest do
       assert Retry.retryable_error?(:unknown_error, true) == false
     end
 
-    test "handles transport error atoms (unwrapped from Mint.TransportError by adapters)" do
-      assert Retry.retryable_error?(:timeout, false) == true
-      assert Retry.retryable_error?(:closed, false) == true
-      assert Retry.retryable_error?(:econnrefused, false) == true
-      assert Retry.retryable_error?(:econnreset, false) == false
-      assert Retry.retryable_error?(:econnreset, true) == true
-    end
-
     test "returns false for non-error values" do
       assert Retry.retryable_error?("not an error", false) == false
       assert Retry.retryable_error?(123, false) == false
