@@ -497,9 +497,7 @@ defmodule HTTPower.Middleware.RateLimiter do
           )
       end
     else
-      Logger.warning(
-        "Rate limit total wait time would exceed max_wait_time (#{max_wait_time}ms)"
-      )
+      Logger.warning("Rate limit total wait time would exceed max_wait_time (#{max_wait_time}ms)")
 
       {:error, :rate_limit_wait_timeout}
     end
@@ -550,7 +548,13 @@ defmodule HTTPower.Middleware.RateLimiter do
     original_requests = Keyword.get(config, :requests, 100)
     adjusted_requests = max(1, div(original_requests, 2))
 
-    maybe_emit_adaptive_telemetry(circuit_key, :half_open, original_requests, adjusted_requests, 0.5)
+    maybe_emit_adaptive_telemetry(
+      circuit_key,
+      :half_open,
+      original_requests,
+      adjusted_requests,
+      0.5
+    )
 
     Keyword.put(config, :requests, adjusted_requests)
   end
@@ -572,7 +576,13 @@ defmodule HTTPower.Middleware.RateLimiter do
   end
 
   # Only emit telemetry when the adaptive state changes, not on every request
-  defp maybe_emit_adaptive_telemetry(circuit_key, circuit_state, original_rate, adjusted_rate, reduction_factor) do
+  defp maybe_emit_adaptive_telemetry(
+         circuit_key,
+         circuit_state,
+         original_rate,
+         adjusted_rate,
+         reduction_factor
+       ) do
     adaptive_key = {:adaptive_state, circuit_key}
     last_state = :ets.lookup(@table_name, adaptive_key)
 
