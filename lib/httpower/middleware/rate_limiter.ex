@@ -533,13 +533,15 @@ defmodule HTTPower.Middleware.RateLimiter do
     end
   end
 
-  defp adjust_rate_for_circuit(config, nil, _circuit_key) do
+  defp adjust_rate_for_circuit(config, nil, circuit_key) do
     # Circuit breaker not initialized yet, use normal rate
+    clear_adaptive_state(circuit_key)
     config
   end
 
-  defp adjust_rate_for_circuit(config, :closed, _circuit_key) do
+  defp adjust_rate_for_circuit(config, :closed, circuit_key) do
     # Service healthy - use full rate (100%)
+    clear_adaptive_state(circuit_key)
     config
   end
 
@@ -548,19 +550,7 @@ defmodule HTTPower.Middleware.RateLimiter do
     original_requests = Keyword.get(config, :requests, 100)
     adjusted_requests = max(1, div(original_requests, 2))
 
-    :telemetry.execute(
-      [:httpower, :rate_limit, :adaptive_reduction],
-      %{
-        original_rate: original_requests,
-        adjusted_rate: adjusted_requests,
-        reduction_factor: 0.5
-      },
-      %{
-        circuit_key: circuit_key,
-        circuit_state: :half_open,
-        coordination: :circuit_breaker_adaptive
-      }
-    )
+    maybe_emit_adaptive_telemetry(circuit_key, :half_open, original_requests, adjusted_requests, 0.5)
 
     Keyword.put(config, :requests, adjusted_requests)
   end
@@ -570,16 +560,38 @@ defmodule HTTPower.Middleware.RateLimiter do
     original_requests = Keyword.get(config, :requests, 100)
     adjusted_requests = max(1, div(original_requests, 10))
 
-    :telemetry.execute(
-      [:httpower, :rate_limit, :adaptive_reduction],
-      %{
-        original_rate: original_requests,
-        adjusted_rate: adjusted_requests,
-        reduction_factor: 0.1
-      },
-      %{circuit_key: circuit_key, circuit_state: :open, coordination: :circuit_breaker_adaptive}
-    )
+    maybe_emit_adaptive_telemetry(circuit_key, :open, original_requests, adjusted_requests, 0.1)
 
     Keyword.put(config, :requests, adjusted_requests)
+  end
+
+  defp clear_adaptive_state(circuit_key) do
+    :ets.delete(@table_name, {:adaptive_state, circuit_key})
+  rescue
+    ArgumentError -> :ok
+  end
+
+  # Only emit telemetry when the adaptive state changes, not on every request
+  defp maybe_emit_adaptive_telemetry(circuit_key, circuit_state, original_rate, adjusted_rate, reduction_factor) do
+    adaptive_key = {:adaptive_state, circuit_key}
+    last_state = :ets.lookup(@table_name, adaptive_key)
+
+    unless last_state == [{adaptive_key, circuit_state}] do
+      :ets.insert(@table_name, {adaptive_key, circuit_state})
+
+      :telemetry.execute(
+        [:httpower, :rate_limit, :adaptive_reduction],
+        %{
+          original_rate: original_rate,
+          adjusted_rate: adjusted_rate,
+          reduction_factor: reduction_factor
+        },
+        %{
+          circuit_key: circuit_key,
+          circuit_state: circuit_state,
+          coordination: :circuit_breaker_adaptive
+        }
+      )
+    end
   end
 end
