@@ -37,9 +37,11 @@ defmodule HTTPower.Retry do
       # HTTPower waits exactly 5 seconds instead of exponential backoff
       {:ok, response} = HTTPower.get(url)
 
-  ## Retryable Errors
+  ## What Gets Retried
 
-  **HTTP Status Codes:**
+  **Retryable HTTP status codes** — the server responded, but the response indicates
+  a transient issue. After retries are exhausted, the final response is still returned
+  as `{:ok, response}` since the server did respond:
   - 408 Request Timeout
   - 429 Too Many Requests
   - 500 Internal Server Error
@@ -47,7 +49,8 @@ defmodule HTTPower.Retry do
   - 503 Service Unavailable
   - 504 Gateway Timeout
 
-  **Transport Errors:**
+  **Retryable transport errors** — the request never reached the server or the
+  connection was lost. After retries are exhausted, these return `{:error, error}`:
   - `:timeout` - Request timeout
   - `:closed` - Connection closed
   - `:econnrefused` - Connection refused
