@@ -639,7 +639,7 @@ defmodule HTTPower.Middleware.DedupTest do
 
       Task.await(waiter_task, 2_000)
 
-      assert_received {:telemetry, [:httpower, :dedup, :abort], measurements, metadata}
+      assert_receive {:telemetry, [:httpower, :dedup, :abort], measurements, metadata}, 1_000
       assert measurements.waiter_count == 1
       assert metadata.dedup_key == hash
       assert metadata.reason == :requester_down
