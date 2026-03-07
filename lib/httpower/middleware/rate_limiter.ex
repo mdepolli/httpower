@@ -470,8 +470,6 @@ defmodule HTTPower.Middleware.RateLimiter do
 
   defp wait_and_retry(:wait, wait_time_ms, config, bucket_key, max_wait_time, total_waited) do
     if total_waited + wait_time_ms <= max_wait_time do
-      Logger.debug("Rate limit reached, waiting #{wait_time_ms}ms")
-
       :telemetry.execute(
         [:httpower, :rate_limit, :wait],
         %{wait_time_ms: wait_time_ms},
