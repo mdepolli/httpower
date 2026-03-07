@@ -385,6 +385,12 @@ defmodule HTTPower.Middleware.Dedup do
       send(pid, {:dedup_error, ref, reason})
     end)
 
+    :telemetry.execute(
+      [:httpower, :dedup, :abort],
+      %{waiter_count: length(waiters)},
+      %{dedup_key: hash, reason: reason}
+    )
+
     :ets.delete(state.table, hash)
     demonitor_pids(state, [owner | waiters])
   end

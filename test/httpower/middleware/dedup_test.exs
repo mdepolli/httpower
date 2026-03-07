@@ -512,6 +512,55 @@ defmodule HTTPower.Middleware.DedupTest do
       result = Task.await(waiter_task, 2_000)
       assert {:got_error, :requester_down} = result
     end
+
+    test "complete and owner death race does not crash GenServer" do
+      hash = Dedup.hash(:post, "https://api.com/race-complete-death", "data")
+
+      # Start original request in a process we control
+      {requester_pid, requester_ref} =
+        spawn_monitor(fn ->
+          {:ok, :execute} = Dedup.deduplicate(hash, enabled: true)
+          Process.sleep(:infinity)
+        end)
+
+      # Give requester time to register
+      Process.sleep(20)
+
+      # Start a waiter
+      waiter_task =
+        Task.async(fn ->
+          {:ok, :wait, ref} = Dedup.deduplicate(hash, enabled: true)
+
+          receive do
+            {:dedup_response, ^ref, response} -> {:got_response, response}
+            {:dedup_error, ^ref, reason} -> {:got_error, reason}
+          after
+            2_000 -> :timeout
+          end
+        end)
+
+      # Give waiter time to register
+      Process.sleep(20)
+
+      # Fire complete and kill nearly simultaneously
+      response = %{status: 200, body: "race"}
+      Dedup.complete(hash, response, enabled: true)
+      Process.exit(requester_pid, :kill)
+
+      receive do
+        {:DOWN, ^requester_ref, :process, ^requester_pid, :killed} -> :ok
+      after
+        1_000 -> flunk("Requester didn't die")
+      end
+
+      # Waiter should get either the response or an error, never hang
+      result = Task.await(waiter_task, 2_000)
+      assert result in [{:got_response, response}, {:got_error, :requester_down}]
+
+      # GenServer should still be alive
+      Process.sleep(50)
+      assert Process.alive?(Process.whereis(HTTPower.Middleware.Dedup))
+    end
   end
 
   describe "telemetry - deduplication events" do
@@ -526,7 +575,8 @@ defmodule HTTPower.Middleware.DedupTest do
       events = [
         [:httpower, :dedup, :execute],
         [:httpower, :dedup, :wait],
-        [:httpower, :dedup, :cache_hit]
+        [:httpower, :dedup, :cache_hit],
+        [:httpower, :dedup, :abort]
       ]
 
       :telemetry.attach_many(
@@ -550,6 +600,49 @@ defmodule HTTPower.Middleware.DedupTest do
 
       assert_received {:telemetry, [:httpower, :dedup, :execute], _measurements, metadata}
       assert metadata.dedup_key
+    end
+
+    test "emits abort event when original requester dies" do
+      hash = Dedup.hash(:post, "https://api.com/telemetry-abort-test", "data")
+
+      {requester_pid, requester_ref} =
+        spawn_monitor(fn ->
+          {:ok, :execute} = Dedup.deduplicate(hash, enabled: true)
+          Process.sleep(:infinity)
+        end)
+
+      # Give requester time to register
+      Process.sleep(20)
+
+      # Add a waiter so we can verify waiter_count
+      waiter_task =
+        Task.async(fn ->
+          {:ok, :wait, ref} = Dedup.deduplicate(hash, enabled: true)
+
+          receive do
+            {:dedup_error, ^ref, _reason} -> :ok
+          after
+            2_000 -> :timeout
+          end
+        end)
+
+      Process.sleep(20)
+
+      # Kill the requester
+      Process.exit(requester_pid, :kill)
+
+      receive do
+        {:DOWN, ^requester_ref, :process, ^requester_pid, :killed} -> :ok
+      after
+        1_000 -> flunk("Requester didn't die")
+      end
+
+      Task.await(waiter_task, 2_000)
+
+      assert_received {:telemetry, [:httpower, :dedup, :abort], measurements, metadata}
+      assert measurements.waiter_count == 1
+      assert metadata.dedup_key == hash
+      assert metadata.reason == :requester_down
     end
   end
 end
