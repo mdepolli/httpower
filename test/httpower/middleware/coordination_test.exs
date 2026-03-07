@@ -452,6 +452,123 @@ defmodule HTTPower.Middleware.CoordinationTest do
     end
   end
 
+  describe "circuit breaker records 5xx as failure" do
+    test "5xx responses after retry exhaustion trip the circuit breaker" do
+      circuit_key = "5xx_circuit_test_#{System.unique_integer()}"
+
+      CircuitBreaker.reset_circuit(circuit_key)
+
+      # Stub always returns 500
+      HTTPower.Test.stub(fn conn ->
+        Plug.Conn.send_resp(conn, 500, Jason.encode!(%{error: "internal server error"}))
+      end)
+
+      # Make requests that will exhaust retries and return {:ok, %{status: 500}}
+      # With failure_threshold: 3, three 500 responses should open the circuit
+      for _ <- 1..3 do
+        HTTPower.get("https://api.example.com/test",
+          circuit_breaker: [
+            enabled: true,
+            failure_threshold: 3,
+            window_size: 10,
+            circuit_breaker_key: circuit_key
+          ],
+          max_retries: 0,
+          base_delay: 1,
+          max_delay: 1
+        )
+      end
+
+      # Wait for async cast to process
+      Process.sleep(100)
+
+      # Circuit should be open because 5xx responses are server failures
+      assert CircuitBreaker.get_state(circuit_key) == :open
+    end
+
+    test "429 responses trip the circuit breaker" do
+      circuit_key = "429_circuit_test_#{System.unique_integer()}"
+
+      CircuitBreaker.reset_circuit(circuit_key)
+
+      HTTPower.Test.stub(fn conn ->
+        Plug.Conn.send_resp(conn, 429, Jason.encode!(%{error: "too many requests"}))
+      end)
+
+      for _ <- 1..3 do
+        HTTPower.get("https://api.example.com/test",
+          circuit_breaker: [
+            enabled: true,
+            failure_threshold: 3,
+            window_size: 10,
+            circuit_breaker_key: circuit_key
+          ],
+          max_retries: 0,
+          base_delay: 1,
+          max_delay: 1
+        )
+      end
+
+      Process.sleep(100)
+
+      assert CircuitBreaker.get_state(circuit_key) == :open
+    end
+
+    test "4xx responses do NOT trip the circuit breaker" do
+      circuit_key = "4xx_circuit_test_#{System.unique_integer()}"
+
+      CircuitBreaker.reset_circuit(circuit_key)
+
+      HTTPower.Test.stub(fn conn ->
+        Plug.Conn.send_resp(conn, 404, Jason.encode!(%{error: "not found"}))
+      end)
+
+      for _ <- 1..5 do
+        HTTPower.get("https://api.example.com/test",
+          circuit_breaker: [
+            enabled: true,
+            failure_threshold: 3,
+            window_size: 10,
+            circuit_breaker_key: circuit_key
+          ],
+          max_retries: 0
+        )
+      end
+
+      Process.sleep(100)
+
+      # 4xx are client errors - circuit should stay closed
+      state = CircuitBreaker.get_state(circuit_key)
+      assert state in [:closed, nil]
+    end
+
+    test "2xx responses keep circuit breaker closed" do
+      circuit_key = "2xx_circuit_test_#{System.unique_integer()}"
+
+      CircuitBreaker.reset_circuit(circuit_key)
+
+      HTTPower.Test.stub(fn conn ->
+        HTTPower.Test.json(conn, %{ok: true})
+      end)
+
+      for _ <- 1..5 do
+        HTTPower.get("https://api.example.com/test",
+          circuit_breaker: [
+            enabled: true,
+            failure_threshold: 3,
+            window_size: 10,
+            circuit_breaker_key: circuit_key
+          ]
+        )
+      end
+
+      Process.sleep(100)
+
+      state = CircuitBreaker.get_state(circuit_key)
+      assert state in [:closed, nil]
+    end
+  end
+
   describe "middleware pipeline order" do
     test "dedup runs before rate limiter in pipeline" do
       # This is verified by the middleware order in @available_features

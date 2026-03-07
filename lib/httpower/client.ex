@@ -264,8 +264,14 @@ defmodule HTTPower.Client do
       {circuit_key, circuit_config} = cb
 
       case result do
-        {:ok, _} -> CircuitBreaker.record_success(circuit_key, circuit_config)
-        {:error, _} -> CircuitBreaker.record_failure(circuit_key, circuit_config)
+        {:ok, %{status: status}} when status >= 500 or status == 429 ->
+          CircuitBreaker.record_failure(circuit_key, circuit_config)
+
+        {:ok, _} ->
+          CircuitBreaker.record_success(circuit_key, circuit_config)
+
+        {:error, _} ->
+          CircuitBreaker.record_failure(circuit_key, circuit_config)
       end
     end
 
