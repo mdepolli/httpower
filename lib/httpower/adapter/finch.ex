@@ -84,9 +84,7 @@ if Code.ensure_loaded?(Finch) do
     end
 
     defp maybe_add_ssl_options(opts, url, ssl_verify) do
-      uri = if is_binary(url), do: URI.parse(url), else: url
-
-      case uri do
+      case url do
         %URI{scheme: "https"} ->
           ssl_opts = [verify: if(ssl_verify, do: :verify_peer, else: :verify_none)]
           conn_opts = Keyword.get(opts, :conn_opts, [])
