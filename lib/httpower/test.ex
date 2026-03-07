@@ -58,12 +58,12 @@ defmodule HTTPower.Test do
   def setup do
     import ExUnit.Callbacks, only: [on_exit: 1]
 
-    # Store that this process is in test mode
-    Process.put(:httpower_test_mock_enabled, true)
+    owner = self()
+    :ets.insert(:httpower_test_stubs, {owner, nil})
 
     on_exit(fn ->
-      Process.delete(:httpower_test_mock_enabled)
-      Process.delete(:httpower_test_stub)
+      :ets.delete(:httpower_test_stubs, owner)
+      :ets.match_delete(:httpower_test_stubs, {{:allow, :_}, owner})
     end)
 
     :ok
@@ -92,20 +92,22 @@ defmodule HTTPower.Test do
       end)
   """
   def stub(fun) when is_function(fun, 1) do
-    unless Process.get(:httpower_test_mock_enabled) do
-      raise """
-      HTTPower.Test.stub/1 called without calling HTTPower.Test.setup/0 first.
+    case :ets.lookup(:httpower_test_stubs, self()) do
+      [{_pid, _}] ->
+        :ets.insert(:httpower_test_stubs, {self(), fun})
+        :ok
 
-      Make sure to call HTTPower.Test.setup() in your test setup:
+      [] ->
+        raise """
+        HTTPower.Test.stub/1 called without calling HTTPower.Test.setup/0 first.
 
-        setup do
-          HTTPower.Test.setup()
-        end
-      """
+        Make sure to call HTTPower.Test.setup() in your test setup:
+
+          setup do
+            HTTPower.Test.setup()
+          end
+        """
     end
-
-    Process.put(:httpower_test_stub, fun)
-    :ok
   end
 
   @doc """
@@ -218,13 +220,16 @@ defmodule HTTPower.Test do
   @doc false
   # Internal function used by adapters to check if mocking is enabled
   def mock_enabled? do
-    Process.get(:httpower_test_mock_enabled, false)
+    resolve_owner(self()) != nil
   end
 
   @doc false
   # Internal function used by adapters to get the stub function
   def get_stub do
-    Process.get(:httpower_test_stub)
+    case resolve_owner(self()) do
+      nil -> nil
+      owner_pid -> lookup_stub(owner_pid)
+    end
   end
 
   @doc false
@@ -336,4 +341,46 @@ defmodule HTTPower.Test do
   end
 
   defp parse_body(body), do: body
+
+  defp resolve_owner(pid) do
+    cond do
+      has_stub?(pid) -> pid
+      owner = find_allowance(pid) -> owner
+      owner = walk_callers() -> owner
+      true -> nil
+    end
+  end
+
+  defp has_stub?(pid) do
+    case :ets.lookup(:httpower_test_stubs, pid) do
+      [{^pid, _fun}] -> true
+      _ -> false
+    end
+  end
+
+  defp lookup_stub(owner_pid) do
+    case :ets.lookup(:httpower_test_stubs, owner_pid) do
+      [{^owner_pid, fun}] -> fun
+      _ -> nil
+    end
+  end
+
+  defp find_allowance(pid) do
+    case :ets.lookup(:httpower_test_stubs, {:allow, pid}) do
+      [{{:allow, ^pid}, owner}] -> owner
+      _ -> nil
+    end
+  end
+
+  defp walk_callers do
+    callers = Process.get(:"$callers", [])
+
+    Enum.find_value(callers, fn caller ->
+      cond do
+        has_stub?(caller) -> caller
+        owner = find_allowance(caller) -> owner
+        true -> nil
+      end
+    end)
+  end
 end

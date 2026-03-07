@@ -190,8 +190,7 @@ defmodule HTTPowerTest do
       assert HTTPower.test_mode?() == true
 
       # Temporarily disable HTTPower.Test mocking to test the blocking feature
-      Process.delete(:httpower_test_mock_enabled)
-      Process.delete(:httpower_test_stub)
+      :ets.delete(:httpower_test_stubs, self())
 
       # Real request should be blocked
       assert {:error, error} = HTTPower.get("https://api.example.com/real")
@@ -199,7 +198,7 @@ defmodule HTTPowerTest do
       assert error.message == "Network access blocked in test mode"
 
       # Re-enable mocking for subsequent tests
-      Process.put(:httpower_test_mock_enabled, true)
+      :ets.insert(:httpower_test_stubs, {self(), nil})
     end
 
     test "allows requests with plug even in test mode" do

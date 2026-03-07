@@ -108,8 +108,7 @@ defmodule HTTPower.SharedTests do
     assert HTTPower.test_mode?() == true
 
     # Temporarily disable HTTPower.Test mocking
-    Process.delete(:httpower_test_mock_enabled)
-    Process.delete(:httpower_test_stub)
+    :ets.delete(:httpower_test_stubs, self())
 
     # Real request should be blocked (no adapter config = unmocked adapter)
     assert {:error, error} =

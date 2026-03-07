@@ -363,7 +363,7 @@ defmodule HTTPower.Adapter.ReqTest do
     test "HTTPS request with system proxy preserves SSL connect_options" do
       # Disable HTTPower.Test interception so request goes through the real Req code path.
       # This exercises build_req_opts -> maybe_add_ssl_options -> maybe_add_proxy_options.
-      Process.delete(:httpower_test_mock_enabled)
+      :ets.delete(:httpower_test_stubs, self())
 
       Req.Test.stub(HTTPower.Adapter.ReqTest.SSLProxy, fn conn ->
         Req.Test.json(conn, %{ssl_and_proxy: true})
@@ -386,7 +386,7 @@ defmodule HTTPower.Adapter.ReqTest do
     end
 
     test "HTTPS request with custom proxy preserves SSL connect_options" do
-      Process.delete(:httpower_test_mock_enabled)
+      :ets.delete(:httpower_test_stubs, self())
 
       Req.Test.stub(HTTPower.Adapter.ReqTest.CustomProxy, fn conn ->
         Req.Test.json(conn, %{custom_proxy_ssl: true})

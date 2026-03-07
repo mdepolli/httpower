@@ -238,7 +238,7 @@ defmodule HTTPower.Adapter.TeslaTest do
       # Tesla.Mock requires global mode for non-async tests, but we can use
       # it in this setup. We disable HTTPower.Test mock for these tests
       # so the adapter's do_request path runs.
-      Process.delete(:httpower_test_mock_enabled)
+      :ets.delete(:httpower_test_stubs, self())
       Tesla.Mock.mock(fn _env -> %Tesla.Env{status: 200, body: ""} end)
       :ok
     end

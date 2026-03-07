@@ -5,6 +5,12 @@ defmodule HTTPower.Application do
 
   @impl true
   def start(_type, _args) do
+    # Test mock storage table — created in all envs so HTTPower.Test works
+    # when HTTPower is a dependency (no Mix.env() available from Hex packages)
+    if :ets.whereis(:httpower_test_stubs) == :undefined do
+      :ets.new(:httpower_test_stubs, [:set, :public, :named_table, read_concurrency: true])
+    end
+
     children =
       [
         # Rate limiter GenServer
