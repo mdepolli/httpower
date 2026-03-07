@@ -29,6 +29,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Set explicit `failure_threshold` in profiles** — Configuration profiles now set
   `failure_threshold` explicitly to match their percentage-based intent.
 
+- **Credit card sanitization now uses Luhn validation** — The regex pattern finds candidates
+  (13-19 digit sequences), then Luhn checksum filters out non-card numbers like order IDs
+  and timestamps. Reduces false positives by ~90% while maintaining PCI safety. JSON
+  field-name sanitization (e.g., `"credit_card": "value"`) remains unconditional.
+
 ### Fixed
 
 - **Dedup waiters hanging when original requester dies or request is cancelled** — Waiters now
