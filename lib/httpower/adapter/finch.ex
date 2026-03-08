@@ -132,14 +132,7 @@ if Code.ensure_loaded?(Finch) do
     defp unwrap_transport_error(%{__struct__: Mint.TransportError, reason: reason}), do: reason
     defp unwrap_transport_error(error), do: error
 
-    defp prepare_headers(headers, :post) do
-      default_post_headers = %{"Content-Type" => "application/x-www-form-urlencoded"}
-      Map.merge(default_post_headers, headers)
-    end
-
-    defp prepare_headers(headers, _method) do
-      headers
-    end
+    defp prepare_headers(headers, method), do: HTTPower.Adapter.prepare_headers(headers, method)
 
     defp format_headers(headers) when is_map(headers) do
       Enum.map(headers, fn {key, value} -> {to_string(key), to_string(value)} end)

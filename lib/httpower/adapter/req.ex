@@ -137,14 +137,7 @@ if Code.ensure_loaded?(Req) do
 
     defp maybe_add_proxy_options(opts, _), do: opts
 
-    defp prepare_headers(headers, :post) do
-      default_post_headers = %{"Content-Type" => "application/x-www-form-urlencoded"}
-      Map.merge(default_post_headers, headers)
-    end
-
-    defp prepare_headers(headers, _method) do
-      headers
-    end
+    defp prepare_headers(headers, method), do: HTTPower.Adapter.prepare_headers(headers, method)
 
     defp safe_req_request(req_opts) do
       Req.request(req_opts)

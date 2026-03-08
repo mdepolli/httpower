@@ -372,15 +372,7 @@ defmodule HTTPower.Test do
   defp atom_to_http_method(:head), do: "HEAD"
   defp atom_to_http_method(:options), do: "OPTIONS"
 
-  defp prepare_headers(headers, :post) do
-    # Mimic adapter behavior: add default Content-Type for POST
-    default_post_headers = %{"Content-Type" => "application/x-www-form-urlencoded"}
-    Map.merge(default_post_headers, headers || %{})
-  end
-
-  defp prepare_headers(headers, _method) do
-    headers || %{}
-  end
+  defp prepare_headers(headers, method), do: HTTPower.Adapter.prepare_headers(headers, method)
 
   defp put_request_headers(conn, headers) when is_map(headers) do
     Enum.reduce(headers, conn, fn {key, value}, acc ->
