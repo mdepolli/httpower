@@ -305,10 +305,15 @@ defmodule HTTPower.Logger do
     # Store correlation_id in process dictionary for :stop event
     Process.put(:httpower_correlation_id, correlation_id)
 
-    # Build structured metadata
-    log_metadata = build_request_metadata(correlation_id, metadata, config)
+    # Sanitize once, reuse for both metadata and log message
+    headers = Map.get(metadata, :headers, %{})
+    body = Map.get(metadata, :body)
+    sanitized_headers = sanitize_if_enabled(:headers, headers, config)
+    sanitized_body = sanitize_if_enabled(:body, body, config)
 
-    # Set Logger metadata for structured logging
+    log_metadata =
+      build_request_metadata(correlation_id, metadata, sanitized_headers, sanitized_body)
+
     Logger.metadata(log_metadata)
 
     message =
@@ -316,9 +321,8 @@ defmodule HTTPower.Logger do
         correlation_id,
         metadata.method,
         metadata.url,
-        Map.get(metadata, :headers, %{}),
-        Map.get(metadata, :body),
-        config
+        sanitized_headers,
+        sanitized_body
       )
 
     log(message, config)
@@ -330,21 +334,25 @@ defmodule HTTPower.Logger do
 
     status = Map.get(metadata, :status, "error")
 
-    # Build structured metadata for response
-    log_metadata = build_response_metadata(correlation_id, status, duration_ms, metadata, config)
+    # Sanitize once, reuse for both metadata and log message
+    headers = Map.get(metadata, :headers, %{})
+    body = Map.get(metadata, :body)
+    sanitized_headers = sanitize_if_enabled(:headers, headers, config)
+    sanitized_body = sanitize_if_enabled(:body, body, config)
 
-    # Update Logger metadata
+    log_metadata =
+      build_response_metadata(
+        correlation_id,
+        status,
+        duration_ms,
+        sanitized_headers,
+        sanitized_body
+      )
+
     Logger.metadata(log_metadata)
 
     message =
-      format_response_log(
-        correlation_id,
-        status,
-        Map.get(metadata, :headers, %{}),
-        Map.get(metadata, :body),
-        duration_ms,
-        config
-      )
+      format_response_log(correlation_id, status, sanitized_headers, sanitized_body, duration_ms)
 
     log(message, config)
   end
@@ -378,47 +386,55 @@ defmodule HTTPower.Logger do
 
   ## Private Functions
 
-  defp build_request_metadata(correlation_id, metadata, config) do
+  defp build_request_metadata(correlation_id, metadata, sanitized_headers, sanitized_body) do
     [
       httpower_correlation_id: correlation_id,
       httpower_event: :request,
       httpower_method: metadata.method,
       httpower_url: metadata.url
     ] ++
-      maybe_headers_metadata(:httpower_headers, metadata, config) ++
-      maybe_body_metadata(:httpower_body, metadata, config)
+      maybe_metadata(:httpower_headers, sanitized_headers) ++
+      maybe_metadata(:httpower_body, sanitized_body && truncate_for_metadata(sanitized_body))
   end
 
-  defp build_response_metadata(correlation_id, status, duration_ms, metadata, config) do
+  defp build_response_metadata(
+         correlation_id,
+         status,
+         duration_ms,
+         sanitized_headers,
+         sanitized_body
+       ) do
     [
       httpower_correlation_id: correlation_id,
       httpower_event: :response,
       httpower_status: status,
       httpower_duration_ms: duration_ms
     ] ++
-      maybe_headers_metadata(:httpower_response_headers, metadata, config) ++
-      maybe_body_metadata(:httpower_response_body, metadata, config)
+      maybe_metadata(:httpower_response_headers, sanitized_headers) ++
+      maybe_metadata(
+        :httpower_response_body,
+        sanitized_body && truncate_for_metadata(sanitized_body)
+      )
   end
 
-  defp maybe_headers_metadata(key, metadata, config) do
-    headers = Map.get(metadata, :headers, %{})
-
+  defp sanitize_if_enabled(:headers, headers, config) do
     if config.log_headers and map_size(headers) > 0 do
-      [{key, do_sanitize_headers(headers, config.sanitize_headers)}]
+      do_sanitize_headers(headers, config.sanitize_headers)
     else
-      []
+      nil
     end
   end
 
-  defp maybe_body_metadata(key, metadata, config) do
-    body = Map.get(metadata, :body)
-
+  defp sanitize_if_enabled(:body, body, config) do
     if config.log_body and body do
-      [{key, body |> do_sanitize_body(config.sanitize_body_fields) |> truncate_for_metadata()}]
+      do_sanitize_body(body, config.sanitize_body_fields)
     else
-      []
+      nil
     end
   end
+
+  defp maybe_metadata(_key, nil), do: []
+  defp maybe_metadata(key, value), do: [{key, value}]
 
   defp truncate_for_metadata(body) when is_binary(body) do
     if String.length(body) > 500 do
@@ -470,47 +486,26 @@ defmodule HTTPower.Logger do
     Logger.log(config.level, message)
   end
 
-  defp format_request_log(correlation_id, method, url, headers, body, config) do
+  defp format_request_log(correlation_id, method, url, sanitized_headers, sanitized_body) do
     method_str = method |> to_string() |> String.upcase()
-
-    headers_str =
-      if config.log_headers && map_size(headers) > 0 do
-        sanitized = do_sanitize_headers(headers, config.sanitize_headers)
-        " headers=#{inspect(sanitized)}"
-      else
-        ""
-      end
-
-    body_str =
-      if config.log_body && body do
-        sanitized = do_sanitize_body(body, config.sanitize_body_fields)
-        " body=#{inspect_body(sanitized)}"
-      else
-        ""
-      end
+    headers_str = format_sanitized_headers(sanitized_headers)
+    body_str = format_sanitized_body(sanitized_body)
 
     "[HTTPower] [#{correlation_id}] → #{method_str} #{url}#{headers_str}#{body_str}"
   end
 
-  defp format_response_log(correlation_id, status, headers, body, duration_ms, config) do
-    headers_str =
-      if config.log_headers && map_size(headers) > 0 do
-        sanitized = do_sanitize_headers(headers, config.sanitize_headers)
-        " headers=#{inspect(sanitized)}"
-      else
-        ""
-      end
-
-    body_str =
-      if config.log_body && body do
-        sanitized = do_sanitize_body(body, config.sanitize_body_fields)
-        " body=#{inspect_body(sanitized)}"
-      else
-        ""
-      end
+  defp format_response_log(correlation_id, status, sanitized_headers, sanitized_body, duration_ms) do
+    headers_str = format_sanitized_headers(sanitized_headers)
+    body_str = format_sanitized_body(sanitized_body)
 
     "[HTTPower] [#{correlation_id}] ← #{status} (#{duration_ms}ms)#{headers_str}#{body_str}"
   end
+
+  defp format_sanitized_headers(nil), do: ""
+  defp format_sanitized_headers(headers), do: " headers=#{inspect(headers)}"
+
+  defp format_sanitized_body(nil), do: ""
+  defp format_sanitized_body(body), do: " body=#{inspect_body(body)}"
 
   defp format_exception_log(correlation_id, kind, reason, duration_ms) do
     "[HTTPower] [#{correlation_id}] EXCEPTION (#{duration_ms}ms) #{kind}: #{inspect(reason)}"
