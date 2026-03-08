@@ -23,9 +23,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   lists are now normalized once during `HTTPower.Logger.attach/0` and stored in the handler config,
   eliminating repeated `Application.get_env` + normalization on every telemetry event.
 
+- **Logger sanitizes once per event** — Headers and body are now sanitized once and reused for both
+  structured metadata and log message formatting, eliminating redundant sanitization work.
+
 - **Document `HTTPower.new/1` raises on invalid profile** — Clarified that the "never raises"
   principle applies to HTTP operations, not configuration errors. `new/1` raises `ArgumentError`
   for unknown profiles, which is correct Elixir convention.
+
+- **Document compile-time config caching in Client** — Added moduledoc section explaining that
+  default adapter and middleware settings are cached at compile time and require recompilation to
+  change.
+
+- **Runtime Plug check in `HTTPower.Test`** — Response helpers (`json/2`, `html/2`, `text/2`,
+  `transport_error/2`) now raise a clear error message if Plug is not installed, instead of
+  crashing with `UndefinedFunctionError`.
 
 ### Fixed
 
@@ -42,6 +53,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **DELETE method ignores request body** — `HTTPower.delete/2` now extracts and forwards the
   `:body` option, matching the behavior of POST, PUT, and PATCH.
+
+- **Dedup wait telemetry reports actual wait duration** — `wait_time_ms` in `[:httpower, :dedup,
+  :wait]` events now reflects the actual time spent waiting for the original request, instead of
+  always reporting 0.
+
+- **`circuit_breaker_key` works as top-level request option** — Previously only recognized when
+  nested inside `circuit_breaker: [circuit_breaker_key: "..."]`. Now works as documented:
+  `HTTPower.get(url, circuit_breaker_key: "payment_api")`. Also fixed in the rate limiter's
+  adaptive rate adjustment.
+
+- **Removed unreachable `{:error, {:http_status, ...}}` pattern** — Dead code in
+  `Client.get_request_function/2` telemetry metadata that could never match, since the retry
+  module converts HTTP status errors to `{:ok, response}`.
+
+- **`parse_retry_after/1` normalizes header keys** — Now performs case-insensitive header lookup,
+  matching the behavior of `parse/2`. Previously, mixed-case keys like `"Retry-After"` would not
+  be found when calling `parse_retry_after/1` directly.
 
 ## [0.19.0] - 2026-03-07
 
