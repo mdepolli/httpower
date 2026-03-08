@@ -113,12 +113,15 @@ defmodule HTTPower.Middleware.Dedup do
           # the waiter will not match the new ref and will fall through to the
           # wait timeout. This is safe — the timeout produces a clean error.
           wait_timeout = Keyword.get(config, :wait_timeout, @default_wait_timeout)
+          wait_start = System.monotonic_time(:millisecond)
 
           receive do
             {:dedup_response, ^ref, response} ->
+              wait_time_ms = System.monotonic_time(:millisecond) - wait_start
+
               :telemetry.execute(
                 [:httpower, :dedup, :wait],
-                %{wait_time_ms: 0, bypassed_rate_limit: 1},
+                %{wait_time_ms: wait_time_ms, bypassed_rate_limit: 1},
                 %{
                   dedup_key: dedup_hash,
                   coordination: :rate_limit_bypass
