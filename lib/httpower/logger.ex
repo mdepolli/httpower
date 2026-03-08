@@ -528,7 +528,9 @@ defmodule HTTPower.Logger do
   defp inspect_body(body), do: inspect(body)
 
   defp get_sanitize_headers, do: get_sanitize_list(:sanitize_headers, @default_sanitize_headers)
-  defp get_sanitize_body_fields, do: get_sanitize_list(:sanitize_body_fields, @default_sanitize_body_fields)
+
+  defp get_sanitize_body_fields,
+    do: get_sanitize_list(:sanitize_body_fields, @default_sanitize_body_fields)
 
   defp get_sanitize_list(key, defaults) do
     custom =
@@ -594,7 +596,9 @@ defmodule HTTPower.Logger do
   end
 
   defp do_sanitize_value(value, fields) when is_map(value), do: do_sanitize_map(value, fields)
-  defp do_sanitize_value(value, fields) when is_list(value), do: Enum.map(value, &do_sanitize_value(&1, fields))
+
+  defp do_sanitize_value(value, fields) when is_list(value),
+    do: Enum.map(value, &do_sanitize_value(&1, fields))
 
   defp do_sanitize_value(value, _fields) when is_binary(value) do
     value

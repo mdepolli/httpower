@@ -184,7 +184,9 @@ defmodule HTTPower.Adapter.FinchTest do
       end)
 
       assert {:ok, %Response{}} =
-               FinchAdapter.request(:get, "https://api.example.com/test", nil, %{}, proxy: :system)
+               FinchAdapter.request(:get, "https://api.example.com/test", nil, %{},
+                 proxy: :system
+               )
     end
 
     test "allows nil proxy (no proxy)" do
