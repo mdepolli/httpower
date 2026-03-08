@@ -1,7 +1,7 @@
 defmodule HTTPower.MixProject do
   use Mix.Project
 
-  @version "0.19.0"
+  @version "0.20.0"
   @source_url "https://github.com/mdepolli/httpower"
 
   def project do
@@ -55,7 +55,7 @@ defmodule HTTPower.MixProject do
       {:jason, "~> 1.4"},
       # Plug - required for HTTPower.Test mock utilities
       {:plug, ">= 1.15.0", optional: true},
-      {:ex_doc, "~> 0.31", only: :dev, runtime: false},
+      {:ex_doc, "~> 0.40", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false}
     ]
   end

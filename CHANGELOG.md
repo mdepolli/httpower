@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-03-08
+
 ### Added
 
 - **Finch adapter unit tests** — Added 27 unit tests for `HTTPower.Adapter.Finch` covering HTTP
@@ -29,6 +31,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Document `HTTPower.new/1` raises on invalid profile** — Clarified that the "never raises"
   principle applies to HTTP operations, not configuration errors. `new/1` raises `ArgumentError`
   for unknown profiles, which is correct Elixir convention.
+
+- **Bump ExDoc to `~> 0.40`** — Enables automatic `llms.txt` generation for LLM-friendly
+  documentation on HexDocs.
 
 - **Document compile-time config caching in Client** — Added moduledoc section explaining that
   default adapter and middleware settings are cached at compile time and require recompilation to
@@ -990,7 +995,12 @@ OpentelemetryTelemetry.register_application_tracer(:httpower)
 - Production-ready error handling and logging
 - PCI DSS compliance considerations in design
 
-[unreleased]: https://github.com/mdepolli/httpower/compare/v0.15.2...HEAD
+[unreleased]: https://github.com/mdepolli/httpower/compare/v0.20.0...HEAD
+[0.20.0]: https://github.com/mdepolli/httpower/compare/v0.19.0...v0.20.0
+[0.19.0]: https://github.com/mdepolli/httpower/compare/v0.18.0...v0.19.0
+[0.18.0]: https://github.com/mdepolli/httpower/compare/v0.17.0...v0.18.0
+[0.17.0]: https://github.com/mdepolli/httpower/compare/v0.16.0...v0.17.0
+[0.16.0]: https://github.com/mdepolli/httpower/compare/v0.15.2...v0.16.0
 [0.15.2]: https://github.com/mdepolli/httpower/compare/v0.15.1...v0.15.2
 [0.15.1]: https://github.com/mdepolli/httpower/compare/v0.15.0...v0.15.1
 [0.15.0]: https://github.com/mdepolli/httpower/compare/v0.14.0...v0.15.0
