@@ -563,6 +563,128 @@ defmodule HTTPower.Middleware.DedupTest do
     end
   end
 
+  describe "multi-hash per process" do
+    test "same process can deduplicate two different hashes without leaking" do
+      hash1 = Dedup.hash(:post, "https://api.com/multi-hash-1", "data1")
+      hash2 = Dedup.hash(:post, "https://api.com/multi-hash-2", "data2")
+
+      # Same process starts two different dedup hashes
+      assert {:ok, :execute} = Dedup.deduplicate(hash1, enabled: true)
+      assert {:ok, :execute} = Dedup.deduplicate(hash2, enabled: true)
+
+      # Complete the first hash
+      response1 = %{status: 200, body: "response1"}
+      Dedup.complete(hash1, response1, enabled: true)
+
+      # Second hash should still be in-flight (not leaked)
+      # A new caller for hash2 should get :wait, not :execute
+      waiter_task =
+        Task.async(fn ->
+          case Dedup.deduplicate(hash2, enabled: true) do
+            {:ok, :wait, ref} ->
+              receive do
+                {:dedup_response, ^ref, response} -> {:waited, response}
+              after
+                2_000 -> :timeout
+              end
+
+            {:ok, :execute} ->
+              :leaked
+          end
+        end)
+
+      # Give waiter time to register
+      Process.sleep(20)
+
+      # Complete the second hash
+      response2 = %{status: 200, body: "response2"}
+      Dedup.complete(hash2, response2, enabled: true)
+
+      result = Task.await(waiter_task, 2_000)
+      assert {:waited, ^response2} = result
+    end
+
+    test "process death cleans up all tracked hashes" do
+      hash1 = Dedup.hash(:post, "https://api.com/multi-death-1", "data1")
+      hash2 = Dedup.hash(:post, "https://api.com/multi-death-2", "data2")
+
+      # Spawn a process that starts two dedup hashes then dies
+      {pid, ref} =
+        spawn_monitor(fn ->
+          {:ok, :execute} = Dedup.deduplicate(hash1, enabled: true)
+          {:ok, :execute} = Dedup.deduplicate(hash2, enabled: true)
+          # Die without completing
+        end)
+
+      receive do
+        {:DOWN, ^ref, :process, ^pid, :normal} -> :ok
+      after
+        1_000 -> flunk("Process didn't die")
+      end
+
+      # Give GenServer time to process the DOWN message
+      Process.sleep(50)
+
+      # Both hashes should have been cleaned up
+      assert {:ok, :execute} = Dedup.deduplicate(hash1, enabled: true)
+      assert {:ok, :execute} = Dedup.deduplicate(hash2, enabled: true)
+    end
+
+    test "process that is owner of one hash and waiter on another cleans up both on death" do
+      hash_owned = Dedup.hash(:post, "https://api.com/multi-role-owned", "data")
+      hash_waited = Dedup.hash(:post, "https://api.com/multi-role-waited", "data")
+
+      # Start the first hash from another process (so our spawned process will be a waiter)
+      owner_task =
+        Task.async(fn ->
+          {:ok, :execute} = Dedup.deduplicate(hash_waited, enabled: true)
+          # Stay alive until told to complete
+          receive do
+            :complete -> :ok
+          end
+        end)
+
+      Process.sleep(20)
+
+      # Spawn a process that owns hash_owned and waits on hash_waited, then dies
+      {pid, ref} =
+        spawn_monitor(fn ->
+          {:ok, :execute} = Dedup.deduplicate(hash_owned, enabled: true)
+          {:ok, :wait, _ref} = Dedup.deduplicate(hash_waited, enabled: true)
+          # Die without completing
+        end)
+
+      receive do
+        {:DOWN, ^ref, :process, ^pid, :normal} -> :ok
+      after
+        1_000 -> flunk("Process didn't die")
+      end
+
+      # Give GenServer time to process the DOWN message
+      Process.sleep(50)
+
+      # hash_owned should have been cleaned up (owner died)
+      assert {:ok, :execute} = Dedup.deduplicate(hash_owned, enabled: true)
+
+      # hash_waited should still be in-flight (the original owner_task is alive)
+      waiter_task =
+        Task.async(fn ->
+          case Dedup.deduplicate(hash_waited, enabled: true) do
+            {:ok, :wait, _ref} -> :still_in_flight
+            {:ok, :execute} -> :was_cleaned_up
+          end
+        end)
+
+      result = Task.await(waiter_task, 2_000)
+      assert result == :still_in_flight
+
+      # Clean up: complete the waited hash
+      send(owner_task.pid, :complete)
+      Task.await(owner_task, 1_000)
+      Dedup.complete(hash_waited, %{status: 200}, enabled: true)
+    end
+  end
+
   describe "telemetry - deduplication events" do
     setup do
       # Setup HTTPower.Test

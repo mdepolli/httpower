@@ -265,9 +265,10 @@ defmodule HTTPower.Middleware.Dedup do
     # Schedule periodic cleanup
     schedule_cleanup()
 
-    # pid_to_hash: reverse index for O(1) lookup on process death
-    # monitors: %{pid => monitor_ref} for cleanup (demonitoring)
-    {:ok, %{table: table, pid_to_hash: %{}, monitors: %{}}}
+    # pid_to_hashes: reverse index for O(1) lookup on process death
+    #   %{pid => MapSet.t(hash)} — supports multiple concurrent hashes per PID
+    # monitors: %{pid => monitor_ref} for cleanup (one monitor per PID)
+    {:ok, %{table: table, pid_to_hashes: %{}, monitors: %{}}}
   end
 
   @impl true
@@ -298,8 +299,8 @@ defmodule HTTPower.Middleware.Dedup do
         # Mark as completed with short TTL for race conditions
         :ets.insert(state.table, {hash, {:completed, response}, ref, timestamp()})
 
-        # Clean up monitors for all participants
-        state = demonitor_pids(state, [owner | waiters])
+        # Clean up monitors for all participants of this hash
+        state = demonitor_pids(state, [owner | waiters], hash)
         {:noreply, state}
 
       _ ->
@@ -321,28 +322,29 @@ defmodule HTTPower.Middleware.Dedup do
 
   @impl true
   def handle_info({:DOWN, _mon_ref, :process, pid, _reason}, state) do
-    case Map.pop(state.pid_to_hash, pid) do
-      {nil, _} ->
-        {:noreply, state}
+    {hashes, pid_to_hashes} = Map.pop(state.pid_to_hashes, pid, MapSet.new())
+    {_mon_ref, monitors} = Map.pop(state.monitors, pid)
+    state = %{state | pid_to_hashes: pid_to_hashes, monitors: monitors}
 
-      {hash, pid_to_hash} ->
-        state = %{state | pid_to_hash: pid_to_hash}
-
-        case :ets.lookup(state.table, hash) do
+    state =
+      Enum.reduce(hashes, state, fn hash, acc ->
+        case :ets.lookup(acc.table, hash) do
           [{^hash, {:in_flight, _waiters, ^pid}, _ref, _ts}] ->
             # Original requester died — notify all waiters and clean up
-            {:noreply, abort_in_flight(state, hash, :requester_down)}
+            abort_in_flight(acc, hash, :requester_down)
 
           [{^hash, {:in_flight, waiters, owner}, ref, ts}] ->
             # A waiter died — remove from waiter list
             new_waiters = List.delete(waiters, pid)
-            :ets.insert(state.table, {hash, {:in_flight, new_waiters, owner}, ref, ts})
-            {:noreply, state}
+            :ets.insert(acc.table, {hash, {:in_flight, new_waiters, owner}, ref, ts})
+            acc
 
           _ ->
-            {:noreply, state}
+            acc
         end
-    end
+      end)
+
+    {:noreply, state}
   end
 
   @impl true
@@ -371,11 +373,16 @@ defmodule HTTPower.Middleware.Dedup do
   # Private Functions
 
   defp monitor_pid(state, pid, hash) do
-    mon_ref = Process.monitor(pid)
+    hashes = Map.get(state.pid_to_hashes, pid, MapSet.new())
+    state = put_in(state, [:pid_to_hashes, pid], MapSet.put(hashes, hash))
 
-    state
-    |> put_in([:pid_to_hash, pid], hash)
-    |> put_in([:monitors, pid], mon_ref)
+    if Map.has_key?(state.monitors, pid) do
+      # Already monitoring this PID, just track the new hash
+      state
+    else
+      mon_ref = Process.monitor(pid)
+      put_in(state, [:monitors, pid], mon_ref)
+    end
   end
 
   defp abort_in_flight(state, hash, reason) do
@@ -392,17 +399,31 @@ defmodule HTTPower.Middleware.Dedup do
     )
 
     :ets.delete(state.table, hash)
-    demonitor_pids(state, [owner | waiters])
+    demonitor_pids(state, [owner | waiters], hash)
   end
 
-  defp demonitor_pids(state, pids) do
-    Enum.reduce(pids, state, fn pid, acc -> cleanup_pid(acc, pid) end)
+  defp demonitor_pids(state, pids, hash) do
+    Enum.reduce(pids, state, fn pid, acc -> cleanup_pid_hash(acc, pid, hash) end)
   end
 
-  defp cleanup_pid(state, pid) do
-    {mon_ref, monitors} = Map.pop(state.monitors, pid)
-    if mon_ref, do: Process.demonitor(mon_ref, [:flush])
-    %{state | monitors: monitors, pid_to_hash: Map.delete(state.pid_to_hash, pid)}
+  defp cleanup_pid_hash(state, pid, hash) do
+    case Map.get(state.pid_to_hashes, pid) do
+      nil ->
+        state
+
+      hashes ->
+        remaining = MapSet.delete(hashes, hash)
+
+        if Enum.empty?(remaining) do
+          # No more active hashes for this PID — fully clean up
+          {mon_ref, monitors} = Map.pop(state.monitors, pid)
+          if mon_ref, do: Process.demonitor(mon_ref, [:flush])
+          %{state | monitors: monitors, pid_to_hashes: Map.delete(state.pid_to_hashes, pid)}
+        else
+          # PID still has other active hashes — keep monitor, update set
+          put_in(state, [:pid_to_hashes, pid], remaining)
+        end
+    end
   end
 
   defp deduplication_enabled?(config) do
