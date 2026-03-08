@@ -81,17 +81,25 @@ if Code.ensure_loaded?(Req) do
       # Extract any additional options (like :plug for Req.Test)
       additional_opts =
         Keyword.drop(opts, [
-          :headers,
-          :max_retries,
-          :retry_safe,
-          :timeout,
-          :ssl_verify,
-          :proxy,
-          :body,
+          :adapter,
+          :adapter_config,
           :base_delay,
-          :max_delay,
+          :body,
+          :circuit_breaker,
+          :circuit_breaker_key,
+          :deduplicate,
+          :headers,
           :jitter_factor,
-          :adapter
+          :max_delay,
+          :max_retries,
+          :profile,
+          :proxy,
+          :rate_limit,
+          :rate_limit_key,
+          :request_steps,
+          :retry_safe,
+          :ssl_verify,
+          :timeout
         ])
 
       base_opts
