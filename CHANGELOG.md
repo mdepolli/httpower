@@ -5,6 +5,44 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Finch adapter unit tests** — Added 27 unit tests for `HTTPower.Adapter.Finch` covering HTTP
+  methods, headers, SSL, proxy, response conversion, error handling, body handling, and
+  `conn_opts` merging. Finch was the only adapter without unit tests.
+
+### Changed
+
+- **Extract shared `prepare_headers/2` into `HTTPower.Adapter`** — Consolidated duplicate header
+  preparation logic from Finch, Req, and Test modules into a single public function in the
+  `HTTPower.Adapter` behaviour module.
+
+- **Cache sanitization field lists in Logger at attach time** — Sanitization header and body field
+  lists are now normalized once during `HTTPower.Logger.attach/0` and stored in the handler config,
+  eliminating repeated `Application.get_env` + normalization on every telemetry event.
+
+- **Document `HTTPower.new/1` raises on invalid profile** — Clarified that the "never raises"
+  principle applies to HTTP operations, not configuration errors. `new/1` raises `ArgumentError`
+  for unknown profiles, which is correct Elixir convention.
+
+### Fixed
+
+- **Dedup `pid_to_hash` overwrite when process tracks multiple hashes** — Changed from a single
+  hash per PID to a `MapSet` of hashes. Previously, if a process made concurrent requests with
+  different bodies, only the last hash was tracked, leaking earlier entries on process death.
+
+- **`max_retries` off-by-one** — `max_retries: 3` now correctly performs 3 retries (4 total
+  attempts). Previously it performed only 2 retries due to a `<` vs `<=` comparison error.
+
+- **Req adapter leaks HTTPower-specific options to Req** — Expanded the option filter list from
+  12 to 20 entries, adding `:adapter_config`, `:circuit_breaker`, `:circuit_breaker_key`,
+  `:deduplicate`, `:profile`, `:rate_limit`, `:rate_limit_key`, and `:request_steps`.
+
+- **DELETE method ignores request body** — `HTTPower.delete/2` now extracts and forwards the
+  `:body` option, matching the behavior of POST, PUT, and PATCH.
+
 ## [0.19.0] - 2026-03-07
 
 ### Added
