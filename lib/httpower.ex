@@ -50,7 +50,7 @@ defmodule HTTPower do
   ## Configuration Options
 
   - `timeout` - Request timeout in seconds (default: 60)
-  - `max_retries` - Maximum retry attempts (default: 3)
+  - `max_retries` - Maximum retries after initial attempt (default: 3)
   - `retry_safe` - Enable retries for connection resets (default: false)
   - `ssl_verify` - Enable SSL verification (default: true)
   - `proxy` - Proxy configuration (default: :system)

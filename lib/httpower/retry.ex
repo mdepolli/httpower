@@ -21,7 +21,7 @@ defmodule HTTPower.Retry do
 
       # Global defaults (can be overridden per-request)
       HTTPower.get(url,
-        max_retries: 3,         # Maximum retry attempts (default: 3)
+        max_retries: 3,         # Maximum retries after initial attempt (default: 3)
         retry_safe: false,      # Retry on connection reset (default: false)
         base_delay: 1000,       # Base delay in ms (default: 1000)
         max_delay: 30_000,      # Maximum delay cap in ms (default: 30000)
@@ -268,7 +268,7 @@ defmodule HTTPower.Retry do
   end
 
   defp handle_retry(request_params, retry_opts, attempt, reason) do
-    if attempt < retry_opts.max_retries and retryable_error?(reason, retry_opts.retry_safe) do
+    if attempt <= retry_opts.max_retries and retryable_error?(reason, retry_opts.retry_safe) do
       log_retry_attempt(attempt, reason, retry_opts.max_retries)
       delay = calculate_retry_delay(reason, attempt, retry_opts)
 

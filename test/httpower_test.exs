@@ -632,6 +632,26 @@ defmodule HTTPowerTest do
 
       assert Agent.get(agent, & &1) == 2
     end
+
+    test "max_retries controls exact number of retries after initial attempt" do
+      {:ok, agent} = Agent.start_link(fn -> 0 end)
+
+      HTTPower.Test.stub(fn conn ->
+        Agent.update(agent, &(&1 + 1))
+        Plug.Conn.resp(conn, 500, "Server Error")
+      end)
+
+      # max_retries: 2 means 2 retries after initial = 3 total attempts
+      assert {:ok, response} =
+               HTTPower.get("https://api.example.com/always-fails",
+                 max_retries: 2,
+                 base_delay: 1,
+                 max_delay: 1
+               )
+
+      assert response.status == 500
+      assert Agent.get(agent, & &1) == 3
+    end
   end
 
   describe "telemetry - HTTP request lifecycle events" do
