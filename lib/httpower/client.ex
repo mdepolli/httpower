@@ -13,6 +13,13 @@ defmodule HTTPower.Client do
   The client sits above the adapter layer, providing consistent retry logic,
   error handling, and other production features regardless of the underlying
   HTTP client.
+
+  ## Compile-Time Configuration
+
+  Default adapter and middleware pipeline settings are cached at compile time
+  via `Application.compile_env/3` for performance. Changes to `:httpower`
+  application config require recompilation of this module to take effect.
+  Runtime options passed per-request always take precedence.
   """
 
   alias HTTPower.{Error, Request, Response}
