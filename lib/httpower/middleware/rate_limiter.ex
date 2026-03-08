@@ -515,7 +515,10 @@ defmodule HTTPower.Middleware.RateLimiter do
   defp maybe_adjust_rate_for_circuit_state(config, request) do
     # Only adjust if adaptive mode is enabled (default: true)
     if Keyword.get(config, :adaptive, true) do
-      circuit_key = Keyword.get(config, :circuit_breaker_key) || request.url.host
+      circuit_key =
+        Keyword.get(config, :circuit_breaker_key) ||
+          Keyword.get(request.opts, :circuit_breaker_key) ||
+          request.url.host
 
       # Query circuit breaker state (read-only, loose coupling)
       circuit_state = CircuitBreaker.get_state(circuit_key)

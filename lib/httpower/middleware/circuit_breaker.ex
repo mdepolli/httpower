@@ -137,7 +137,10 @@ defmodule HTTPower.Middleware.CircuitBreaker do
   def handle_request(request, config) do
     # Config is already merged by Client (runtime + compile-time)
     if circuit_breaker_enabled?(config) do
-      circuit_key = Keyword.get(config, :circuit_breaker_key) || request.url.host
+      circuit_key =
+        Keyword.get(config, :circuit_breaker_key) ||
+          Keyword.get(request.opts, :circuit_breaker_key) ||
+          request.url.host
 
       case check_and_allow_request(circuit_key, config) do
         {:ok, :allowed} ->
