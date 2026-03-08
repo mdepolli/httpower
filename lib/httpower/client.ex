@@ -86,7 +86,8 @@ defmodule HTTPower.Client do
   """
   @spec delete(String.t(), keyword()) :: {:ok, Response.t()} | {:error, Error.t()}
   def delete(url, opts \\ []) do
-    request(:delete, url, nil, opts)
+    body = Keyword.get(opts, :body)
+    request(:delete, url, body, opts)
   end
 
   @doc """
