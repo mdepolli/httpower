@@ -237,8 +237,12 @@ defmodule HTTPower.Logger do
   """
   @spec sanitize_headers(map()) :: map()
   def sanitize_headers(headers) when is_map(headers) do
-    sanitize_list = get_sanitize_headers()
+    do_sanitize_headers(headers, get_sanitize_headers())
+  end
 
+  def sanitize_headers(_), do: %{}
+
+  defp do_sanitize_headers(headers, sanitize_list) when is_map(headers) do
     headers
     |> Enum.map(fn {key, value} ->
       normalized_key = String.downcase(to_string(key))
@@ -251,8 +255,6 @@ defmodule HTTPower.Logger do
     end)
     |> Map.new()
   end
-
-  def sanitize_headers(_), do: %{}
 
   @doc """
   Sanitizes request/response body by redacting sensitive data.
@@ -272,17 +274,27 @@ defmodule HTTPower.Logger do
   def sanitize_body(nil), do: nil
 
   def sanitize_body(body) when is_binary(body) do
-    body
-    |> sanitize_credit_cards()
-    |> sanitize_cvv()
-    |> sanitize_json_fields()
+    do_sanitize_body(body, get_sanitize_body_fields())
   end
 
   def sanitize_body(body) when is_map(body) do
-    sanitize_map(body)
+    do_sanitize_map(body, get_sanitize_body_fields())
   end
 
   def sanitize_body(body), do: body
+
+  defp do_sanitize_body(body, fields) when is_binary(body) do
+    body
+    |> sanitize_credit_cards()
+    |> sanitize_cvv()
+    |> do_sanitize_json_fields(fields)
+  end
+
+  defp do_sanitize_body(body, fields) when is_map(body) do
+    do_sanitize_map(body, fields)
+  end
+
+  defp do_sanitize_body(body, _fields), do: body
 
   ## Telemetry Event Handlers
 
@@ -392,7 +404,7 @@ defmodule HTTPower.Logger do
     headers = Map.get(metadata, :headers, %{})
 
     if config.log_headers and map_size(headers) > 0 do
-      [{key, sanitize_headers(headers)}]
+      [{key, do_sanitize_headers(headers, config.sanitize_headers)}]
     else
       []
     end
@@ -402,7 +414,7 @@ defmodule HTTPower.Logger do
     body = Map.get(metadata, :body)
 
     if config.log_body and body do
-      [{key, body |> sanitize_body() |> truncate_for_metadata()}]
+      [{key, body |> do_sanitize_body(config.sanitize_body_fields) |> truncate_for_metadata()}]
     else
       []
     end
@@ -432,14 +444,20 @@ defmodule HTTPower.Logger do
   defp build_config(opts) do
     defaults = Application.get_env(:httpower, :logging, [])
 
+    custom_headers =
+      Keyword.get(opts, :sanitize_headers, Keyword.get(defaults, :sanitize_headers, []))
+      |> Enum.map(&String.downcase/1)
+
+    custom_body_fields =
+      Keyword.get(opts, :sanitize_body_fields, Keyword.get(defaults, :sanitize_body_fields, []))
+      |> Enum.map(&String.downcase/1)
+
     %{
       level: Keyword.get(opts, :level, Keyword.get(defaults, :level, :info)),
       log_headers: Keyword.get(opts, :log_headers, Keyword.get(defaults, :log_headers, true)),
       log_body: Keyword.get(opts, :log_body, Keyword.get(defaults, :log_body, true)),
-      sanitize_headers:
-        Keyword.get(opts, :sanitize_headers, Keyword.get(defaults, :sanitize_headers, [])),
-      sanitize_body_fields:
-        Keyword.get(opts, :sanitize_body_fields, Keyword.get(defaults, :sanitize_body_fields, []))
+      sanitize_headers: Enum.uniq(@default_sanitize_headers ++ custom_headers),
+      sanitize_body_fields: Enum.uniq(@default_sanitize_body_fields ++ custom_body_fields)
     }
   end
 
@@ -457,7 +475,7 @@ defmodule HTTPower.Logger do
 
     headers_str =
       if config.log_headers && map_size(headers) > 0 do
-        sanitized = sanitize_headers(headers)
+        sanitized = do_sanitize_headers(headers, config.sanitize_headers)
         " headers=#{inspect(sanitized)}"
       else
         ""
@@ -465,7 +483,7 @@ defmodule HTTPower.Logger do
 
     body_str =
       if config.log_body && body do
-        sanitized = sanitize_body(body)
+        sanitized = do_sanitize_body(body, config.sanitize_body_fields)
         " body=#{inspect_body(sanitized)}"
       else
         ""
@@ -477,7 +495,7 @@ defmodule HTTPower.Logger do
   defp format_response_log(correlation_id, status, headers, body, duration_ms, config) do
     headers_str =
       if config.log_headers && map_size(headers) > 0 do
-        sanitized = sanitize_headers(headers)
+        sanitized = do_sanitize_headers(headers, config.sanitize_headers)
         " headers=#{inspect(sanitized)}"
       else
         ""
@@ -485,7 +503,7 @@ defmodule HTTPower.Logger do
 
     body_str =
       if config.log_body && body do
-        sanitized = sanitize_body(body)
+        sanitized = do_sanitize_body(body, config.sanitize_body_fields)
         " body=#{inspect_body(sanitized)}"
       else
         ""
@@ -509,24 +527,16 @@ defmodule HTTPower.Logger do
 
   defp inspect_body(body), do: inspect(body)
 
-  defp get_sanitize_headers do
-    custom_headers =
+  defp get_sanitize_headers, do: get_sanitize_list(:sanitize_headers, @default_sanitize_headers)
+  defp get_sanitize_body_fields, do: get_sanitize_list(:sanitize_body_fields, @default_sanitize_body_fields)
+
+  defp get_sanitize_list(key, defaults) do
+    custom =
       Application.get_env(:httpower, :logging, [])
-      |> Keyword.get(:sanitize_headers, [])
+      |> Keyword.get(key, [])
       |> Enum.map(&String.downcase/1)
 
-    (@default_sanitize_headers ++ custom_headers)
-    |> Enum.uniq()
-  end
-
-  defp get_sanitize_body_fields do
-    custom_fields =
-      Application.get_env(:httpower, :logging, [])
-      |> Keyword.get(:sanitize_body_fields, [])
-      |> Enum.map(&String.downcase/1)
-
-    (@default_sanitize_body_fields ++ custom_fields)
-    |> Enum.uniq()
+    Enum.uniq(defaults ++ custom)
   end
 
   defp sanitize_credit_cards(text) when is_binary(text) do
@@ -562,10 +572,8 @@ defmodule HTTPower.Logger do
     Regex.replace(@cvv_pattern, text, "\\1: [REDACTED]")
   end
 
-  defp sanitize_json_fields(text) when is_binary(text) do
-    sanitize_fields = get_sanitize_body_fields()
-
-    Enum.reduce(sanitize_fields, text, fn field, acc ->
+  defp do_sanitize_json_fields(text, fields) when is_binary(text) do
+    Enum.reduce(fields, text, fn field, acc ->
       # Match JSON field patterns: "field": "value", "field": 123, "field": true/false/null
       pattern =
         ~r/"#{Regex.escape(field)}"\s*:\s*(?:"[^"]*"|[\d.]+(?:[eE][+-]?\d+)?|true|false|null)/i
@@ -574,27 +582,25 @@ defmodule HTTPower.Logger do
     end)
   end
 
-  defp sanitize_map(map) when is_map(map) do
-    sanitize_fields = get_sanitize_body_fields()
-
+  defp do_sanitize_map(map, fields) when is_map(map) do
     Map.new(map, fn {key, value} ->
       normalized_key = key |> to_string() |> String.downcase()
 
       sanitized =
-        if normalized_key in sanitize_fields, do: "[REDACTED]", else: sanitize_value(value)
+        if normalized_key in fields, do: "[REDACTED]", else: do_sanitize_value(value, fields)
 
       {key, sanitized}
     end)
   end
 
-  defp sanitize_value(value) when is_map(value), do: sanitize_map(value)
-  defp sanitize_value(value) when is_list(value), do: Enum.map(value, &sanitize_value/1)
-  defp sanitize_value(value) when is_binary(value), do: sanitize_string_value(value)
-  defp sanitize_value(value), do: value
+  defp do_sanitize_value(value, fields) when is_map(value), do: do_sanitize_map(value, fields)
+  defp do_sanitize_value(value, fields) when is_list(value), do: Enum.map(value, &do_sanitize_value(&1, fields))
 
-  defp sanitize_string_value(value) do
+  defp do_sanitize_value(value, _fields) when is_binary(value) do
     value
     |> sanitize_credit_cards()
     |> sanitize_cvv()
   end
+
+  defp do_sanitize_value(value, _fields), do: value
 end
