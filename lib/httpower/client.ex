@@ -209,14 +209,6 @@ defmodule HTTPower.Client do
               retry_count: Keyword.get(request.opts, :retry_count, 0)
             }
 
-          {:error, %Error{reason: {:http_status, status, response}}} ->
-            %{
-              status: status,
-              headers: response.headers,
-              body: response.body,
-              error_type: :http_error
-            }
-
           {:error, %Error{reason: reason}} ->
             %{error_type: reason}
 
