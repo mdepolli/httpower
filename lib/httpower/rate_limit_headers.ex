@@ -75,7 +75,9 @@ defmodule HTTPower.RateLimitHeaders do
   """
   @spec parse_retry_after(map()) :: {:ok, non_neg_integer()} | {:error, :not_found}
   def parse_retry_after(headers) when is_map(headers) do
-    case Map.get(headers, "retry-after") do
+    normalized = normalize_headers(headers)
+
+    case Map.get(normalized, "retry-after") do
       nil ->
         {:error, :not_found}
 
