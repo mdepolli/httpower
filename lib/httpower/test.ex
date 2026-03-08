@@ -190,6 +190,7 @@ defmodule HTTPower.Test do
       HTTPower.Test.json(conn, %{error: "not found"}, status: 404)
   """
   def json(conn, data, opts \\ []) do
+    require_plug!()
     status = Keyword.get(opts, :status, 200)
     body = Jason.encode!(data)
 
@@ -211,6 +212,7 @@ defmodule HTTPower.Test do
       HTTPower.Test.html(conn, "<h1>Not Found</h1>", status: 404)
   """
   def html(conn, data, opts \\ []) do
+    require_plug!()
     status = Keyword.get(opts, :status, 200)
 
     conn
@@ -231,6 +233,7 @@ defmodule HTTPower.Test do
       HTTPower.Test.text(conn, "Not Found", status: 404)
   """
   def text(conn, data, opts \\ []) do
+    require_plug!()
     status = Keyword.get(opts, :status, 200)
 
     conn
@@ -262,6 +265,7 @@ defmodule HTTPower.Test do
       assert error.message =~ "timeout"
   """
   def transport_error(conn, reason) do
+    require_plug!()
     validate_transport_error!(reason)
 
     # Store the error in conn.private so execute_stub can detect it
@@ -320,6 +324,7 @@ defmodule HTTPower.Test do
   end
 
   defp run_stub(stub, method, url, body, headers) do
+    require_plug!()
     conn = build_conn(method, url, body, headers)
     conn = stub.(conn)
     conn_to_result(conn)
@@ -428,6 +433,23 @@ defmodule HTTPower.Test do
     case :ets.lookup(:httpower_test_stubs, {:allow, pid}) do
       [{{:allow, ^pid}, owner}] -> owner
       _ -> nil
+    end
+  end
+
+  defp require_plug! do
+    unless Code.ensure_loaded?(Plug.Conn) do
+      raise """
+      Plug is required for HTTPower.Test but is not available.
+
+      Add {:plug, "~> 1.15"} to your test dependencies in mix.exs:
+
+          defp deps do
+            [
+              {:httpower, "~> 0.19"},
+              {:plug, "~> 1.15", only: :test}
+            ]
+          end
+      """
     end
   end
 
