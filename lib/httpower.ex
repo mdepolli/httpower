@@ -77,8 +77,10 @@ defmodule HTTPower do
           # Transport error (timeout, connection refused, etc.)
       end
 
-  HTTPower never raises exceptions for network errors, ensuring your application
-  stays stable even when external services fail.
+  HTTPower never raises exceptions for HTTP operations, ensuring your application
+  stays stable even when external services fail. Configuration errors (such as
+  passing an unknown profile to `new/1`) raise `ArgumentError` at client
+  construction time, following standard Elixir conventions.
 
   ## Configured Clients
 
@@ -110,6 +112,8 @@ defmodule HTTPower do
 
   @doc """
   Creates a new HTTPower client with pre-configured options.
+
+  Raises `ArgumentError` if an unknown profile is specified.
 
   ## Options
 
