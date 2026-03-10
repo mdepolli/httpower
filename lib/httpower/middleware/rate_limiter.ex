@@ -80,6 +80,8 @@ defmodule HTTPower.Middleware.RateLimiter do
   require Logger
 
   @table_name :httpower_rate_limiter
+  # Compile-time config caching for performance (avoids repeated Application.get_env calls)
+  @default_config Application.compile_env(:httpower, :rate_limit, [])
   # Clean up old buckets every minute
   @cleanup_interval 60_000
   # Remove buckets inactive for 5 minutes
@@ -428,8 +430,7 @@ defmodule HTTPower.Middleware.RateLimiter do
 
   # Public-facing helper (loads config from Application.get_env)
   defp get_strategy(config) when is_list(config) do
-    default_config = Application.get_env(:httpower, :rate_limit, [])
-    get_strategy(config, default_config)
+    get_strategy(config, @default_config)
   end
 
   # Optimized version for GenServer callbacks (uses cached default_config)
@@ -440,8 +441,7 @@ defmodule HTTPower.Middleware.RateLimiter do
 
   # Public-facing helper (loads config from Application.get_env)
   defp get_max_wait_time(config) when is_list(config) do
-    default_config = Application.get_env(:httpower, :rate_limit, [])
-    get_max_wait_time(config, default_config)
+    get_max_wait_time(config, @default_config)
   end
 
   # Optimized version for GenServer callbacks (uses cached default_config)
