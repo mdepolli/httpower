@@ -390,14 +390,17 @@ defmodule HTTPower.Client do
   @doc false
   def call_adapter({adapter_module, config}, method, url, body, headers, opts) do
     adapter_opts = Keyword.put(opts, :adapter_config, config)
-    adapter_module.request(method, url, body, headers, adapter_opts)
+    adapter_module.request(method, normalize_url(url), body, headers, adapter_opts)
   end
 
   @doc false
   def call_adapter(adapter_module, method, url, body, headers, opts)
       when is_atom(adapter_module) do
-    adapter_module.request(method, url, body, headers, opts)
+    adapter_module.request(method, normalize_url(url), body, headers, opts)
   end
+
+  defp normalize_url(%URI{} = uri), do: uri
+  defp normalize_url(url) when is_binary(url), do: URI.parse(url)
 
   # Test Mode
 

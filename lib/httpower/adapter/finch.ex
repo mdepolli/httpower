@@ -118,9 +118,7 @@ if Code.ensure_loaded?(Finch) do
 
     defp safe_finch_request(method, url, body, headers, opts) do
       prepared_headers = prepare_headers(headers, method)
-      # Convert URI struct to string if needed
-      url_string = if is_binary(url), do: url, else: URI.to_string(url)
-      request = Finch.build(method, url_string, format_headers(prepared_headers), body || "")
+      request = Finch.build(method, url, format_headers(prepared_headers), body || "")
 
       Finch.request(request, HTTPower.Finch, opts)
     rescue

@@ -61,7 +61,7 @@ defmodule HTTPower.Adapter do
   ## Parameters
 
   - `method` - HTTP method as an atom (`:get`, `:post`, `:put`, `:delete`)
-  - `url` - Full URL as a string
+  - `url` - Full URL as a URI struct
   - `body` - Request body (string, map, or nil)
   - `headers` - Map of request headers
   - `opts` - Keyword list of adapter-specific options
@@ -84,7 +84,7 @@ defmodule HTTPower.Adapter do
   """
   @callback request(
               method :: atom(),
-              url :: String.t(),
+              url :: URI.t(),
               body :: term(),
               headers :: map(),
               opts :: keyword()

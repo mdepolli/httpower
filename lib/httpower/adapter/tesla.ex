@@ -123,11 +123,14 @@ if Code.ensure_loaded?(Tesla) do
     defp build_tesla_opts(method, url, body, headers) do
       [
         method: method,
-        url: url,
+        url: url_to_string(url),
         body: body || "",
         headers: convert_headers(headers)
       ]
     end
+
+    defp url_to_string(%URI{} = uri), do: URI.to_string(uri)
+    defp url_to_string(url) when is_binary(url), do: url
 
     # Convert HTTPower headers (map) to Tesla headers (list of tuples)
     defp convert_headers(headers) when is_map(headers) do
