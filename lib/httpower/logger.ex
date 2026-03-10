@@ -417,13 +417,15 @@ defmodule HTTPower.Logger do
       )
   end
 
-  defp sanitize_if_enabled(:headers, headers, config) do
+  defp sanitize_if_enabled(:headers, headers, config) when is_map(headers) do
     if config.log_headers and map_size(headers) > 0 do
       do_sanitize_headers(headers, config.sanitize_headers)
     else
       nil
     end
   end
+
+  defp sanitize_if_enabled(:headers, _headers, _config), do: nil
 
   defp sanitize_if_enabled(:body, body, config) do
     if config.log_body and body do
