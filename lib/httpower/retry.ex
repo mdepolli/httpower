@@ -238,7 +238,8 @@ defmodule HTTPower.Retry do
       3200..4000
   """
   def calculate_backoff_delay(attempt, retry_opts) do
-    factor = Integer.pow(2, attempt - 1)
+    exponent = min(attempt - 1, 30)
+    factor = Integer.pow(2, exponent)
     delay_before_cap = retry_opts.base_delay * factor
     max_delay = min(retry_opts.max_delay, delay_before_cap)
     jitter = 1 - retry_opts.jitter_factor * :rand.uniform()
