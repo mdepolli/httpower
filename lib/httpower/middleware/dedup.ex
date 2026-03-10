@@ -199,7 +199,7 @@ defmodule HTTPower.Middleware.Dedup do
           {:ok, :execute} | {:ok, :wait, reference()} | {:ok, any()} | {:error, atom()}
   def deduplicate(request_hash, config \\ []) do
     if deduplication_enabled?(config) do
-      GenServer.call(__MODULE__, {:deduplicate, request_hash, self()}, :infinity)
+      GenServer.call(__MODULE__, {:deduplicate, request_hash, self()})
     else
       {:ok, :execute}
     end
