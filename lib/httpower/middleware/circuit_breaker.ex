@@ -210,7 +210,8 @@ defmodule HTTPower.Middleware.CircuitBreaker do
           %{circuit_key: circuit_key}
         )
 
-        {:error, :service_unavailable}
+        {:error,
+         %HTTPower.Error{reason: :service_unavailable, message: "Circuit breaker is open"}}
     end
   end
 

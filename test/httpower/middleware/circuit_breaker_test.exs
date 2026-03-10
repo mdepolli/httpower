@@ -90,7 +90,7 @@ defmodule HTTPower.Middleware.CircuitBreakerTest do
       result =
         CircuitBreaker.call("test_circuit", fn -> {:ok, :should_not_execute} end, config)
 
-      assert result == {:error, :service_unavailable}
+      assert {:error, %HTTPower.Error{reason: :service_unavailable}} = result
     end
 
     test "transitions to half-open after timeout" do
@@ -281,7 +281,7 @@ defmodule HTTPower.Middleware.CircuitBreakerTest do
       # Second request blocked
       result = CircuitBreaker.call("test_circuit", fn -> {:ok, :should_not_execute} end, config)
 
-      assert result == {:error, :service_unavailable}
+      assert {:error, %HTTPower.Error{reason: :service_unavailable}} = result
     end
 
     test "prevents concurrent requests beyond half-open limit (race condition fix)" do
@@ -327,7 +327,7 @@ defmodule HTTPower.Middleware.CircuitBreakerTest do
       # Count rejected requests
       rejections =
         Enum.count(results, fn {_i, result} ->
-          result == {:error, :service_unavailable}
+          match?({:error, %HTTPower.Error{reason: :service_unavailable}}, result)
         end)
 
       # At least 3 requests should succeed (half_open_requests limit)
@@ -411,7 +411,7 @@ defmodule HTTPower.Middleware.CircuitBreakerTest do
       # Requests should be rejected
       result = CircuitBreaker.call("test_circuit", fn -> {:ok, :should_not_execute} end, config)
 
-      assert result == {:error, :service_unavailable}
+      assert {:error, %HTTPower.Error{reason: :service_unavailable}} = result
     end
 
     test "can manually close circuit" do
@@ -492,7 +492,7 @@ defmodule HTTPower.Middleware.CircuitBreakerTest do
             config
           )
 
-        assert result == {:error, :service_unavailable}
+        assert {:error, %HTTPower.Error{reason: :service_unavailable}} = result
       end
 
       # Wait for recovery period
@@ -708,7 +708,7 @@ defmodule HTTPower.Middleware.CircuitBreakerTest do
       # Open the circuit manually
       CircuitBreaker.open_circuit("test_circuit")
 
-      {:error, :service_unavailable} =
+      {:error, %HTTPower.Error{reason: :service_unavailable}} =
         CircuitBreaker.call("test_circuit", fn -> {:ok, :success} end, enabled: true)
 
       assert_received {:telemetry, [:httpower, :circuit_breaker, :open], _measurements, metadata}
