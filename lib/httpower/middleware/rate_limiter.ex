@@ -569,8 +569,6 @@ defmodule HTTPower.Middleware.RateLimiter do
 
   defp clear_adaptive_state(circuit_key) do
     :ets.delete(@table_name, {:adaptive_state, circuit_key})
-  rescue
-    ArgumentError -> :ok
   end
 
   # Only emit telemetry when the adaptive state changes, not on every request
