@@ -568,5 +568,4 @@ defmodule HTTPower.Middleware.CoordinationTest do
       assert state in [:closed, nil]
     end
   end
-
 end
