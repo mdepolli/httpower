@@ -62,6 +62,7 @@ defmodule HTTPower.Middleware.Dedup do
 
   @completed_ttl 500
   @default_wait_timeout 30_000
+  @cleanup_interval 5_000
 
   # Client API
 
@@ -432,8 +433,6 @@ defmodule HTTPower.Middleware.Dedup do
   defp deduplication_enabled?(config) do
     Keyword.get(config, :enabled, Keyword.get(@default_config, :enabled, false))
   end
-
-  @cleanup_interval 5_000
 
   defp schedule_cleanup do
     Process.send_after(self(), :cleanup, @cleanup_interval)
