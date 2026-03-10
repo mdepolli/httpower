@@ -569,14 +569,4 @@ defmodule HTTPower.Middleware.CoordinationTest do
     end
   end
 
-  describe "middleware pipeline order" do
-    test "dedup runs before rate limiter in pipeline" do
-      # This is verified by the middleware order in @available_features
-      # Dedup should be first, then RateLimiter, then CircuitBreaker
-      #
-      # We can verify this by checking that cache hits never reach rate limiter
-      # (which we've already tested above in dedup bypass tests)
-      :ok
-    end
-  end
 end
