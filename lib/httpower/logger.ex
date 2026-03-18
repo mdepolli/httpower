@@ -556,16 +556,17 @@ defmodule HTTPower.Logger do
     |> Enum.with_index()
     |> Enum.reduce(0, fn {char, idx}, sum ->
       d = String.to_integer(char)
-
-      if rem(idx, 2) == 1 do
-        doubled = d * 2
-        sum + if(doubled > 9, do: doubled - 9, else: doubled)
-      else
-        sum + d
-      end
+      sum + luhn_digit(d, idx)
     end)
     |> then(&(rem(&1, 10) == 0))
   end
+
+  defp luhn_digit(d, idx) when rem(idx, 2) == 1 do
+    doubled = d * 2
+    if doubled > 9, do: doubled - 9, else: doubled
+  end
+
+  defp luhn_digit(d, _idx), do: d
 
   defp sanitize_cvv(text) when is_binary(text) do
     Regex.replace(@cvv_pattern, text, "\\1: [REDACTED]")

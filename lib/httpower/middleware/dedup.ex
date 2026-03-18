@@ -416,17 +416,21 @@ defmodule HTTPower.Middleware.Dedup do
         state
 
       hashes ->
-        remaining = MapSet.delete(hashes, hash)
+        hashes
+        |> MapSet.delete(hash)
+        |> cleanup_remaining_hashes(pid, state)
+    end
+  end
 
-        if Enum.empty?(remaining) do
-          # No more active hashes for this PID — fully clean up
-          {mon_ref, monitors} = Map.pop(state.monitors, pid)
-          if mon_ref, do: Process.demonitor(mon_ref, [:flush])
-          %{state | monitors: monitors, pid_to_hashes: Map.delete(state.pid_to_hashes, pid)}
-        else
-          # PID still has other active hashes — keep monitor, update set
-          put_in(state, [:pid_to_hashes, pid], remaining)
-        end
+  defp cleanup_remaining_hashes(remaining, pid, state) do
+    if Enum.empty?(remaining) do
+      # No more active hashes for this PID — fully clean up
+      {mon_ref, monitors} = Map.pop(state.monitors, pid)
+      if mon_ref, do: Process.demonitor(mon_ref, [:flush])
+      %{state | monitors: monitors, pid_to_hashes: Map.delete(state.pid_to_hashes, pid)}
+    else
+      # PID still has other active hashes — keep monitor, update set
+      put_in(state, [:pid_to_hashes, pid], remaining)
     end
   end
 

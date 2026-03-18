@@ -553,7 +553,7 @@ defmodule HTTPower.Middleware.CircuitBreakerTest do
       assert await_state("crash_test", :closed) == :closed
 
       # Get GenServer pid and kill it
-      pid = Process.whereis(HTTPower.Middleware.CircuitBreaker)
+      pid = Process.whereis(CircuitBreaker)
       ref = Process.monitor(pid)
       Process.exit(pid, :kill)
 
@@ -572,7 +572,7 @@ defmodule HTTPower.Middleware.CircuitBreakerTest do
       assert result == {:ok, :recovered}
 
       # New GenServer should be running
-      new_pid = Process.whereis(HTTPower.Middleware.CircuitBreaker)
+      new_pid = Process.whereis(CircuitBreaker)
       assert new_pid != nil
       assert new_pid != pid
     end
@@ -620,10 +620,10 @@ defmodule HTTPower.Middleware.CircuitBreakerTest do
 
   describe "handle_info/2" do
     test "ignores unexpected messages without crashing" do
-      send(HTTPower.Middleware.CircuitBreaker, {:unexpected_message, "test"})
+      send(CircuitBreaker, {:unexpected_message, "test"})
       Process.sleep(50)
-      assert Process.alive?(Process.whereis(HTTPower.Middleware.CircuitBreaker))
-      state = HTTPower.Middleware.CircuitBreaker.get_state("handle_info_test")
+      assert Process.alive?(Process.whereis(CircuitBreaker))
+      state = CircuitBreaker.get_state("handle_info_test")
       assert state == nil
     end
   end
@@ -639,7 +639,7 @@ defmodule HTTPower.Middleware.CircuitBreakerTest do
       config = [enabled: true, failure_threshold: 2, window_size: 60_000]
 
       for _ <- 1..3 do
-        HTTPower.Middleware.CircuitBreaker.record_failure(circuit_key, config)
+        CircuitBreaker.record_failure(circuit_key, config)
       end
 
       Process.sleep(100)
