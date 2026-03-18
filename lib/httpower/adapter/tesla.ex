@@ -55,8 +55,19 @@ if Code.ensure_loaded?(Tesla) do
     - Authentication middleware (Bearer, Basic, OAuth)
     - Retry middleware (note: disable if using HTTPower's retry)
     - Logging middleware
-    - JSON encoding/decoding
     - Custom middleware
+
+    ## Important: JSON Middleware
+
+    If your Tesla client includes `Tesla.Middleware.JSON`, you should remove it
+    when wrapping with HTTPower. HTTPower handles JSON encoding/decoding via
+    `HTTPower.Codec`, and having both active will cause double-decoding:
+
+        # Before (double-decoding risk)
+        Tesla.client([Tesla.Middleware.JSON])
+
+        # After (correct)
+        Tesla.client([])  # HTTPower handles JSON via json: option
 
     ## Example
 

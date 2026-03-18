@@ -9,6 +9,7 @@ defmodule HTTPower.Client do
   - Clean error handling (never raises exceptions)
   - SSL/Proxy configuration support
   - Request timeout management
+  - Request encoding and response decoding via `HTTPower.Codec` (`json:`, `form:`, `raw:`)
 
   The client sits above the adapter layer, providing consistent retry logic,
   error handling, and other production features regardless of the underlying

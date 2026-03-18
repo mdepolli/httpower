@@ -21,11 +21,21 @@ defmodule HTTPower do
       # Simple GET request
       HTTPower.get("https://api.example.com/users")
 
-      # POST with data
+      # POST with JSON body
       HTTPower.post("https://api.example.com/users",
-        body: "name=John&email=john@example.com",
-        headers: %{"Content-Type" => "application/x-www-form-urlencoded"}
-      )
+        json: %{name: "Alice", email: "alice@example.com"})
+
+      # POST with form data
+      HTTPower.post("https://api.example.com/login",
+        form: [username: "alice", password: "secret"])
+
+      # POST with raw body
+      HTTPower.post("https://api.example.com/upload",
+        body: raw_bytes,
+        headers: %{"Content-Type" => "application/octet-stream"})
+
+      # Skip response decoding
+      HTTPower.get("https://api.example.com/data", raw: true)
 
       # With configuration options
       HTTPower.get("https://api.example.com/slow-endpoint",
@@ -55,6 +65,9 @@ defmodule HTTPower do
   - `ssl_verify` - Enable SSL verification (default: true)
   - `proxy` - Proxy configuration (default: :system)
   - `headers` - Request headers map
+  - `json` - Data to encode as JSON request body (sets Content-Type and Accept headers)
+  - `form` - Data to encode as form-urlencoded request body (keyword list or map, flat only)
+  - `raw` - Skip automatic response body decoding when true (default: false)
 
   ## Return Values
 
@@ -96,7 +109,7 @@ defmodule HTTPower do
 
       # Use the client for multiple requests
       HTTPower.get(client, "/users")
-      HTTPower.post(client, "/users", body: %{name: "John"})
+      HTTPower.post(client, "/users", json: %{name: "John"})
 
   This is especially useful for API clients, different environments, or service-specific configuration.
   """
@@ -232,20 +245,21 @@ defmodule HTTPower do
   ## Options
 
   See module documentation for available options. Additionally supports:
-  - `body` - Request body (string or form data)
+  - `json` - Data to encode as JSON request body
+  - `form` - Data to encode as form-urlencoded request body
+  - `body` - Raw request body string
 
   ## Examples
 
       # With URL string
-      HTTPower.post("https://api.example.com/users", body: "name=John")
-      HTTPower.post("https://api.example.com/users",
-        body: Jason.encode!(%{name: "John"}),
-        headers: %{"Content-Type" => "application/json"}
+      HTTPower.post("https://api.example.com/users", json: %{name: "John"})
+      HTTPower.post("https://api.example.com/login",
+        form: [username: "alice", password: "secret"]
       )
 
       # With configured client
       client = HTTPower.new(base_url: "https://api.example.com")
-      HTTPower.post(client, "/users", body: %{name: "John"})
+      HTTPower.post(client, "/users", json: %{name: "John"})
 
   """
   # Function header with default value
@@ -279,16 +293,18 @@ defmodule HTTPower do
   ## Options
 
   See module documentation for available options. Additionally supports:
-  - `body` - Request body (string or form data)
+  - `json` - Data to encode as JSON request body
+  - `form` - Data to encode as form-urlencoded request body
+  - `body` - Raw request body string
 
   ## Examples
 
       # With URL string
-      HTTPower.put("https://api.example.com/users/1", body: "name=John")
+      HTTPower.put("https://api.example.com/users/1", json: %{name: "John"})
 
       # With configured client
       client = HTTPower.new(base_url: "https://api.example.com")
-      HTTPower.put(client, "/users/1", body: %{name: "John"})
+      HTTPower.put(client, "/users/1", json: %{name: "John"})
 
   """
   # Function header with default value
@@ -365,10 +381,10 @@ defmodule HTTPower do
 
   ## Examples
 
-      HTTPower.patch("https://api.example.com/users/1", body: "name=Jane")
+      HTTPower.patch("https://api.example.com/users/1", json: %{name: "Jane"})
 
       client = HTTPower.new(base_url: "https://api.example.com")
-      HTTPower.patch(client, "/users/1", body: %{name: "Jane"})
+      HTTPower.patch(client, "/users/1", json: %{name: "Jane"})
 
   """
   def patch(url_or_client, opts_or_path \\ [])
