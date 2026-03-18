@@ -78,7 +78,9 @@ defmodule MyApp.Users do
 end
 ```
 
-Your Tesla middleware still runs - HTTPower calls Tesla, which executes all your plugs (BaseURL, JSON, Headers, etc.).
+Your Tesla middleware still runs - HTTPower calls Tesla, which executes all your plugs (BaseURL, Headers, Timeout, etc.).
+
+> **Important:** If your Tesla stack includes `Tesla.Middleware.JSON`, remove it before using HTTPower. HTTPower now handles JSON encoding (via the `json:` option) and response decoding (via `HTTPower.Codec`) at its own layer. Leaving `Tesla.Middleware.JSON` active causes double-decoding: Tesla decodes the response body to a map, then HTTPower tries to decode it again and fails. See the [JSON Encoding and Decoding](#json-encoding-and-decoding) section below.
 
 ## Step 4: Configure Global Settings (Recommended)
 
@@ -270,6 +272,66 @@ end
 - Tests use HTTPower.Test (adapter-agnostic)
 - Clean, maintainable API surface
 - All Tesla middleware still works behind the scenes
+
+## JSON Encoding and Decoding
+
+HTTPower handles JSON encoding and decoding independently of Tesla through `HTTPower.Codec`. This means you should **remove `Tesla.Middleware.JSON` from your Tesla middleware stack** when wrapping requests with HTTPower.
+
+### Why remove Tesla.Middleware.JSON?
+
+When `Tesla.Middleware.JSON` is present in your stack and HTTPower also decodes the response, the response body is decoded twice:
+
+1. Tesla decodes the JSON response body into a map
+2. HTTPower's Codec sees a map (not a binary), fails to decode it, or returns unexpected results
+
+### How to migrate JSON handling
+
+**Before (Tesla handling JSON):**
+```elixir
+defmodule MyApp.TeslaClient do
+  use Tesla
+
+  plug Tesla.Middleware.BaseURL, "https://api.example.com"
+  plug Tesla.Middleware.JSON  # <-- remove this
+  plug Tesla.Middleware.Headers, [{"user-agent", "MyApp/1.0"}]
+end
+```
+
+**After (HTTPower handling JSON):**
+```elixir
+defmodule MyApp.TeslaClient do
+  use Tesla
+
+  plug Tesla.Middleware.BaseURL, "https://api.example.com"
+  # Tesla.Middleware.JSON removed
+  plug Tesla.Middleware.Headers, [{"user-agent", "MyApp/1.0"}]
+end
+
+# Use json: option to encode request bodies
+HTTPower.post(client, "/users", json: %{name: "Alice"})
+
+# Response bodies with a JSON Content-Type are decoded automatically
+{:ok, response} = HTTPower.get(client, "/users")
+# response.body is already a map when the server returns JSON
+```
+
+Other Tesla middleware (BaseURL, Headers, Timeout, Compression, etc.) are unaffected and should remain in your stack.
+
+### Using the new encoding options
+
+```elixir
+# JSON encoding — sets Content-Type: application/json and Accept: application/json
+HTTPower.post(client, "/users", json: %{name: "Alice"})
+
+# Form encoding — sets Content-Type: application/x-www-form-urlencoded
+HTTPower.post(client, "/token", form: %{grant_type: "client_credentials"})
+
+# Raw body — no encoding, set Content-Type manually
+HTTPower.post(client, "/upload", body: binary_data, headers: %{"content-type" => "application/octet-stream"})
+
+# Skip response decoding — get raw binary regardless of Content-Type
+{:ok, response} = HTTPower.get(client, "/export", raw: true)
+```
 
 ## Migration Patterns
 
@@ -476,6 +538,27 @@ HTTPower.Middleware.CircuitBreaker.get_state("my_api")
 2. Use `:wait` strategy instead of `:error`
 3. Use custom bucket keys to separate different endpoints
 4. Check if multiple instances are sharing the rate limiter
+
+### Issue: Response body is a map when expecting a decoded struct, or decoding errors
+
+**Symptom:** JSON response body comes back as a raw string, or you get unexpected decoding errors.
+
+**Solution:** Check for double-decoding caused by `Tesla.Middleware.JSON` still being in your Tesla stack. Remove it — HTTPower handles JSON decoding automatically:
+
+```elixir
+# Remove Tesla.Middleware.JSON from your Tesla client
+defmodule MyApp.TeslaClient do
+  use Tesla
+  plug Tesla.Middleware.BaseURL, "https://api.example.com"
+  # plug Tesla.Middleware.JSON  <- remove this line
+end
+```
+
+If you need to opt out of HTTPower's automatic decoding (e.g., for binary responses), use `raw: true`:
+
+```elixir
+{:ok, response} = HTTPower.get(client, "/binary-file", raw: true)
+```
 
 ### Issue: Tesla middleware not running
 

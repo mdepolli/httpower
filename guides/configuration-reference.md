@@ -57,7 +57,10 @@ This table shows which options are supported at each configuration level:
 |--------|---------------|------------|-------------|-------|
 | `base_url` | ❌ | ✅ | ❌ | Per-client only |
 | `headers` | ❌ | ✅ | ✅ | Merged across levels |
-| `body` | ❌ | ❌ | ✅ | Per-request only (POST/PUT) |
+| `body` | ❌ | ❌ | ✅ | Per-request only (POST/PUT), raw pass-through |
+| `json` | ❌ | ❌ | ✅ | Per-request only; encodes body as JSON |
+| `form` | ❌ | ❌ | ✅ | Per-request only; encodes body as form-urlencoded |
+| `raw` | ❌ | ❌ | ✅ | Per-request only; skips response decoding |
 | `timeout` | ❌ | ✅ | ✅ | Per-client/request only |
 | `ssl_verify` | ❌ | ✅ | ✅ | Per-client/request only |
 | `proxy` | ❌ | ✅ | ✅ | Per-client/request only |
@@ -455,10 +458,40 @@ HTTPower.Logger.detach()
 ### `body`
 - **Type:** `String.t() | binary()`
 - **Default:** `""`
-- **Description:** Request body for POST/PUT requests.
+- **Description:** Raw request body for POST/PUT requests. No encoding is applied and no Content-Type header is set automatically. Use `json:` or `form:` for automatic encoding.
 - **Example:**
   ```elixir
-  HTTPower.post(url, body: Jason.encode!(%{name: "John"}))
+  HTTPower.post(url, body: "raw payload", headers: %{"content-type" => "text/plain"})
+  ```
+
+### `json`
+- **Type:** `map() | list() | any encodable term`
+- **Default:** not set
+- **Description:** Encodes the value as JSON and sends it as the request body. Automatically sets `Content-Type: application/json` and `Accept: application/json` headers. Response bodies with a JSON Content-Type are automatically decoded by `HTTPower.Codec`.
+- **Example:**
+  ```elixir
+  HTTPower.post(url, json: %{name: "John", role: "admin"})
+  HTTPower.put(url, json: %{status: "active"})
+  ```
+
+### `form`
+- **Type:** `map() | keyword()`
+- **Default:** not set
+- **Description:** Encodes the value as URL-encoded form data and sends it as the request body. Automatically sets `Content-Type: application/x-www-form-urlencoded`.
+- **Example:**
+  ```elixir
+  HTTPower.post(url, form: %{username: "alice", password: "secret"})
+  ```
+
+### `raw`
+- **Type:** `boolean()`
+- **Default:** `false`
+- **Description:** When `true`, skips automatic response body decoding. The `body` field in the response will always be a binary string, even if the server returns JSON. Useful when you need the raw bytes (e.g., binary downloads, custom decoding).
+- **Example:**
+  ```elixir
+  {:ok, response} = HTTPower.get(url, raw: true)
+  # response.body is always a binary string
+  Jason.decode!(response.body)
   ```
 
 ### `ssl_verify`

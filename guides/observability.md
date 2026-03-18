@@ -348,6 +348,8 @@ Available metadata fields:
 - `httpower_headers` / `httpower_response_headers` - Sanitized headers
 - `httpower_body` / `httpower_response_body` - Sanitized body
 
+**Note on `httpower_body` with JSON encoding:** When you use the `json:` option, `httpower_body` contains the encoded JSON string (the wire format), not the original map. This is the value after `HTTPower.Codec` has serialized it — the same bytes sent over the network — and is subject to normal PCI sanitization rules.
+
 **Custom Logger**
 
 Or create your own custom telemetry handler for logging:

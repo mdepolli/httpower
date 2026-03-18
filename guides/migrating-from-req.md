@@ -52,10 +52,7 @@ defmodule MyApp.ApiClient do
   end
 
   def create_user(params) do
-    HTTPower.post("https://api.example.com/users",
-      body: Jason.encode!(params),
-      headers: %{"content-type" => "application/json"}
-    )
+    HTTPower.post("https://api.example.com/users", json: params)
   end
 end
 ```
@@ -311,6 +308,31 @@ response = Req.get!("https://api.example.com")
 - Retryable errors: timeout, closed, econnrefused (if `retry_safe: true`)
 - Disable Req's retry to avoid double-retrying: `retry: false`
 
+### JSON Encoding and Decoding
+
+**Req:**
+- `json:` option encodes the body and sets `Content-Type: application/json`
+- Response bodies with a JSON Content-Type are automatically decoded by Req
+
+**HTTPower:**
+- `json:` option works the same way, but encoding and decoding are handled by `HTTPower.Codec` at the HTTPower layer — independent of the underlying adapter
+- Req's built-in response decoding is disabled when using the Req adapter; HTTPower handles it instead
+- This ensures consistent behavior across all adapters (Finch, Req, Tesla)
+- Use `form:` to encode request bodies as URL-encoded form data
+- Use `raw: true` to skip automatic response decoding and get the raw binary
+
+```elixir
+# Send JSON body (sets Content-Type and Accept automatically)
+HTTPower.post(url, json: %{name: "Alice"})
+
+# Send form data
+HTTPower.post(url, form: %{grant_type: "authorization_code", code: code})
+
+# Skip response decoding
+{:ok, response} = HTTPower.get(url, raw: true)
+# response.body is always a binary string
+```
+
 ### Req Options Pass-Through
 
 HTTPower passes most Req options through:
@@ -444,18 +466,20 @@ Application.put_env(:httpower, :test_mode, true)
 
 **Symptom:** JSON not automatically handled like in Req.
 
-**Solution:** HTTPower doesn't automatically encode/decode JSON. Use Jason explicitly:
+**Solution:** Use HTTPower's `json:` option, which works the same way as Req's `json:` option but is handled at the HTTPower layer:
 ```elixir
-# Encode body
-HTTPower.post(url,
-  body: Jason.encode!(params),
-  headers: %{"content-type" => "application/json"}
-)
+# Encode request body as JSON (sets Content-Type and Accept automatically)
+HTTPower.post(url, json: %{name: "Alice"})
 
-# Decode response
+# Response bodies with a JSON Content-Type are decoded automatically
 {:ok, response} = HTTPower.get(url)
-Jason.decode!(response.body)
+# response.body is already a map if the server returned JSON
+
+# Opt out of automatic decoding when you need raw bytes
+{:ok, response} = HTTPower.get(url, raw: true)
 ```
+
+**Note on Req's decoding:** When using the Req adapter, Req's own response decoding is disabled so that `HTTPower.Codec` handles decoding consistently. This also means decompression still works normally — only JSON decoding has moved to the HTTPower layer.
 
 ## Next Steps
 
