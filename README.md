@@ -21,6 +21,7 @@ HTTPower is a production-ready HTTP client library for Elixir that provides bull
 - **Clean error handling**: Never raises exceptions, always returns result tuples
 - **SSL/Proxy support**: Full SSL verification and proxy configuration
 - **Request timeout management**: Configurable timeouts with sensible defaults
+- **Symmetric body encoding/decoding**: `json:` and `form:` options for request encoding with consistent Content-Type-driven response decoding across all adapters
 
 ### 🎯 **Perfect For**
 
@@ -87,16 +88,24 @@ end
 **Direct requests:**
 
 ```elixir
-# Simple GET request
+# Simple GET request - JSON responses are automatically decoded
 {:ok, response} = HTTPower.get("https://api.example.com/users")
 IO.inspect(response.status)  # 200
 IO.inspect(response.body)    # %{"users" => [...]}
 
-# POST with data
+# POST with JSON encoding - sets Content-Type and Accept automatically
 {:ok, response} = HTTPower.post("https://api.example.com/users",
-  body: "name=John&email=john@example.com",
-  headers: %{"Content-Type" => "application/x-www-form-urlencoded"}
+  json: %{name: "John", email: "john@example.com"}
 )
+
+# POST with form encoding - sets Content-Type: application/x-www-form-urlencoded
+{:ok, response} = HTTPower.post("https://api.example.com/users",
+  form: %{name: "John", email: "john@example.com"}
+)
+
+# Skip automatic response decoding when you need the raw binary
+{:ok, response} = HTTPower.get("https://api.example.com/export.csv", raw: true)
+IO.inspect(response.body)    # "name,email\nJohn,john@example.com\n"
 ```
 
 **Client-based usage:**

@@ -7,6 +7,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`json:` option for automatic JSON request body encoding** — Pass `json: %{key: value}` to encode the body as JSON, set `Content-Type: application/json`, and set `Accept: application/json` in one step. Replaces the previous pattern of manually calling `Jason.encode!` and setting headers.
+
+- **`form:` option for automatic form-urlencoded request body encoding** — Pass `form: %{key: value}` to encode the body as URL-encoded form data and set `Content-Type: application/x-www-form-urlencoded` automatically.
+
+- **`raw:` option to skip automatic response body decoding** — Pass `raw: true` to receive the raw binary response body, bypassing Content-Type-driven decoding.
+
+- **`HTTPower.Codec` module for adapter-independent body encoding/decoding** — Centralizes request encoding (`json:`, `form:`) and Content-Type-driven response decoding (auto-decodes `application/json` and `+json` suffix responses). Lives above the adapter layer; called from `HTTPower.Client`.
+
+- **New error reasons `:conflicting_body_options` and `:json_encode_error`** — `:conflicting_body_options` is returned when more than one of `json:`, `form:`, or `body:` is provided for the same request. `:json_encode_error` is returned when `json:` encoding fails.
+
+### Changed
+
+- **Response decoding is now consistent across all adapters** — Finch, Req, and Tesla all decode response bodies via `HTTPower.Codec`, which applies Content-Type-driven JSON decoding. Previously, adapters had divergent behavior (Finch decoded all bodies as JSON; Req used its own decoding; Tesla depended on user middleware).
+
+- **POST requests no longer get a default `Content-Type: application/x-www-form-urlencoded`** — Use the new `form:` option or set the header explicitly. This default was added in v0.1.0 but conflicted with the new `json:` and `form:` encoding options and was inconsistent with other HTTP methods.
+
+### Removed
+
+- **Finch adapter no longer blindly decodes all response bodies as JSON** — The Finch adapter previously attempted JSON decoding on every response regardless of Content-Type. Decoding is now delegated to `HTTPower.Codec` and is driven by the `Content-Type` response header.
+
+- **Req adapter's built-in response decoding is disabled** — `HTTPower.Codec` handles all response decoding uniformly. Disabling Req's decoding prevents double-decoding and ensures consistent behavior across adapters.
+
+### Breaking Changes
+
+- **POST requests without `form:` or explicit Content-Type header no longer receive `application/x-www-form-urlencoded` default** — Applications that relied on this default must add `form: params` or set the header explicitly.
+
+- **Finch adapter returns raw binary bodies for non-JSON responses** — Previously, non-JSON responses passed through Finch's blind JSON decode attempt (which would fail silently). Now they are returned as binary unless the `Content-Type` header indicates JSON.
+
+- **Tesla users with `Tesla.Middleware.JSON` must remove it** — Having both `Tesla.Middleware.JSON` and `HTTPower.Codec` in the stack results in double-decoding of JSON responses.
+
+- **Telemetry `request.body` metadata contains encoded JSON string when `json:` is used** — When using the `json:` option, the telemetry metadata reflects the encoded JSON string body rather than the original data structure.
+
+### Fixed
+
+- **CircuitBreaker.call/3 returns consistent error format** — Returns `%HTTPower.Error{reason: :service_unavailable}` instead of bare `:service_unavailable` atom, matching `handle_request/2` behavior.
+
+- **Remove rescue-for-control-flow in RateLimiter** — `clear_adaptive_state/1` no longer uses `rescue ArgumentError -> :ok`. `:ets.delete/2` on a nonexistent key is a no-op; the rescue was masking potential table-missing errors.
+
+- **Cap backoff exponent at 30** — Prevents wasteful big-integer math in `calculate_backoff_delay/2` when `max_retries` is set to high values. `2^30` (~1 billion ms) exceeds any practical `max_delay`.
+
+- **Use default GenServer timeout for dedup** — `Dedup.deduplicate/2` no longer uses `:infinity` timeout. The default 5s timeout surfaces a stuck GenServer instead of hanging indefinitely.
+
+- **Guard Logger against non-map headers** — `sanitize_if_enabled(:headers, ...)` now handles non-map input gracefully instead of crashing on `map_size/1`.
+
+### Changed
+
+- **Normalize adapter callback URL type to `URI.t()`** — The adapter callback spec now correctly reflects `URI.t()` instead of `String.t()`. `call_adapter` normalizes strings to URI as a safety net. Finch and Req accept `URI.t()` natively; Tesla converts internally.
+
+- **Cache rate limiter default config at compile time** — `get_strategy/1` and `get_max_wait_time/1` now use `@default_config` via `Application.compile_env` instead of calling `Application.get_env` per request.
+
+- **Move `@cleanup_interval` to top of Dedup module** — Grouped with other module attributes for consistency.
+
+- **Remove no-op pipeline order test** — The test in `coordination_test.exs` asserted nothing and noted the behavior was already covered by dedup bypass tests.
+
 ## [0.20.0] - 2026-03-08
 
 ### Added

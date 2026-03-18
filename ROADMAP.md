@@ -35,6 +35,8 @@ A reliable HTTP client library for Elixir with advanced reliability patterns for
 - ✅ Comprehensive telemetry integration (HTTP lifecycle, retry, rate limiter, circuit breaker, dedup)
 - ✅ Compile-time config caching, ETS write concurrency, async circuit breaker recording
 - ✅ OTP supervision tree with Finch connection pool management
+- ✅ Symmetric body encoding/decoding via `HTTPower.Codec` (`json:`, `form:`, `raw:` options)
+- ✅ Consistent Content-Type-driven JSON response decoding across all adapters
 - ✅ Comprehensive test suite (368 tests + 12 doctests, 86%+ coverage)
 
 ## Phase 1: Production Reliability ✅ COMPLETED
@@ -101,6 +103,13 @@ A reliable HTTP client library for Elixir with advanced reliability patterns for
 - [x] **Configuration profiles** ✅ (v0.13.0)
   - ✅ Pre-configured profiles: payment_processing, high_volume_api, microservices_mesh
   - ✅ Deep merge with explicit option overrides
+
+- [x] **Symmetric body encoding/decoding** ✅ (HTTPower.Codec)
+  - ✅ `json:` option for automatic JSON encoding with Content-Type/Accept headers
+  - ✅ `form:` option for automatic URL-encoded form encoding with Content-Type header
+  - ✅ `raw:` option to skip automatic response decoding
+  - ✅ Content-Type-driven JSON response decoding consistent across all adapters
+  - ✅ Adapter-independent: encoding/decoding lives above the adapter layer
 
 **Next Up**
 
