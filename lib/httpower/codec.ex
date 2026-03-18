@@ -66,7 +66,11 @@ defmodule HTTPower.Codec do
     encoding_count = Enum.count([has_json, has_form, has_body], & &1)
 
     if encoding_count > 1 do
-      {:error, %Error{reason: :conflicting_body_options, message: Error.message(:conflicting_body_options)}}
+      {:error,
+       %Error{
+         reason: :conflicting_body_options,
+         message: Error.message(:conflicting_body_options)
+       }}
     else
       cond do
         has_json -> encode_json(request, opts)
@@ -130,16 +134,20 @@ defmodule HTTPower.Codec do
         response
 
       true ->
-        content_type = get_content_type(response.headers)
+        maybe_decode_json(response)
+    end
+  end
 
-        if json_content_type?(content_type) do
-          case Jason.decode(response.body) do
-            {:ok, decoded} -> %{response | body: decoded}
-            {:error, _} -> response
-          end
-        else
-          response
-        end
+  defp maybe_decode_json(%Response{} = response) do
+    content_type = get_content_type(response.headers)
+
+    if json_content_type?(content_type) do
+      case Jason.decode(response.body) do
+        {:ok, decoded} -> %{response | body: decoded}
+        {:error, _} -> response
+      end
+    else
+      response
     end
   end
 
@@ -181,7 +189,9 @@ defmodule HTTPower.Codec do
   # Sets the header only if no header with the same name (case-insensitively) already exists.
   defp put_header_unless_set(%Request{} = request, name, value) do
     name_downcased = String.downcase(name)
-    already_set? = Enum.any?(request.headers, fn {k, _v} -> String.downcase(k) == name_downcased end)
+
+    already_set? =
+      Enum.any?(request.headers, fn {k, _v} -> String.downcase(k) == name_downcased end)
 
     if already_set? do
       request
