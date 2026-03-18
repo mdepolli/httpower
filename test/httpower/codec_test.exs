@@ -144,6 +144,127 @@ defmodule HTTPower.CodecTest do
     end
   end
 
+  defp build_response(status \\ 200, headers \\ %{}, body \\ nil) do
+    %HTTPower.Response{status: status, headers: headers, body: body}
+  end
+
+  describe "decode_response/2 with JSON content type" do
+    test "decodes application/json response" do
+      response = build_response(200, %{"content-type" => ["application/json"]}, ~s({"key":"value"}))
+
+      decoded = Codec.decode_response(response, [])
+
+      assert decoded.body == %{"key" => "value"}
+    end
+
+    test "decodes application/json; charset=utf-8" do
+      response =
+        build_response(
+          200,
+          %{"content-type" => ["application/json; charset=utf-8"]},
+          ~s({"hello":"world"})
+        )
+
+      decoded = Codec.decode_response(response, [])
+
+      assert decoded.body == %{"hello" => "world"}
+    end
+
+    test "decodes application/vnd.api+json" do
+      response =
+        build_response(
+          200,
+          %{"content-type" => ["application/vnd.api+json"]},
+          ~s({"data":{"id":"1"}})
+        )
+
+      decoded = Codec.decode_response(response, [])
+
+      assert decoded.body == %{"data" => %{"id" => "1"}}
+    end
+
+    test "leaves invalid JSON as raw binary" do
+      response = build_response(200, %{"content-type" => ["application/json"]}, "not json at all")
+
+      decoded = Codec.decode_response(response, [])
+
+      assert decoded.body == "not json at all"
+    end
+  end
+
+  describe "decode_response/2 skips decoding" do
+    test "when raw: true" do
+      response = build_response(200, %{"content-type" => ["application/json"]}, ~s({"a":1}))
+
+      decoded = Codec.decode_response(response, raw: true)
+
+      assert decoded.body == ~s({"a":1})
+    end
+
+    test "when Content-Type is not JSON" do
+      response = build_response(200, %{"content-type" => ["text/html"]}, "<html></html>")
+
+      decoded = Codec.decode_response(response, [])
+
+      assert decoded.body == "<html></html>"
+    end
+
+    test "when body is nil" do
+      response = build_response(204, %{"content-type" => ["application/json"]}, nil)
+
+      decoded = Codec.decode_response(response, [])
+
+      assert decoded.body == nil
+    end
+
+    test "when body is empty string" do
+      response = build_response(200, %{"content-type" => ["application/json"]}, "")
+
+      decoded = Codec.decode_response(response, [])
+
+      assert decoded.body == ""
+    end
+
+    test "when body is already decoded (a map)" do
+      already_decoded = %{"already" => "decoded"}
+      response = build_response(200, %{"content-type" => ["application/json"]}, already_decoded)
+
+      decoded = Codec.decode_response(response, [])
+
+      assert decoded.body == already_decoded
+    end
+
+    test "when no Content-Type header" do
+      response = build_response(200, %{}, ~s({"a":1}))
+
+      decoded = Codec.decode_response(response, [])
+
+      assert decoded.body == ~s({"a":1})
+    end
+  end
+
+  describe "json_content_type?/1" do
+    test "matches application/json" do
+      assert Codec.json_content_type?("application/json")
+    end
+
+    test "matches application/json; charset=utf-8" do
+      assert Codec.json_content_type?("application/json; charset=utf-8")
+    end
+
+    test "matches +json suffix" do
+      assert Codec.json_content_type?("application/vnd.api+json")
+    end
+
+    test "does not match text/html" do
+      refute Codec.json_content_type?("text/html")
+    end
+
+    test "does not match nil" do
+      refute Codec.json_content_type?(nil)
+    end
+  end
+
   describe "encode_request/2 with no encoding option" do
     test "passes through unchanged when body: is present" do
       request = build_request()

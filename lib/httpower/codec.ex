@@ -46,6 +46,7 @@ defmodule HTTPower.Codec do
 
   alias HTTPower.Error
   alias HTTPower.Request
+  alias HTTPower.Response
 
   @doc """
   Encodes the request body based on the encoding option present in `opts`.
@@ -103,6 +104,78 @@ defmodule HTTPower.Codec do
       |> put_header_unless_set("Content-Type", "application/x-www-form-urlencoded")
 
     {:ok, updated_request, Keyword.delete(opts, :form)}
+  end
+
+  @doc """
+  Decodes the response body based on the Content-Type header.
+
+  Returns the updated response struct (not a tuple). Decoding is skipped when:
+  - `raw: true` is present in opts
+  - The body is not a binary (already decoded, e.g. a dedup cache hit)
+  - The body is nil or an empty string
+  - The Content-Type is not a JSON media type
+
+  Invalid JSON is left as the raw binary (no error is raised).
+  """
+  @spec decode_response(Response.t(), keyword()) :: Response.t()
+  def decode_response(%Response{} = response, opts) do
+    cond do
+      Keyword.get(opts, :raw, false) ->
+        response
+
+      not is_binary(response.body) ->
+        response
+
+      response.body in [nil, ""] ->
+        response
+
+      true ->
+        content_type = get_content_type(response.headers)
+
+        if json_content_type?(content_type) do
+          case Jason.decode(response.body) do
+            {:ok, decoded} -> %{response | body: decoded}
+            {:error, _} -> response
+          end
+        else
+          response
+        end
+    end
+  end
+
+  @doc """
+  Returns `true` if the given content type string is a JSON media type.
+
+  Recognises `application/json` (with optional parameters) and any media type
+  with a `+json` structured-syntax suffix, such as `application/vnd.api+json`.
+  Returns `false` for `nil`.
+  """
+  @spec json_content_type?(String.t() | nil) :: boolean()
+  def json_content_type?(nil), do: false
+
+  def json_content_type?(content_type) do
+    base =
+      content_type
+      |> String.split(";", parts: 2)
+      |> hd()
+      |> String.trim()
+      |> String.downcase()
+
+    base == "application/json" or String.ends_with?(base, "+json")
+  end
+
+  # Case-insensitive lookup of the content-type header. Response header values
+  # are lists; returns the first element of the list, or nil.
+  defp get_content_type(headers) do
+    key =
+      Enum.find_value(headers, fn {k, _v} ->
+        if String.downcase(k) == "content-type", do: k
+      end)
+
+    case key && Map.get(headers, key) do
+      [first | _] -> first
+      _ -> nil
+    end
   end
 
   # Sets the header only if no header with the same name (case-insensitively) already exists.
