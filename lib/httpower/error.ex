@@ -31,8 +31,10 @@ defmodule HTTPower.Error do
   def message(:too_many_requests), do: "Too many requests"
   def message(:service_unavailable), do: "Service unavailable"
   def message(:dedup_timeout), do: "Request deduplication timeout"
+
   def message(:conflicting_body_options),
     do: "Cannot use multiple body options (json:, form:, body:) simultaneously"
+
   def message(:json_encode_error), do: "Failed to encode data as JSON"
   def message(reason), do: inspect(reason)
 end

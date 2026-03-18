@@ -1075,7 +1075,9 @@ defmodule HTTPowerTest do
         HTTPower.Test.json(conn, %{id: 1, name: "Alice"})
       end)
 
-      assert {:ok, response} = HTTPower.post("https://api.example.com/users", json: %{name: "Alice"})
+      assert {:ok, response} =
+               HTTPower.post("https://api.example.com/users", json: %{name: "Alice"})
+
       assert response.status == 200
       assert response.body == %{"id" => 1, "name" => "Alice"}
     end

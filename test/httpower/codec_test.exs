@@ -150,7 +150,8 @@ defmodule HTTPower.CodecTest do
 
   describe "decode_response/2 with JSON content type" do
     test "decodes application/json response" do
-      response = build_response(200, %{"content-type" => ["application/json"]}, ~s({"key":"value"}))
+      response =
+        build_response(200, %{"content-type" => ["application/json"]}, ~s({"key":"value"}))
 
       decoded = Codec.decode_response(response, [])
 
