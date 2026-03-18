@@ -1062,4 +1062,118 @@ defmodule HTTPowerTest do
       assert {:ok, _} = HTTPower.get(client3, "/test", [])
     end
   end
+
+  describe "json: option" do
+    test "encodes request body and decodes JSON response" do
+      HTTPower.Test.stub(fn conn ->
+        {:ok, body, _conn} = Plug.Conn.read_body(conn)
+        assert Jason.decode!(body) == %{"name" => "Alice"}
+
+        [content_type] = Plug.Conn.get_req_header(conn, "content-type")
+        assert content_type == "application/json"
+
+        HTTPower.Test.json(conn, %{id: 1, name: "Alice"})
+      end)
+
+      assert {:ok, response} = HTTPower.post("https://api.example.com/users", json: %{name: "Alice"})
+      assert response.status == 200
+      assert response.body == %{"id" => 1, "name" => "Alice"}
+    end
+
+    test "works with GET requests for response decoding" do
+      HTTPower.Test.stub(fn conn ->
+        HTTPower.Test.json(conn, %{users: ["alice"]})
+      end)
+
+      assert {:ok, response} = HTTPower.get("https://api.example.com/users")
+      assert response.body == %{"users" => ["alice"]}
+    end
+  end
+
+  describe "form: option" do
+    test "encodes request body as form-urlencoded" do
+      HTTPower.Test.stub(fn conn ->
+        {:ok, body, _conn} = Plug.Conn.read_body(conn)
+        assert body == "username=alice&password=secret"
+
+        [content_type] = Plug.Conn.get_req_header(conn, "content-type")
+        assert content_type == "application/x-www-form-urlencoded"
+
+        HTTPower.Test.json(conn, %{ok: true})
+      end)
+
+      assert {:ok, _response} =
+               HTTPower.post("https://api.example.com/login",
+                 form: [username: "alice", password: "secret"]
+               )
+    end
+  end
+
+  describe "raw: option" do
+    test "skips response decoding" do
+      HTTPower.Test.stub(fn conn ->
+        HTTPower.Test.json(conn, %{a: 1})
+      end)
+
+      assert {:ok, response} = HTTPower.get("https://api.example.com/data", raw: true)
+      assert is_binary(response.body)
+      assert Jason.decode!(response.body) == %{"a" => 1}
+    end
+  end
+
+  describe "conflicting body options" do
+    test "json + body returns error" do
+      assert {:error, %HTTPower.Error{reason: :conflicting_body_options}} =
+               HTTPower.post("https://api.example.com/test", json: %{a: 1}, body: "raw")
+    end
+  end
+
+  describe "body: option (pass-through)" do
+    test "sends raw body without encoding" do
+      HTTPower.Test.stub(fn conn ->
+        {:ok, body, _conn} = Plug.Conn.read_body(conn)
+        assert body == "raw data"
+        HTTPower.Test.text(conn, "ok")
+      end)
+
+      assert {:ok, response} =
+               HTTPower.post("https://api.example.com/upload",
+                 body: "raw data",
+                 headers: %{"Content-Type" => "text/plain"}
+               )
+
+      assert response.body == "ok"
+    end
+  end
+
+  describe "edge cases" do
+    test "json: nil encodes as JSON null" do
+      HTTPower.Test.stub(fn conn ->
+        {:ok, body, _conn} = Plug.Conn.read_body(conn)
+        assert body == "null"
+        HTTPower.Test.json(conn, %{ok: true})
+      end)
+
+      assert {:ok, _response} = HTTPower.post("https://api.example.com/test", json: nil)
+    end
+
+    test "form: [] encodes as empty string" do
+      HTTPower.Test.stub(fn conn ->
+        {:ok, body, _conn} = Plug.Conn.read_body(conn)
+        assert body == ""
+        HTTPower.Test.json(conn, %{ok: true})
+      end)
+
+      assert {:ok, _response} = HTTPower.post("https://api.example.com/test", form: [])
+    end
+
+    test "raw: true preserves raw JSON string" do
+      HTTPower.Test.stub(fn conn ->
+        HTTPower.Test.json(conn, %{a: 1})
+      end)
+
+      assert {:ok, response} = HTTPower.get("https://api.example.com/test", raw: true)
+      assert is_binary(response.body)
+    end
+  end
 end
