@@ -14,7 +14,7 @@ if Code.ensure_loaded?(Finch) do
     - Built on Mint for low-level HTTP transport
     - SSL/TLS support with configurable verification
     - Proxy support (system or custom)
-    - Manual JSON decoding for flexibility
+
 
     ## Configuration
 
@@ -140,7 +140,7 @@ if Code.ensure_loaded?(Finch) do
       %Response{
         status: status,
         headers: convert_headers(headers),
-        body: parse_body(body)
+        body: body
       }
     end
 
@@ -153,14 +153,5 @@ if Code.ensure_loaded?(Finch) do
       |> Enum.map(fn {key, values} -> {key, Enum.reverse(values)} end)
       |> Map.new()
     end
-
-    defp parse_body(body) when is_binary(body) do
-      case Jason.decode(body) do
-        {:ok, decoded} -> decoded
-        {:error, _} -> body
-      end
-    end
-
-    defp parse_body(body), do: body
   end
 end

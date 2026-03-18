@@ -53,10 +53,6 @@ defmodule HTTPowerTest do
         # Verify the request was correct
         assert conn.method == "POST"
         assert conn.request_path == "/submit"
-        # Verify default Content-Type header is set
-        assert Plug.Conn.get_req_header(conn, "content-type") == [
-                 "application/x-www-form-urlencoded"
-               ]
 
         HTTPower.Test.json(conn, %{received: "data"})
       end)

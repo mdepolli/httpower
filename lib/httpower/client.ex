@@ -22,7 +22,7 @@ defmodule HTTPower.Client do
   Runtime options passed per-request always take precedence.
   """
 
-  alias HTTPower.{Error, Request, Response}
+  alias HTTPower.{Codec, Error, Request, Response}
   alias HTTPower.Middleware.{CircuitBreaker, Dedup}
 
   # Compile-time config caching for performance (avoids repeated Application.get_env calls)
@@ -130,6 +130,8 @@ defmodule HTTPower.Client do
     with {:ok, :allowed} <- check_test_mode_allows_request(opts),
          {:ok, %URI{} = uri} <- validate_url(url),
          %Request{} = request <- Request.new(method, uri, body, headers, opts),
+         {:ok, %Request{} = request, opts} <- Codec.encode_request(request, opts),
+         request = %{request | opts: opts},
          pipeline when is_list(pipeline) <- get_request_pipeline(opts) do
       fun = get_request_function(request, pipeline)
       execute_with_telemetry(request, fun)
@@ -192,12 +194,12 @@ defmodule HTTPower.Client do
           {:ok, %Request{} = final_request} ->
             result = execute_http_with_retry(final_request)
             handle_post_request(final_request, result)
-            result
+            decode_result(result, request.opts)
 
           {:halt, %Response{} = response} ->
             # Pipeline short-circuited (e.g., dedup cache hit, circuit breaker open)
             # Response already finalized, no HTTP call needed
-            {:ok, response}
+            {:ok, Codec.decode_response(response, request.opts)}
 
           {:error, %Error{}} = error ->
             error
@@ -284,6 +286,12 @@ defmodule HTTPower.Client do
       end
     end
   end
+
+  defp decode_result({:ok, %Response{} = response}, opts) do
+    {:ok, Codec.decode_response(response, opts)}
+  end
+
+  defp decode_result(error, _opts), do: error
 
   # Pipeline Execution - Generic recursive step executor
 

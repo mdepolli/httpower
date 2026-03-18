@@ -29,7 +29,7 @@ defmodule HTTPower.Adapter.ReqTest do
       assert {:ok, %Response{status: 200, body: body}} =
                ReqAdapter.request(:get, "https://api.example.com/test", nil, %{}, [])
 
-      assert body == %{"success" => true}
+      assert Jason.decode!(body) == %{"success" => true}
     end
 
     test "makes successful POST request with body" do
@@ -88,17 +88,6 @@ defmodule HTTPower.Adapter.ReqTest do
 
       assert {:ok, %Response{}} =
                ReqAdapter.request(:get, "https://api.example.com/test", nil, %{}, [])
-    end
-
-    test "adds default Content-Type for POST requests" do
-      HTTPower.Test.stub(fn conn ->
-        headers = conn.req_headers |> Enum.into(%{})
-        assert headers["content-type"] == "application/x-www-form-urlencoded"
-        HTTPower.Test.json(conn, %{success: true})
-      end)
-
-      assert {:ok, %Response{}} =
-               ReqAdapter.request(:post, "https://api.example.com/submit", "data", %{}, [])
     end
 
     test "allows custom Content-Type to override default for POST" do
@@ -257,7 +246,7 @@ defmodule HTTPower.Adapter.ReqTest do
       assert response.status == 200
       assert is_map(response.headers)
       assert response.headers["x-custom"] == ["value"]
-      assert response.body == %{"data" => "test"}
+      assert Jason.decode!(response.body) == %{"data" => "test"}
     end
 
     test "handles empty response body" do
@@ -373,7 +362,7 @@ defmodule HTTPower.Adapter.ReqTest do
       # maybe_add_proxy_options will modify connect_options.
       # Before the fix, maybe_add_proxy_options overwrote the transport_opts
       # set by maybe_add_ssl_options because both used Keyword.put(:connect_options, ...).
-      assert {:ok, %Response{status: 200, body: %{"ssl_and_proxy" => true}}} =
+      assert {:ok, %Response{status: 200, body: body}} =
                ReqAdapter.request(
                  :get,
                  URI.parse("https://secure-api.com/test"),
@@ -383,6 +372,8 @@ defmodule HTTPower.Adapter.ReqTest do
                  proxy: :system,
                  plug: {Req.Test, HTTPower.Adapter.ReqTest.SSLProxy}
                )
+
+      assert Jason.decode!(body) == %{"ssl_and_proxy" => true}
     end
 
     test "HTTPS request with custom proxy preserves SSL connect_options" do
@@ -394,7 +385,7 @@ defmodule HTTPower.Adapter.ReqTest do
 
       proxy_opts = [host: "proxy.example.com", port: 8080]
 
-      assert {:ok, %Response{status: 200, body: %{"custom_proxy_ssl" => true}}} =
+      assert {:ok, %Response{status: 200, body: body}} =
                ReqAdapter.request(
                  :get,
                  URI.parse("https://secure-api.com/test"),
@@ -404,6 +395,8 @@ defmodule HTTPower.Adapter.ReqTest do
                  proxy: proxy_opts,
                  plug: {Req.Test, HTTPower.Adapter.ReqTest.CustomProxy}
                )
+
+      assert Jason.decode!(body) == %{"custom_proxy_ssl" => true}
     end
 
     test "connect_options contains both transport_opts and proxy for HTTPS with proxy" do
@@ -449,14 +442,20 @@ defmodule HTTPower.Adapter.ReqTest do
         end
       end)
 
-      assert {:ok, %Response{body: %{"path" => "test"}}} =
+      assert {:ok, %Response{body: body}} =
                ReqAdapter.request(:get, "https://api.example.com/test", nil, %{}, [])
 
-      assert {:ok, %Response{body: %{"path" => "other"}}} =
+      assert Jason.decode!(body) == %{"path" => "test"}
+
+      assert {:ok, %Response{body: body}} =
                ReqAdapter.request(:get, "https://api.example.com/other", nil, %{}, [])
 
-      assert {:ok, %Response{body: %{"path" => "default"}}} =
+      assert Jason.decode!(body) == %{"path" => "other"}
+
+      assert {:ok, %Response{body: body}} =
                ReqAdapter.request(:get, "https://api.example.com/unknown", nil, %{}, [])
+
+      assert Jason.decode!(body) == %{"path" => "default"}
     end
   end
 end

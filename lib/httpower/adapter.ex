@@ -91,17 +91,12 @@ defmodule HTTPower.Adapter do
             ) :: {:ok, Response.t()} | {:error, term()}
 
   @doc """
-  Prepares request headers, adding default Content-Type for POST requests.
+  Prepares request headers, ensuring a valid map is returned.
 
   Used by all adapters and the test interceptor to ensure consistent header
   handling across the library.
   """
   @spec prepare_headers(map() | nil, atom()) :: map()
-  def prepare_headers(headers, :post) do
-    default_post_headers = %{"Content-Type" => "application/x-www-form-urlencoded"}
-    Map.merge(default_post_headers, headers || %{})
-  end
-
   def prepare_headers(headers, _method) do
     headers || %{}
   end

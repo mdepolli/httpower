@@ -32,7 +32,7 @@ defmodule HTTPower.Adapter.TeslaTest do
       assert {:ok, %Response{status: 200, body: body}} =
                TeslaAdapter.request(:get, "https://api.example.com/test", nil, %{}, opts)
 
-      assert body == %{"success" => true}
+      assert Jason.decode!(body) == %{"success" => true}
     end
 
     test "makes successful POST request with body" do
@@ -180,7 +180,7 @@ defmodule HTTPower.Adapter.TeslaTest do
       assert is_map(response.headers)
       # Headers come back as lists from Plug
       assert response.headers["x-custom"] == ["value"] or response.headers["x-custom"] == "value"
-      assert response.body == %{"data" => "test"}
+      assert Jason.decode!(response.body) == %{"data" => "test"}
     end
 
     test "handles response headers as list of tuples" do
@@ -436,8 +436,10 @@ defmodule HTTPower.Adapter.TeslaTest do
       tesla_client = Tesla.client([])
       opts = [adapter_config: tesla_client]
 
-      assert {:ok, %Response{body: %{"middleware" => "works"}}} =
+      assert {:ok, %Response{body: body}} =
                TeslaAdapter.request(:get, "https://api.example.com/test", nil, %{}, opts)
+
+      assert Jason.decode!(body) == %{"middleware" => "works"}
     end
   end
 
@@ -454,14 +456,20 @@ defmodule HTTPower.Adapter.TeslaTest do
       tesla_client = Tesla.client([])
       opts = [adapter_config: tesla_client]
 
-      assert {:ok, %Response{body: %{"path" => "test"}}} =
+      assert {:ok, %Response{body: body}} =
                TeslaAdapter.request(:get, "https://api.example.com/test", nil, %{}, opts)
 
-      assert {:ok, %Response{body: %{"path" => "other"}}} =
+      assert Jason.decode!(body) == %{"path" => "test"}
+
+      assert {:ok, %Response{body: body}} =
                TeslaAdapter.request(:get, "https://api.example.com/other", nil, %{}, opts)
 
-      assert {:ok, %Response{body: %{"path" => "default"}}} =
+      assert Jason.decode!(body) == %{"path" => "other"}
+
+      assert {:ok, %Response{body: body}} =
                TeslaAdapter.request(:get, "https://api.example.com/unknown", nil, %{}, opts)
+
+      assert Jason.decode!(body) == %{"path" => "default"}
     end
   end
 

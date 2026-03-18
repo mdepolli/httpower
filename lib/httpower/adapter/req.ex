@@ -75,7 +75,9 @@ if Code.ensure_loaded?(Req) do
         headers: prepare_headers(headers, method),
         receive_timeout: timeout * 1000,
         # IMPORTANT: Disable Req's built-in retry to avoid conflicts with HTTPower's retry logic
-        retry: false
+        retry: false,
+        # IMPORTANT: Disable Req's built-in response decoding — HTTPower.Codec handles this
+        decode_body: false
       ]
 
       # Extract any additional options (like :plug for Req.Test)
@@ -88,14 +90,17 @@ if Code.ensure_loaded?(Req) do
           :circuit_breaker,
           :circuit_breaker_key,
           :deduplicate,
+          :form,
           :headers,
           :jitter_factor,
+          :json,
           :max_delay,
           :max_retries,
           :profile,
           :proxy,
           :rate_limit,
           :rate_limit_key,
+          :raw,
           :request_steps,
           :retry_safe,
           :ssl_verify,

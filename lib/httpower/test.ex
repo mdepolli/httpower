@@ -357,7 +357,7 @@ defmodule HTTPower.Test do
          %HTTPower.Response{
            status: conn.status || 200,
            headers: format_headers(conn.resp_headers),
-           body: parse_body(conn.resp_body)
+           body: conn.resp_body
          }}
 
       reason ->
@@ -396,15 +396,6 @@ defmodule HTTPower.Test do
       {key, if(is_list(value), do: value, else: [value])}
     end)
   end
-
-  defp parse_body(body) when is_binary(body) do
-    case Jason.decode(body) do
-      {:ok, decoded} -> decoded
-      {:error, _} -> body
-    end
-  end
-
-  defp parse_body(body), do: body
 
   defp resolve_owner(pid) do
     cond do

@@ -29,7 +29,7 @@ defmodule HTTPower.Adapter.FinchTest do
       assert {:ok, %Response{status: 200, body: body}} =
                FinchAdapter.request(:get, "https://api.example.com/test", nil, %{}, [])
 
-      assert body == %{"success" => true}
+      assert Jason.decode!(body) == %{"success" => true}
     end
 
     test "makes successful POST request with body" do
@@ -88,17 +88,6 @@ defmodule HTTPower.Adapter.FinchTest do
 
       assert {:ok, %Response{}} =
                FinchAdapter.request(:get, "https://api.example.com/test", nil, %{}, [])
-    end
-
-    test "adds default Content-Type for POST requests" do
-      HTTPower.Test.stub(fn conn ->
-        headers = conn.req_headers |> Enum.into(%{})
-        assert headers["content-type"] == "application/x-www-form-urlencoded"
-        HTTPower.Test.json(conn, %{success: true})
-      end)
-
-      assert {:ok, %Response{}} =
-               FinchAdapter.request(:post, "https://api.example.com/submit", "data", %{}, [])
     end
 
     test "allows custom Content-Type to override default for POST" do
@@ -227,7 +216,7 @@ defmodule HTTPower.Adapter.FinchTest do
       assert response.status == 200
       assert is_map(response.headers)
       assert response.headers["x-custom"] == ["value"]
-      assert response.body == %{"data" => "test"}
+      assert Jason.decode!(response.body) == %{"data" => "test"}
     end
 
     test "handles empty response body" do
@@ -367,14 +356,20 @@ defmodule HTTPower.Adapter.FinchTest do
         end
       end)
 
-      assert {:ok, %Response{body: %{"path" => "test"}}} =
+      assert {:ok, %Response{body: body}} =
                FinchAdapter.request(:get, "https://api.example.com/test", nil, %{}, [])
 
-      assert {:ok, %Response{body: %{"path" => "other"}}} =
+      assert Jason.decode!(body) == %{"path" => "test"}
+
+      assert {:ok, %Response{body: body}} =
                FinchAdapter.request(:get, "https://api.example.com/other", nil, %{}, [])
 
-      assert {:ok, %Response{body: %{"path" => "default"}}} =
+      assert Jason.decode!(body) == %{"path" => "other"}
+
+      assert {:ok, %Response{body: body}} =
                FinchAdapter.request(:get, "https://api.example.com/unknown", nil, %{}, [])
+
+      assert Jason.decode!(body) == %{"path" => "default"}
     end
   end
 end
