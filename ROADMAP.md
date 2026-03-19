@@ -1,6 +1,6 @@
 # HTTPower Roadmap
 
-A reliable HTTP client library for Elixir with advanced reliability patterns for production applications. Works with Finch (default), Req, or Tesla through an adapter pattern.
+Production reliability layer for Elixir HTTP clients. Adds circuit breakers, rate limiting, request deduplication, smart retries, and PCI-compliant logging to Finch (default), Req, or Tesla.
 
 ## Current Status ✅
 

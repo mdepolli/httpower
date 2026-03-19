@@ -1,7 +1,7 @@
 defmodule HTTPower do
   @moduledoc """
-  A production-ready HTTP client library for Elixir that adds reliability patterns
-  and enterprise features on top of existing HTTP clients through an adapter system.
+  Production reliability layer for Elixir HTTP clients. Adds reliability patterns
+  and enterprise features on top of Finch, Req, or Tesla through an adapter system.
 
   HTTPower supports multiple HTTP clients via adapters — Finch (high-performance, default),
   Req (batteries-included), and Tesla (bring-your-own-config) — while providing production

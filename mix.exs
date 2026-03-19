@@ -62,9 +62,8 @@ defmodule HTTPower.MixProject do
 
   defp description do
     """
-    HTTP client library with advanced reliability patterns built-in. Features circuit breaker, rate limiting,
-    PCI-compliant logging, and smart retries. Works with Finch (default), Req, or Tesla adapters. Built for
-    payment processing, microservices, and high-volume APIs.
+    Production reliability layer for Elixir HTTP clients. Adds circuit breaker, rate limiting,
+    request deduplication, PCI-compliant logging, and smart retries to Finch, Req, or Tesla.
     """
   end
 
