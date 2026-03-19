@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`params:` option for query string encoding** — Pass `params: [page: 1, per: 20]` to append query parameters to the request URL. Merges with existing query strings. Accepts keyword lists, maps, or lists of two-element tuples (flat key-value only). Can be combined with any body option (`json:`, `form:`, `body:`).
 
+### Changed
+
+- **Reframed project positioning as a production reliability layer** — Updated README, package description, moduledoc, and roadmap to position HTTPower as a reliability layer for existing HTTP clients (Finch, Req, Tesla) rather than as another HTTP client library. README now leads with a hero code example showing the client pattern with explicit reliability options.
+
 ## [0.21.0] - 2026-03-18
 
 ### Added
