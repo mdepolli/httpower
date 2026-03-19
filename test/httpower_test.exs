@@ -1178,4 +1178,37 @@ defmodule HTTPowerTest do
       assert is_binary(response.body)
     end
   end
+
+  describe "params: option" do
+    test "appends query params to request URL" do
+      HTTPower.Test.stub(fn conn ->
+        assert conn.query_string == "page=1&per=20"
+        HTTPower.Test.json(conn, %{ok: true})
+      end)
+
+      assert {:ok, response} =
+               HTTPower.get("https://api.example.com/users", params: [page: 1, per: 20])
+
+      assert response.body == %{"ok" => true}
+    end
+
+    test "combines with json: body" do
+      HTTPower.Test.stub(fn conn ->
+        assert conn.query_string == "format=json"
+
+        {:ok, body, _conn} = Plug.Conn.read_body(conn)
+        assert Jason.decode!(body) == %{"query" => "elixir"}
+
+        HTTPower.Test.json(conn, %{results: []})
+      end)
+
+      assert {:ok, response} =
+               HTTPower.post("https://api.example.com/search",
+                 params: [format: "json"],
+                 json: %{query: "elixir"}
+               )
+
+      assert response.body == %{"results" => []}
+    end
+  end
 end

@@ -296,4 +296,63 @@ defmodule HTTPower.CodecTest do
       assert updated_opts == [timeout: 5000, max_retries: 2]
     end
   end
+
+  describe "encode_request/2 with params: option" do
+    test "appends query params to URL" do
+      request = build_request(:get)
+      opts = [params: [page: 1, per: 20]]
+
+      assert {:ok, encoded, updated_opts} = Codec.encode_request(request, opts)
+      assert encoded.url.query == "page=1&per=20"
+      refute Keyword.has_key?(updated_opts, :params)
+    end
+
+    test "merges with existing query string" do
+      uri = URI.parse("https://api.example.com/users?active=true")
+      request = Request.new(:get, uri)
+
+      assert {:ok, encoded, _opts} = Codec.encode_request(request, params: [page: 1])
+      assert encoded.url.query == "active=true&page=1"
+    end
+
+    test "accepts a map" do
+      request = build_request(:get)
+
+      assert {:ok, encoded, _opts} =
+               Codec.encode_request(request, params: %{"key" => "value"})
+
+      assert encoded.url.query == "key=value"
+    end
+
+    test "empty params is a no-op" do
+      request = build_request(:get)
+
+      assert {:ok, encoded, updated_opts} = Codec.encode_request(request, params: [])
+      assert encoded.url.query == nil
+      refute Keyword.has_key?(updated_opts, :params)
+    end
+
+    test "combines with json: option" do
+      request = build_request(:post)
+      opts = [params: [format: "json"], json: %{query: "elixir"}]
+
+      assert {:ok, encoded, updated_opts} = Codec.encode_request(request, opts)
+      assert encoded.url.query == "format=json"
+      assert encoded.body == ~s({"query":"elixir"})
+      assert encoded.headers["Content-Type"] == "application/json"
+      refute Keyword.has_key?(updated_opts, :params)
+      refute Keyword.has_key?(updated_opts, :json)
+    end
+
+    test "combines with form: option" do
+      request = build_request(:post)
+      opts = [params: [page: 1], form: [q: "search"]]
+
+      assert {:ok, encoded, updated_opts} = Codec.encode_request(request, opts)
+      assert encoded.url.query == "page=1"
+      assert encoded.body == "q=search"
+      refute Keyword.has_key?(updated_opts, :params)
+      refute Keyword.has_key?(updated_opts, :form)
+    end
+  end
 end

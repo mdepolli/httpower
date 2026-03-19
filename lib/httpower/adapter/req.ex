@@ -96,6 +96,7 @@ if Code.ensure_loaded?(Req) do
           :json,
           :max_delay,
           :max_retries,
+          :params,
           :profile,
           :proxy,
           :rate_limit,

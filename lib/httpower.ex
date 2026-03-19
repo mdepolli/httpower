@@ -67,6 +67,7 @@ defmodule HTTPower do
   - `headers` - Request headers map
   - `json` - Data to encode as JSON request body (sets Content-Type and Accept headers)
   - `form` - Data to encode as form-urlencoded request body (keyword list or map, flat only)
+  - `params` - Query parameters to append to the URL (keyword list or map, flat only)
   - `raw` - Skip automatic response body decoding when true (default: false)
 
   ## Return Values

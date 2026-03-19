@@ -2,9 +2,12 @@ defmodule HTTPower.Codec do
   @moduledoc """
   Request encoding for HTTPower.
 
-  This module handles encoding of request bodies before they are passed to the
-  adapter layer. It supports three encoding options that can be passed alongside
-  other request options:
+  This module handles encoding of request bodies and query parameters before
+  they are passed to the adapter layer.
+
+  ## Body Encoding
+
+  Supports three mutually exclusive body options:
 
   - `json: data` — Encodes `data` as JSON, sets `Content-Type: application/json`
     and `Accept: application/json` headers (unless already present).
@@ -12,8 +15,14 @@ defmodule HTTPower.Codec do
     `Content-Type: application/x-www-form-urlencoded` (unless already present).
   - `body: data` — Passes `data` through as-is. No encoding, no headers added.
 
-  Only one encoding option may be used per request. Combining `json:`, `form:`,
+  Only one body option may be used per request. Combining `json:`, `form:`,
   or `body:` in the same opts list returns an error.
+
+  ## Query Parameters
+
+  - `params: data` — Encodes `data` as query parameters and appends to the
+    request URL. Merges with any existing query string. Uses `URI.encode_query/1`
+    (flat key-value only). Can be combined with any body option.
 
   ## Examples
 
@@ -75,7 +84,7 @@ defmodule HTTPower.Codec do
       cond do
         has_json -> encode_json(request, opts)
         has_form -> encode_form(request, opts)
-        true -> {:ok, request, opts}
+        true -> encode_params(request, opts)
       end
     end
   end
@@ -91,7 +100,7 @@ defmodule HTTPower.Codec do
           |> put_header_unless_set("Content-Type", "application/json")
           |> put_header_unless_set("Accept", "application/json")
 
-        {:ok, updated_request, Keyword.delete(opts, :json)}
+        encode_params(updated_request, Keyword.delete(opts, :json))
 
       {:error, _reason} ->
         {:error, %Error{reason: :json_encode_error, message: Error.message(:json_encode_error)}}
@@ -107,7 +116,28 @@ defmodule HTTPower.Codec do
       |> Map.put(:body, encoded)
       |> put_header_unless_set("Content-Type", "application/x-www-form-urlencoded")
 
-    {:ok, updated_request, Keyword.delete(opts, :form)}
+    encode_params(updated_request, Keyword.delete(opts, :form))
+  end
+
+  defp encode_params(request, opts) do
+    case Keyword.pop(opts, :params) do
+      {nil, opts} ->
+        {:ok, request, opts}
+
+      {[], opts} ->
+        {:ok, request, opts}
+
+      {params, opts} ->
+        encoded = URI.encode_query(params)
+
+        updated_url =
+          case request.url.query do
+            nil -> %{request.url | query: encoded}
+            existing -> %{request.url | query: existing <> "&" <> encoded}
+          end
+
+        {:ok, %{request | url: updated_url}, opts}
+    end
   end
 
   @doc """
