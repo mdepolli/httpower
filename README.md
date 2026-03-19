@@ -1,198 +1,156 @@
 # HTTPower ⚡
 
-HTTPower is a production-ready HTTP client library for Elixir that provides bulletproof HTTP behavior with advanced features like test mode blocking, smart retries, and comprehensive error handling.
+Production reliability for your Elixir HTTP client. HTTPower adds circuit breakers, rate limiting, request deduplication, smart retries, and PCI-compliant logging to Finch, Req, or Tesla.
 
 [![Hex.pm](https://img.shields.io/hexpm/v/httpower)](https://hex.pm/packages/httpower)
 [![Documentation](https://img.shields.io/badge/docs-hexdocs-blue)](https://hexdocs.pm/httpower)
 [![CI](https://github.com/mdepolli/httpower/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/mdepolli/httpower/actions/workflows/ci.yml)
 
+```elixir
+stripe = HTTPower.new(
+  adapter: :req,
+  base_url: "https://api.stripe.com",
+  headers: %{"authorization" => "Bearer #{api_key}"},
+  rate_limit: [requests: 100, per: :second],
+  circuit_breaker: [failure_threshold: 5, timeout: 30_000],
+  deduplicate: true
+)
+
+{:ok, response} = HTTPower.post(stripe, "/v1/charges",
+  json: %{amount: 2000, currency: "usd"}
+)
+```
+
+All reliability features work identically across adapters — switch from Req to Finch without changing anything else.
+
 ## Features
 
-### 🛡️ **Production-Ready Reliability**
-
-- **Circuit breaker**: Automatic failure detection and recovery with state tracking
-- **Built-in rate limiting**: Token bucket algorithm with per-endpoint configuration
-- **Request deduplication**: Prevent duplicate operations from double-clicks or race conditions
-- **Comprehensive telemetry**: Deep observability with Elixir's `:telemetry` library
-- **PCI-compliant logging**: Automatic sanitization of sensitive data in logs
-- **Request/response correlation**: Trace requests with unique correlation IDs
-- **Test mode blocking**: Prevents real HTTP requests during testing
-- **Smart retry logic**: Intelligent retries with configurable policies
-- **Clean error handling**: Never raises exceptions, always returns result tuples
-- **SSL/Proxy support**: Full SSL verification and proxy configuration
-- **Request timeout management**: Configurable timeouts with sensible defaults
-- **Symmetric body encoding/decoding**: `json:` and `form:` options for request encoding with consistent Content-Type-driven response decoding across all adapters
-
-### 🎯 **Perfect For**
-
-- **API integrations** - Rate limiting and circuit breakers for third-party APIs
-- **Payment processing** - PCI-compliant logging and audit trails
-- **Microservices** - Reliability patterns across service boundaries
-- **Financial services** - Compliance and observability requirements
+- **Circuit breaker** — automatic failure detection with closed/open/half-open states
+- **Rate limiting** — token bucket algorithm with adaptive reduction during outages
+- **Request deduplication** — concurrent identical requests share a single HTTP call
+- **Smart retries** — exponential backoff with jitter, respects Retry-After headers
+- **PCI-compliant logging** — automatic sanitization of cards, tokens, and credentials
+- **Telemetry** — events for every reliability feature, ready for Prometheus/OpenTelemetry
+- **Correlation IDs** — unique request tracing across services
+- **Body encoding/decoding** — `json:` and `form:` options with Content-Type-driven response decoding
+- **Never raises** — always returns `{:ok, response}` or `{:error, error}`
 
 ## Table of Contents
 
-- [Adapter Support](#adapter-support)
 - [Quick Start](#quick-start)
-  - [Installation](#installation)
-  - [Basic Usage](#basic-usage)
-- [Test Mode Integration](#test-mode-integration)
-- [Configuration Options](#configuration-options)
-- [PCI-Compliant Logging](#pci-compliant-logging)
-- [Correlation IDs](#correlation-ids)
+- [Error Handling](#error-handling)
+- [Test Mode](#test-mode)
 - [Rate Limiting](#rate-limiting)
 - [Circuit Breaker](#circuit-breaker)
 - [Request Deduplication](#request-deduplication)
+- [PCI-Compliant Logging](#pci-compliant-logging)
 - [Observability & Telemetry](#observability--telemetry)
 - [Development](#development)
-- [Documentation](#documentation)
 - [License](#license)
-
-## Adapter Support
-
-HTTPower supports multiple HTTP clients through an adapter system:
-
-- **Finch** (default) - High-performance HTTP client built on Mint with explicit connection pooling
-- **Req** - Batteries-included HTTP client with automatic JSON handling
-- **Tesla** - Flexible HTTP client with extensive middleware ecosystem
-
-HTTPower's production features (circuit breaker, rate limiting, PCI logging, smart retries) work consistently across all adapters. For existing Tesla applications, your middleware continues to work unchanged - HTTPower adds reliability on top.
-
-See [Migrating from Tesla](guides/migrating-from-tesla.md) or [Migrating from Req](guides/migrating-from-req.md) for adapter-specific guidance.
 
 ## Quick Start
 
 ### Installation
 
-Add `httpower` and at least one HTTP client adapter to your dependencies in `mix.exs`:
+Add `httpower` and your HTTP client of choice to `mix.exs`:
 
 ```elixir
 def deps do
   [
     {:httpower, "~> 0.18.0"},
 
-    # Choose at least one adapter:
-    {:finch, ">= 0.19.0"},     # Recommended - high performance
-    # OR
-    {:req, ">= 0.4.0"},        # Batteries-included with auto-JSON
-    # OR
+    # Pick one (or more):
+    {:finch, ">= 0.19.0"},     # High performance (default)
+    {:req, ">= 0.4.0"},        # Batteries-included
     {:tesla, ">= 1.10.0"}      # If you already use Tesla
   ]
 end
 ```
 
-**Note:** HTTPower requires at least one adapter (Finch, Req, or Tesla). If multiple are present, Finch is used by default (can be overridden with the `adapter` option).
-
 ### Basic Usage
 
-**Direct requests:**
+Create a client with the reliability features you need:
 
 ```elixir
-# Simple GET request - JSON responses are automatically decoded
-{:ok, response} = HTTPower.get("https://api.example.com/users")
-IO.inspect(response.status)  # 200
-IO.inspect(response.body)    # %{"users" => [...]}
-
-# POST with JSON encoding - sets Content-Type and Accept automatically
-{:ok, response} = HTTPower.post("https://api.example.com/users",
-  json: %{name: "John", email: "john@example.com"}
-)
-
-# POST with form encoding - sets Content-Type: application/x-www-form-urlencoded
-{:ok, response} = HTTPower.post("https://api.example.com/users",
-  form: %{name: "John", email: "john@example.com"}
-)
-
-# Skip automatic response decoding when you need the raw binary
-{:ok, response} = HTTPower.get("https://api.example.com/export.csv", raw: true)
-IO.inspect(response.body)    # "name,email\nJohn,john@example.com\n"
-```
-
-**Client-based usage:**
-
-```elixir
-# Create a configured client
-client = HTTPower.new(
-  base_url: "https://api.example.com",
+github = HTTPower.new(
+  adapter: :req,
+  base_url: "https://api.github.com",
   headers: %{"authorization" => "Bearer #{token}"},
-  timeout: 30,
+  rate_limit: [requests: 60, per: :minute],
+  circuit_breaker: [failure_threshold: 5, timeout: 30_000],
   max_retries: 3
 )
 
-# Use the client for multiple requests
-{:ok, users} = HTTPower.get(client, "/users")
-{:ok, user} = HTTPower.get(client, "/users/123")
-{:ok, created} = HTTPower.post(client, "/users", body: data)
+{:ok, repos} = HTTPower.get(github, "/user/repos")
+{:ok, repo} = HTTPower.get(github, "/repos/owner/name")
+{:ok, issue} = HTTPower.post(github, "/repos/owner/name/issues",
+  json: %{title: "Bug report", body: "Details..."}
+)
 ```
 
-**Global configuration:**
+Or make one-off requests without a client:
 
 ```elixir
-# config/config.exs - applies to all requests
+{:ok, response} = HTTPower.get("https://api.example.com/users")
+{:ok, response} = HTTPower.post("https://api.example.com/users",
+  json: %{name: "John", email: "john@example.com"}
+)
+```
+
+JSON responses are decoded automatically. Use `raw: true` to skip decoding.
+
+### Adapters
+
+HTTPower wraps your existing HTTP client — Finch, Req, or Tesla. If multiple are installed, Finch is used by default. Override with `adapter: :req` or `adapter: :tesla`.
+
+For existing Tesla or Req applications, see [Migrating from Tesla](guides/migrating-from-tesla.md) or [Migrating from Req](guides/migrating-from-req.md).
+
+### Global Configuration
+
+```elixir
+# config/config.exs
 config :httpower,
-  # Retry configuration
+  adapter: HTTPower.Adapter.Req,
   max_retries: 3,
-  retry_safe: false,
-  base_delay: 1000,
-  max_delay: 30000,
+  rate_limit: [enabled: true, requests: 100, per: :minute, strategy: :wait],
+  circuit_breaker: [enabled: true, failure_threshold: 5, timeout: 60_000]
 
-  # Rate limiting
-  rate_limit: [
-    enabled: true,
-    requests: 100,
-    per: :minute,
-    strategy: :wait
-  ],
-
-  # Circuit breaker
-  circuit_breaker: [
-    enabled: true,
-    failure_threshold: 5,
-    timeout: 60_000
-  ],
-
-  # Adapter selection (optional, defaults to Finch → Req → Tesla)
-  adapter: HTTPower.Adapter.Finch
-
-# Logging is configured separately and enabled via HTTPower.Logger.attach()
 config :httpower, :logging,
   level: :info,
   log_headers: true,
   log_body: true
-
-# All requests use global configuration
-{:ok, response} = HTTPower.get("https://api.example.com/users")
 ```
 
-**Error handling (never raises!):**
+Per-request options override per-client options, which override global config.
+
+## Error Handling
+
+HTTPower never raises — all operations return `{:ok, response}` or `{:error, error}`:
 
 ```elixir
 case HTTPower.get("https://api.example.com") do
   {:ok, %HTTPower.Response{status: 200, body: body}} ->
-    # Success case
     process_data(body)
 
   {:ok, %HTTPower.Response{status: 404}} ->
-    # Handle 404 - still a successful HTTP response
     handle_not_found()
 
   {:error, %HTTPower.Error{reason: :timeout}} ->
-    # Network timeout
     handle_timeout()
 
-  {:error, %HTTPower.Error{reason: :econnrefused}} ->
-    # Connection refused
-    handle_connection_error()
+  {:error, %HTTPower.Error{reason: :service_unavailable}} ->
+    # Circuit breaker is open
+    use_fallback()
 
-  {:error, %HTTPower.Error{reason: :network_blocked}} ->
-    # Blocked in test mode
-    handle_test_mode()
+  {:error, %HTTPower.Error{reason: :too_many_requests}} ->
+    # Rate limit exceeded (with :error strategy)
+    back_off()
 end
 ```
 
-## Test Mode Integration
+## Test Mode
 
-HTTPower can completely block real HTTP requests during testing while allowing mocked requests:
+HTTPower can block all real HTTP requests during testing:
 
 ```elixir
 # In test_helper.exs
@@ -223,14 +181,6 @@ defmodule MyAppTest do
   end
 end
 ```
-
-## Configuration Options
-
-HTTPower supports configuration at three levels with the following priority:
-
-**Per-request options > Per-client options > Global configuration**
-
-This allows you to set sensible defaults globally, override them per-client, and further customize individual requests as needed.
 
 ## PCI-Compliant Logging
 
@@ -954,4 +904,4 @@ MIT License
 
 ---
 
-**HTTPower: Because your HTTP requests deserve to be as powerful as they are reliable.** ⚡
+**HTTPower: Production reliability for your HTTP client.** ⚡
