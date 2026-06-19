@@ -146,14 +146,22 @@ if Code.ensure_loaded?(Req) do
     defp prepare_headers(headers, method), do: HTTPower.Adapter.prepare_headers(headers, method)
 
     defp safe_req_request(req_opts) do
-      Req.request(req_opts)
+      case Req.request(req_opts) do
+        {:ok, response} -> {:ok, response}
+        {:error, reason} -> {:error, unwrap_transport_error(reason)}
+      end
     rescue
       error -> {:error, unwrap_transport_error(error)}
     catch
       error -> {:error, error}
     end
 
+    # Req wraps transport failures in %Req.TransportError{}; older/other paths
+    # may surface %Mint.TransportError{}. Extract the bare reason atom for both
+    # so HTTPower.Retry can classify them as retryable transport errors.
+    # Matched structurally to avoid a compile-time dependency on Mint.
     defp unwrap_transport_error(%{__struct__: Mint.TransportError, reason: reason}), do: reason
+    defp unwrap_transport_error(%{__struct__: Req.TransportError, reason: reason}), do: reason
     defp unwrap_transport_error(error), do: error
 
     defp convert_response(%Req.Response{status: status, headers: headers, body: body}) do

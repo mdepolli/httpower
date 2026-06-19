@@ -300,6 +300,32 @@ defmodule HTTPower.Adapter.ReqTest do
     end
   end
 
+  describe "real-adapter transport error normalization" do
+    setup do
+      # Disable HTTPower.Test mocking so the request reaches the real Req
+      # adapter path (the interceptor short-circuits before do_request while
+      # mocking is enabled).
+      :ets.delete(:httpower_test_stubs, self())
+      :ok
+    end
+
+    test "unwraps a Req.TransportError into a bare reason atom (retryable by HTTPower.Retry)" do
+      url = closed_port_url()
+
+      assert {:error, :econnrefused} =
+               ReqAdapter.request(:get, url, nil, %{}, proxy: nil, timeout: 2)
+    end
+  end
+
+  # Binds an ephemeral port, captures its number, then closes it so a
+  # subsequent connection is reliably refused (econnrefused).
+  defp closed_port_url do
+    {:ok, socket} = :gen_tcp.listen(0, [])
+    {:ok, port} = :inet.port(socket)
+    :ok = :gen_tcp.close(socket)
+    "http://127.0.0.1:#{port}/"
+  end
+
   describe "body handling" do
     test "handles nil body (GET, DELETE)" do
       HTTPower.Test.stub(fn conn ->

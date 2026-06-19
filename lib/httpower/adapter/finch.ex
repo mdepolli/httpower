@@ -120,7 +120,10 @@ if Code.ensure_loaded?(Finch) do
       prepared_headers = prepare_headers(headers, method)
       request = Finch.build(method, url, format_headers(prepared_headers), body || "")
 
-      Finch.request(request, HTTPower.Finch, opts)
+      case Finch.request(request, HTTPower.Finch, opts) do
+        {:ok, response} -> {:ok, response}
+        {:error, reason} -> {:error, unwrap_transport_error(reason)}
+      end
     rescue
       error -> {:error, unwrap_transport_error(error)}
     catch
