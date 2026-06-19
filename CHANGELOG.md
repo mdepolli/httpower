@@ -24,6 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Circuit breaker closed-state checks no longer round-trip through the GenServer** — `check_and_allow_request/2` now serves the common case (a closed or not-yet-created circuit) from a direct ETS read instead of a serializing `GenServer.call`. Only `:open` (time-based transition) and `:half_open` (attempt increment) still call the GenServer, since they coordinate writes. This removes the per-request single-mailbox bottleneck on the hot path under high concurrency. Behavior is unchanged; the brief closed→open transition window remains eventually-consistent, as it already was with async (`cast`) failure recording.
+
 - **Logged JSON request/response bodies are now re-serialized in compact form** — As a result of the structural sanitization fix above, JSON bodies in logs are emitted as canonical compact JSON (`{"k":"v"}`) rather than preserving the original formatting/whitespace. Redaction behavior is unchanged for non-JSON bodies.
 
 - **BREAKING: Sanitization config moved from `:logging` to a dedicated `:sanitization` namespace** — `sanitize_headers` and `sanitize_body_fields` are now read from `config :httpower, :sanitization` instead of `config :httpower, :logging`. Applications that customized these lists must move them:

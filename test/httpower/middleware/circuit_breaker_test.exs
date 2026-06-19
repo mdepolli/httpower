@@ -43,6 +43,30 @@ defmodule HTTPower.Middleware.CircuitBreakerTest do
     :ok
   end
 
+  describe "closed-state fast path" do
+    test "closed-circuit decisions are served from ETS without the GenServer" do
+      # The closed state is the common case and mutates nothing, so it must not
+      # round-trip through the (serializing) GenServer. Proof: with the GenServer
+      # suspended, a closed circuit still allows the request because the decision
+      # is read directly from ETS. Before the fast path, this GenServer.call would
+      # block on the suspended process and the request would never complete.
+      config = [enabled: true, failure_threshold: 5]
+      circuit_key = "fast_path_#{System.unique_integer([:positive])}"
+
+      :sys.suspend(CircuitBreaker)
+      on_exit(fn -> :sys.resume(CircuitBreaker) end)
+
+      task =
+        Task.async(fn ->
+          CircuitBreaker.call(circuit_key, fn -> {:ok, :done} end, config)
+        end)
+
+      result = Task.yield(task, 500) || Task.shutdown(task, :brutal_kill)
+
+      assert result == {:ok, {:ok, :done}}
+    end
+  end
+
   describe "circuit states" do
     test "starts in closed state" do
       config = [enabled: true, failure_threshold: 5]
@@ -85,6 +109,10 @@ defmodule HTTPower.Middleware.CircuitBreakerTest do
       for _ <- 1..2 do
         CircuitBreaker.call("test_circuit", fn -> {:error, :failure} end, config)
       end
+
+      # Recording is async (cast); wait for the circuit to actually open before
+      # asserting rejection — otherwise we race the in-flight record_failure casts.
+      assert await_state("test_circuit", :open) == :open
 
       # Next request should be rejected
       result =

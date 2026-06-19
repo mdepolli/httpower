@@ -433,7 +433,15 @@ defmodule HTTPower.Middleware.CircuitBreaker do
   end
 
   defp check_and_allow_request(circuit_key, config) do
-    GenServer.call(__MODULE__, {:check_and_allow, circuit_key, config})
+    # Fast path: a closed (or not-yet-created) circuit allows the request and
+    # mutates nothing, so serve it from a direct ETS read instead of a
+    # serializing GenServer.call. Only :open (time-based transition) and
+    # :half_open (attempt increment) need the GenServer to coordinate writes.
+    case :ets.lookup(@table_name, circuit_key) do
+      [] -> {:ok, :allowed}
+      [{^circuit_key, %{state: :closed}}] -> {:ok, :allowed}
+      _ -> GenServer.call(__MODULE__, {:check_and_allow, circuit_key, config})
+    end
   end
 
   defp get_or_create_circuit(circuit_key) do
