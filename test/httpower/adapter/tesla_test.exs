@@ -84,9 +84,17 @@ defmodule HTTPower.Adapter.TeslaTest do
     end
   end
 
-  # Note: Testing ArgumentError for missing adapter_config is difficult because
-  # HTTPower.Test intercepts requests before adapter validation.
-  # This is covered by integration tests instead.
+  describe "request/5 without a configured Tesla client" do
+    test "returns an error tuple instead of raising" do
+      # Disable HTTPower.Test mocking for this process so the request reaches the
+      # real adapter path; the interceptor short-circuits before adapter
+      # validation while mocking is enabled.
+      :ets.delete(:httpower_test_stubs, self())
+
+      assert {:error, %HTTPower.Error{reason: :missing_tesla_client}} =
+               TeslaAdapter.request(:get, "https://api.example.com/test", nil, %{}, [])
+    end
+  end
 
   describe "request/5 with custom headers" do
     test "converts map headers to Tesla format (list of tuples)" do

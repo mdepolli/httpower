@@ -9,7 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Fixed PCI data leak in telemetry metadata** — Request/response headers and bodies were emitted into the `[:httpower, :request, :start | :stop]` telemetry metadata **unsanitized**. Redaction only happened inside `HTTPower.Logger`'s own handler, so every other telemetry consumer (Datadog/OpenTelemetry exporters, custom handlers) received credit card numbers, CVVs, `Authorization` headers, `Set-Cookie`, and full bodies in the clear. Sanitization now happens at the emission boundary in `HTTPower.Client`, so all telemetry consumers receive redacted metadata. The URL was already sanitized; headers and bodies now are too.
 - **Fixed PCI data leaks in request/response body logging** — Sensitive values could survive sanitization and reach logs in three cases: (1) CVV/CVC codes in form-encoded bodies (e.g. `cvv=123`) were not redacted because the `=` separator was missing from the CVV pattern; (2) sensitive fields whose value was a nested JSON object (e.g. `{"token": {"access": "..."}}`) leaked entirely because field-name redaction only matched scalar values; (3) JSON string values containing escaped quotes were partially redacted, leaking the remainder and corrupting the logged JSON. Binary JSON bodies are now parsed and sanitized structurally via the recursive map path before re-encoding, which correctly handles nested objects, arrays, and escaped characters. Non-JSON bodies (e.g. form-encoded) continue to use regex-based sanitization, now with the corrected CVV pattern.
+
+### Fixed
+
+- **Tesla adapter no longer raises when no client is configured** — Using the Tesla adapter without an `adapter_config` (e.g. `adapter: HTTPower.Adapter.Tesla` instead of the `{module, tesla_client}` tuple) raised an `ArgumentError`, breaking HTTPower's "never raises" contract. It now returns `{:error, %HTTPower.Error{reason: :missing_tesla_client}}` like every other error path.
 
 ### Changed
 

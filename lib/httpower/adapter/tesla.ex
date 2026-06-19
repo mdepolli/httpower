@@ -109,12 +109,9 @@ if Code.ensure_loaded?(Tesla) do
     end
 
     defp do_request(method, url, body, headers, opts) do
-      tesla_client = get_tesla_client(opts)
-
-      # Build Tesla request options
-      tesla_opts = build_tesla_opts(method, url, body, headers)
-
-      with {:ok, env} <- safe_tesla_request(tesla_client, tesla_opts) do
+      with {:ok, tesla_client} <- get_tesla_client(opts),
+           tesla_opts = build_tesla_opts(method, url, body, headers),
+           {:ok, env} <- safe_tesla_request(tesla_client, tesla_opts) do
         {:ok, convert_response(env)}
       end
     end
@@ -122,12 +119,14 @@ if Code.ensure_loaded?(Tesla) do
     defp get_tesla_client(opts) do
       case Keyword.get(opts, :adapter_config) do
         nil ->
-          raise ArgumentError,
-                "Tesla adapter requires a Tesla client. " <>
-                  "Use: HTTPower.get(url, adapter: {HTTPower.Adapter.Tesla, tesla_client})"
+          {:error,
+           %HTTPower.Error{
+             reason: :missing_tesla_client,
+             message: HTTPower.Error.message(:missing_tesla_client)
+           }}
 
         tesla_client ->
-          tesla_client
+          {:ok, tesla_client}
       end
     end
 

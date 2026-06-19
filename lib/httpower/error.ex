@@ -36,5 +36,11 @@ defmodule HTTPower.Error do
     do: "Cannot use multiple body options (json:, form:, body:) simultaneously"
 
   def message(:json_encode_error), do: "Failed to encode data as JSON"
+
+  def message(:missing_tesla_client),
+    do:
+      "Tesla adapter requires a Tesla client. " <>
+        "Use: HTTPower.get(url, adapter: {HTTPower.Adapter.Tesla, tesla_client})"
+
   def message(reason), do: inspect(reason)
 end
