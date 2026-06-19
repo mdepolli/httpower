@@ -151,12 +151,22 @@ if Code.ensure_loaded?(Tesla) do
     defp convert_headers(_), do: []
 
     defp safe_tesla_request(client, opts) do
-      Tesla.request(client, opts)
+      case Tesla.request(client, opts) do
+        {:ok, env} -> {:ok, env}
+        {:error, reason} -> {:error, unwrap_transport_error(reason)}
+      end
     rescue
-      error -> {:error, error}
+      error -> {:error, unwrap_transport_error(error)}
     catch
       error -> {:error, error}
     end
+
+    # Mirror the Finch/Req adapters: extract the bare reason atom from a
+    # Mint.TransportError so HTTPower.Retry can classify it as a retryable
+    # transport error. Matched structurally to avoid a compile-time
+    # dependency on Mint (an optional, adapter-specific dependency).
+    defp unwrap_transport_error(%{__struct__: Mint.TransportError, reason: reason}), do: reason
+    defp unwrap_transport_error(error), do: error
 
     defp convert_response(%Tesla.Env{} = env) do
       %Response{

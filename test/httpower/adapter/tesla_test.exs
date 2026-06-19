@@ -377,6 +377,44 @@ defmodule HTTPower.Adapter.TeslaTest do
     end
   end
 
+  describe "real-adapter transport error normalization" do
+    setup do
+      # Disable HTTPower.Test mocking so requests reach the real Tesla adapter
+      # path (the interceptor short-circuits before do_request while enabled).
+      :ets.delete(:httpower_test_stubs, self())
+      :ok
+    end
+
+    test "unwraps a Mint.TransportError returned by the adapter into a bare reason atom" do
+      tesla_client =
+        Tesla.client([], fn _env -> {:error, %Mint.TransportError{reason: :timeout}} end)
+
+      assert {:error, :timeout} =
+               TeslaAdapter.request(:get, "https://api.example.com/x", nil, %{},
+                 adapter_config: tesla_client
+               )
+    end
+
+    test "unwraps a Mint.TransportError raised by the adapter into a bare reason atom" do
+      tesla_client =
+        Tesla.client([], fn _env -> raise %Mint.TransportError{reason: :econnrefused} end)
+
+      assert {:error, :econnrefused} =
+               TeslaAdapter.request(:get, "https://api.example.com/x", nil, %{},
+                 adapter_config: tesla_client
+               )
+    end
+
+    test "passes through a non-transport error reason unchanged" do
+      tesla_client = Tesla.client([], fn _env -> {:error, :something_else} end)
+
+      assert {:error, :something_else} =
+               TeslaAdapter.request(:get, "https://api.example.com/x", nil, %{},
+                 adapter_config: tesla_client
+               )
+    end
+  end
+
   describe "body handling" do
     test "converts nil body to empty string" do
       HTTPower.Test.stub(fn conn ->

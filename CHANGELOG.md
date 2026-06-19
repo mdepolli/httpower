@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Tesla adapter no longer raises when no client is configured** — Using the Tesla adapter without an `adapter_config` (e.g. `adapter: HTTPower.Adapter.Tesla` instead of the `{module, tesla_client}` tuple) raised an `ArgumentError`, breaking HTTPower's "never raises" contract. It now returns `{:error, %HTTPower.Error{reason: :missing_tesla_client}}` like every other error path.
 
+- **Tesla adapter now normalizes transport errors so they are retryable** — Transport failures from Tesla's underlying adapter (e.g. a `%Mint.TransportError{}` returned or raised by `Tesla.Adapter.Mint`/`Finch`) were passed through as a raw exception struct. `HTTPower.Retry` only classifies bare reason atoms, so these were never retried and surfaced as an opaque `%HTTPower.Error{reason: %Mint.TransportError{}}`. The adapter now unwraps the bare reason atom (e.g. `:timeout`, `:econnrefused`) on both the returned and raised error paths, matching the Finch and Req adapters.
+
 ### Changed
 
 - **Logged JSON request/response bodies are now re-serialized in compact form** — As a result of the structural sanitization fix above, JSON bodies in logs are emitted as canonical compact JSON (`{"k":"v"}`) rather than preserving the original formatting/whitespace. Redaction behavior is unchanged for non-JSON bodies.
