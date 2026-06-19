@@ -334,7 +334,6 @@ defmodule HTTPower.Retry do
 
   defp extract_retry_reason({:http_status, status, _response}), do: {:http_status, status}
   defp extract_retry_reason(reason) when is_atom(reason), do: reason
-  defp extract_retry_reason(_reason), do: :unknown
 
   defp log_retry_attempt(attempt, reason, max_retries) do
     remaining = max_retries - attempt
