@@ -71,7 +71,10 @@ defmodule HTTPower.Logger do
       config :httpower, :logging,
         level: :info,
         log_headers: true,
-        log_body: true,
+        log_body: true
+
+      # Sanitization rules are configured separately (see `HTTPower.Sanitizer`):
+      config :httpower, :sanitization,
         sanitize_headers: ["authorization", "api-key", "x-api-key"],
         sanitize_body_fields: ["password", "credit_card", "cvv"]
 
@@ -186,6 +189,7 @@ defmodule HTTPower.Logger do
   Delegates to `HTTPower.Sanitizer.sanitize_headers/1`. Kept for backward
   compatibility; new code should call `HTTPower.Sanitizer` directly.
   """
+  @deprecated "Use HTTPower.Sanitizer.sanitize_headers/1 instead"
   @spec sanitize_headers(map()) :: map()
   defdelegate sanitize_headers(headers), to: HTTPower.Sanitizer
 
@@ -195,6 +199,7 @@ defmodule HTTPower.Logger do
   Delegates to `HTTPower.Sanitizer.sanitize_body/1`. Kept for backward
   compatibility; new code should call `HTTPower.Sanitizer` directly.
   """
+  @deprecated "Use HTTPower.Sanitizer.sanitize_body/1 instead"
   @spec sanitize_body(String.t() | map() | nil) :: String.t() | map() | nil
   defdelegate sanitize_body(body), to: HTTPower.Sanitizer
 
@@ -363,13 +368,18 @@ defmodule HTTPower.Logger do
 
   defp build_config(opts) do
     defaults = Application.get_env(:httpower, :logging, [])
+    sanitization = Application.get_env(:httpower, :sanitization, [])
 
     custom_headers =
-      Keyword.get(opts, :sanitize_headers, Keyword.get(defaults, :sanitize_headers, []))
+      Keyword.get(opts, :sanitize_headers, Keyword.get(sanitization, :sanitize_headers, []))
       |> Enum.map(&String.downcase/1)
 
     custom_body_fields =
-      Keyword.get(opts, :sanitize_body_fields, Keyword.get(defaults, :sanitize_body_fields, []))
+      Keyword.get(
+        opts,
+        :sanitize_body_fields,
+        Keyword.get(sanitization, :sanitize_body_fields, [])
+      )
       |> Enum.map(&String.downcase/1)
 
     %{

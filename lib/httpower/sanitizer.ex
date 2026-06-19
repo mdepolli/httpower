@@ -13,7 +13,7 @@ defmodule HTTPower.Sanitizer do
 
   ## Configuration
 
-      config :httpower, :logging,
+      config :httpower, :sanitization,
         sanitize_headers: ["authorization", "api-key", "x-api-key"],
         sanitize_body_fields: ["password", "credit_card", "cvv"]
 
@@ -87,7 +87,7 @@ defmodule HTTPower.Sanitizer do
   Sanitizes headers by redacting sensitive values.
 
   Header names are matched case-insensitively against the configured list
-  (defaults merged with `config :httpower, :logging, :sanitize_headers`) and
+  (defaults merged with `config :httpower, :sanitization, :sanitize_headers`) and
   their values replaced with "[REDACTED]". All keys are normalized to lowercase.
 
   ## Examples
@@ -184,7 +184,7 @@ defmodule HTTPower.Sanitizer do
 
   defp get_sanitize_list(key, defaults) do
     custom =
-      Application.get_env(:httpower, :logging, [])
+      Application.get_env(:httpower, :sanitization, [])
       |> Keyword.get(key, [])
       |> Enum.map(&String.downcase/1)
 

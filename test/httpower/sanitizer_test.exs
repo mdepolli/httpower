@@ -5,11 +5,9 @@ defmodule HTTPower.SanitizerTest do
   doctest HTTPower.Sanitizer
 
   setup do
-    # Save and restore :logging config so custom-field tests don't leak
-    original_config = Application.get_env(:httpower, :logging, [])
-    Application.put_env(:httpower, :logging, enabled: true, level: :info)
-
-    on_exit(fn -> Application.put_env(:httpower, :logging, original_config) end)
+    # Save and restore :sanitization config so custom-field tests don't leak
+    original_config = Application.get_env(:httpower, :sanitization, [])
+    on_exit(fn -> Application.put_env(:httpower, :sanitization, original_config) end)
 
     :ok
   end
@@ -34,10 +32,7 @@ defmodule HTTPower.SanitizerTest do
     end
 
     test "sanitizes custom configured headers" do
-      Application.put_env(:httpower, :logging,
-        enabled: true,
-        sanitize_headers: ["X-Custom-Secret"]
-      )
+      Application.put_env(:httpower, :sanitization, sanitize_headers: ["X-Custom-Secret"])
 
       headers = %{
         "X-Custom-Secret" => "my-secret",
@@ -204,10 +199,7 @@ defmodule HTTPower.SanitizerTest do
     end
 
     test "sanitizes custom configured fields" do
-      Application.put_env(:httpower, :logging,
-        enabled: true,
-        sanitize_body_fields: ["custom_secret"]
-      )
+      Application.put_env(:httpower, :sanitization, sanitize_body_fields: ["custom_secret"])
 
       body = ~s({"custom_secret": "value", "normal": "data"})
       sanitized = Sanitizer.sanitize_body(body)

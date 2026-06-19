@@ -24,6 +24,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Logged JSON request/response bodies are now re-serialized in compact form** — As a result of the structural sanitization fix above, JSON bodies in logs are emitted as canonical compact JSON (`{"k":"v"}`) rather than preserving the original formatting/whitespace. Redaction behavior is unchanged for non-JSON bodies.
 
+- **BREAKING: Sanitization config moved from `:logging` to a dedicated `:sanitization` namespace** — `sanitize_headers` and `sanitize_body_fields` are now read from `config :httpower, :sanitization` instead of `config :httpower, :logging`. Applications that customized these lists must move them:
+
+  ```elixir
+  # Before
+  config :httpower, :logging,
+    sanitize_headers: ["x-secret"],
+    sanitize_body_fields: ["pan"]
+
+  # After
+  config :httpower, :sanitization,
+    sanitize_headers: ["x-secret"],
+    sanitize_body_fields: ["pan"]
+  ```
+
+  Other `:logging` options (`level`, `log_headers`, `log_body`) are unchanged, as are the `:sanitize_headers`/`:sanitize_body_fields` options passed directly to `HTTPower.Logger.attach/1`.
+
+### Deprecated
+
+- **`HTTPower.Logger.sanitize_headers/1` and `HTTPower.Logger.sanitize_body/1`** — Now delegate to `HTTPower.Sanitizer` and emit a deprecation warning when called. Use `HTTPower.Sanitizer.sanitize_headers/1` and `HTTPower.Sanitizer.sanitize_body/1` instead. The delegations will be removed in a future release.
+
 ## [0.22.0] - 2026-03-19
 
 ### Added
