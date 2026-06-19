@@ -142,9 +142,6 @@ defmodule HTTPower.Client do
 
       {:error, :network_blocked} ->
         {:error, %Error{reason: :network_blocked, message: "Network access blocked in test mode"}}
-
-      {:error, reason} ->
-        {:error, %Error{reason: reason, message: Error.message(reason)}}
     end
   end
 
@@ -214,8 +211,8 @@ defmodule HTTPower.Client do
           {:ok, response} ->
             %{
               status: response.status,
-              headers: response.headers,
-              body: response.body,
+              headers: HTTPower.Logger.sanitize_headers(response.headers),
+              body: HTTPower.Logger.sanitize_body(response.body),
               retry_count: Keyword.get(request.opts, :retry_count, 0)
             }
 
@@ -238,8 +235,8 @@ defmodule HTTPower.Client do
     %{
       method: request.method,
       url: sanitize_uri_for_telemetry(request.url),
-      headers: request.headers,
-      body: request.body
+      headers: HTTPower.Logger.sanitize_headers(request.headers),
+      body: HTTPower.Logger.sanitize_body(request.body)
     }
   end
 

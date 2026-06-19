@@ -729,6 +729,55 @@ defmodule HTTPowerTest do
       # URL should be sanitized (no query params)
       assert metadata.url == "https://api.example.com/users"
     end
+
+    test "sanitizes sensitive request headers and body in telemetry start metadata" do
+      flush_mailbox()
+
+      test_url = "https://api.example.com/charge"
+
+      HTTPower.Test.stub(fn conn ->
+        HTTPower.Test.json(conn, %{ok: true})
+      end)
+
+      HTTPower.post(test_url,
+        headers: %{"Authorization" => "Bearer supersecret"},
+        json: %{password: "hunter2", amount: 100}
+      )
+
+      assert_received {:telemetry, [:httpower, :request, :start], _, %{url: ^test_url} = metadata}
+
+      # Authorization header must be redacted, not leaked in the clear
+      assert metadata.headers["authorization"] == "[REDACTED]"
+      refute inspect(metadata.headers) =~ "supersecret"
+
+      # Sensitive body field must be redacted
+      assert inspect(metadata.body) =~ "[REDACTED]"
+      refute inspect(metadata.body) =~ "hunter2"
+    end
+
+    test "sanitizes sensitive response headers and body in telemetry stop metadata" do
+      flush_mailbox()
+
+      test_url = "https://api.example.com/secret-resource"
+
+      HTTPower.Test.stub(fn conn ->
+        conn
+        |> Plug.Conn.put_resp_header("x-api-key", "leakedkey")
+        |> HTTPower.Test.json(%{password: "hunter2", ok: true})
+      end)
+
+      HTTPower.get(test_url)
+
+      assert_received {:telemetry, [:httpower, :request, :stop], _, %{url: ^test_url} = metadata}
+
+      # Response header in the sanitization list must be redacted
+      assert metadata.headers["x-api-key"] == "[REDACTED]"
+      refute inspect(metadata.headers) =~ "leakedkey"
+
+      # Sensitive response body field must be redacted
+      assert inspect(metadata.body) =~ "[REDACTED]"
+      refute inspect(metadata.body) =~ "hunter2"
+    end
   end
 
   describe "HTTPower.new/1 - client configuration" do
