@@ -127,11 +127,10 @@ if Code.ensure_loaded?(Req) do
 
     defp maybe_add_ssl_options(opts, _url, _ssl_verify), do: opts
 
-    defp maybe_add_proxy_options(opts, :system) do
-      existing = Keyword.get(opts, :connect_options, [])
-      updated = Keyword.put(existing, :proxy, :system)
-      Keyword.put(opts, :connect_options, updated)
-    end
+    # Mint (and therefore Req) has no system-proxy detection and raises a
+    # CaseClauseError if given :proxy :system. Treat :system as "no explicit
+    # proxy" (direct connection), matching the Finch adapter's behavior.
+    defp maybe_add_proxy_options(opts, :system), do: opts
 
     defp maybe_add_proxy_options(opts, nil), do: opts
 

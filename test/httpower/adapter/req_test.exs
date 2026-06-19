@@ -315,6 +315,16 @@ defmodule HTTPower.Adapter.ReqTest do
       assert {:error, :econnrefused} =
                ReqAdapter.request(:get, url, nil, %{}, proxy: nil, timeout: 2)
     end
+
+    test "proxy: :system connects directly instead of raising a CaseClauseError" do
+      # Mint/Req have no system-proxy support; passing :proxy :system through
+      # raised CaseClauseError{term: {:ok, :system}}. :system must mean "no
+      # explicit proxy" (direct connection), matching the Finch adapter.
+      url = closed_port_url()
+
+      assert {:error, :econnrefused} =
+               ReqAdapter.request(:get, url, nil, %{}, proxy: :system, timeout: 2)
+    end
   end
 
   # Binds an ephemeral port, captures its number, then closes it so a
