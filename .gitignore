@@ -22,8 +22,9 @@ httpower-*.tar
 # Temporary files, for example, from tests.
 /tmp/
 
-# Claude Code configuration file
+# Claude Code configuration file and local settings
 CLAUDE.md
+.claude/
 
 # Dev specs and plans
 /docs/
