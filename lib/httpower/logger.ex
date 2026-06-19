@@ -112,49 +112,6 @@ defmodule HTTPower.Logger do
 
   @type log_level :: :debug | :info | :warning | :error
 
-  # Default headers to sanitize (case-insensitive)
-  @default_sanitize_headers [
-    "authorization",
-    "api-key",
-    "x-api-key",
-    "api_key",
-    "apikey",
-    "secret",
-    "token",
-    "x-auth-token",
-    "x-csrf-token",
-    "cookie",
-    "set-cookie"
-  ]
-
-  # Default body fields to sanitize (case-insensitive)
-  @default_sanitize_body_fields [
-    "password",
-    "passwd",
-    "pwd",
-    "secret",
-    "api_key",
-    "apikey",
-    "token",
-    "credit_card",
-    "creditcard",
-    "card_number",
-    "cardnumber",
-    "cvv",
-    "cvv2",
-    "cvc",
-    "pin",
-    "ssn",
-    "social_security"
-  ]
-
-  # Credit card pattern: 13-19 digits with optional spaces/dashes in any grouping
-  @credit_card_pattern ~r/\b(?:\d[\s\-]*){12,18}\d\b/
-
-  # CVV pattern: 3-4 digits often after keywords, separated by whitespace,
-  # quotes, colon, or equals (covers JSON, form-encoded, and plain text bodies)
-  @cvv_pattern ~r/\b(cvv|cvc|cvv2|security_?code)[\s"'=:]+\d{3,4}\b/i
-
   @doc """
   Attaches the HTTPower logger as a telemetry event handler.
 
@@ -226,88 +183,20 @@ defmodule HTTPower.Logger do
   @doc """
   Sanitizes headers by redacting sensitive values.
 
-  Headers in the configured sanitization list are replaced with "[REDACTED]".
-
-  ## Examples
-
-      iex> HTTPower.Logger.sanitize_headers(%{"Authorization" => "Bearer token123"})
-      %{"authorization" => "[REDACTED]"}
-
-      iex> HTTPower.Logger.sanitize_headers(%{"Content-Type" => "application/json"})
-      %{"content-type" => "application/json"}
+  Delegates to `HTTPower.Sanitizer.sanitize_headers/1`. Kept for backward
+  compatibility; new code should call `HTTPower.Sanitizer` directly.
   """
   @spec sanitize_headers(map()) :: map()
-  def sanitize_headers(headers) when is_map(headers) do
-    do_sanitize_headers(headers, get_sanitize_headers())
-  end
-
-  def sanitize_headers(_), do: %{}
-
-  defp do_sanitize_headers(headers, sanitize_list) when is_map(headers) do
-    headers
-    |> Enum.map(fn {key, value} ->
-      normalized_key = String.downcase(to_string(key))
-
-      if normalized_key in sanitize_list do
-        {normalized_key, "[REDACTED]"}
-      else
-        {normalized_key, value}
-      end
-    end)
-    |> Map.new()
-  end
+  defdelegate sanitize_headers(headers), to: HTTPower.Sanitizer
 
   @doc """
   Sanitizes request/response body by redacting sensitive data.
 
-  Handles both string and map bodies. Applies pattern matching for credit cards,
-  CVV codes, and sanitizes configured field names.
-
-  ## Examples
-
-      iex> HTTPower.Logger.sanitize_body(~s({"password": "secret123"}))
-      ~s({"password": "[REDACTED]"})
-
-      iex> HTTPower.Logger.sanitize_body("card: 4111111111111111")
-      "card: [REDACTED]"
+  Delegates to `HTTPower.Sanitizer.sanitize_body/1`. Kept for backward
+  compatibility; new code should call `HTTPower.Sanitizer` directly.
   """
   @spec sanitize_body(String.t() | map() | nil) :: String.t() | map() | nil
-  def sanitize_body(nil), do: nil
-
-  def sanitize_body(body) when is_binary(body) do
-    do_sanitize_body(body, get_sanitize_body_fields())
-  end
-
-  def sanitize_body(body) when is_map(body) do
-    do_sanitize_map(body, get_sanitize_body_fields())
-  end
-
-  def sanitize_body(body), do: body
-
-  defp do_sanitize_body(body, fields) when is_binary(body) do
-    # Prefer structural sanitization: parse the JSON, redact via the recursive
-    # map path (which handles nested objects and field-name matching correctly),
-    # then re-encode. Falls back to regex sanitization for non-JSON bodies
-    # (e.g. form-encoded), which the regex path still covers.
-    case Jason.decode(body) do
-      {:ok, decoded} ->
-        decoded
-        |> do_sanitize_value(fields)
-        |> Jason.encode!()
-
-      {:error, _} ->
-        body
-        |> sanitize_credit_cards()
-        |> sanitize_cvv()
-        |> do_sanitize_json_fields(fields)
-    end
-  end
-
-  defp do_sanitize_body(body, fields) when is_map(body) do
-    do_sanitize_map(body, fields)
-  end
-
-  defp do_sanitize_body(body, _fields), do: body
+  defdelegate sanitize_body(body), to: HTTPower.Sanitizer
 
   ## Telemetry Event Handlers
 
@@ -432,7 +321,7 @@ defmodule HTTPower.Logger do
 
   defp sanitize_if_enabled(:headers, headers, config) when is_map(headers) do
     if config.log_headers and map_size(headers) > 0 do
-      do_sanitize_headers(headers, config.sanitize_headers)
+      HTTPower.Sanitizer.sanitize_headers(headers, config.sanitize_headers)
     else
       nil
     end
@@ -442,7 +331,7 @@ defmodule HTTPower.Logger do
 
   defp sanitize_if_enabled(:body, body, config) do
     if config.log_body and body do
-      do_sanitize_body(body, config.sanitize_body_fields)
+      HTTPower.Sanitizer.sanitize_body(body, config.sanitize_body_fields)
     else
       nil
     end
@@ -487,8 +376,10 @@ defmodule HTTPower.Logger do
       level: Keyword.get(opts, :level, Keyword.get(defaults, :level, :info)),
       log_headers: Keyword.get(opts, :log_headers, Keyword.get(defaults, :log_headers, true)),
       log_body: Keyword.get(opts, :log_body, Keyword.get(defaults, :log_body, true)),
-      sanitize_headers: Enum.uniq(@default_sanitize_headers ++ custom_headers),
-      sanitize_body_fields: Enum.uniq(@default_sanitize_body_fields ++ custom_body_fields)
+      sanitize_headers:
+        Enum.uniq(HTTPower.Sanitizer.default_sanitize_headers() ++ custom_headers),
+      sanitize_body_fields:
+        Enum.uniq(HTTPower.Sanitizer.default_sanitize_body_fields() ++ custom_body_fields)
     }
   end
 
@@ -536,86 +427,4 @@ defmodule HTTPower.Logger do
   end
 
   defp inspect_body(body), do: inspect(body)
-
-  defp get_sanitize_headers, do: get_sanitize_list(:sanitize_headers, @default_sanitize_headers)
-
-  defp get_sanitize_body_fields,
-    do: get_sanitize_list(:sanitize_body_fields, @default_sanitize_body_fields)
-
-  defp get_sanitize_list(key, defaults) do
-    custom =
-      Application.get_env(:httpower, :logging, [])
-      |> Keyword.get(key, [])
-      |> Enum.map(&String.downcase/1)
-
-    Enum.uniq(defaults ++ custom)
-  end
-
-  defp sanitize_credit_cards(text) when is_binary(text) do
-    Regex.replace(@credit_card_pattern, text, fn match ->
-      digits = String.replace(match, ~r/[\s\-]/, "")
-
-      if luhn_valid?(digits), do: "[REDACTED]", else: match
-    end)
-  end
-
-  # Luhn checksum: https://en.wikipedia.org/wiki/Luhn_algorithm
-  defp luhn_valid?(digits) when byte_size(digits) < 13 or byte_size(digits) > 19, do: false
-
-  defp luhn_valid?(digits) do
-    digits
-    |> String.graphemes()
-    |> Enum.reverse()
-    |> Enum.with_index()
-    |> Enum.reduce(0, fn {char, idx}, sum ->
-      d = String.to_integer(char)
-      sum + luhn_digit(d, idx)
-    end)
-    |> then(&(rem(&1, 10) == 0))
-  end
-
-  defp luhn_digit(d, idx) when rem(idx, 2) == 1 do
-    doubled = d * 2
-    if doubled > 9, do: doubled - 9, else: doubled
-  end
-
-  defp luhn_digit(d, _idx), do: d
-
-  defp sanitize_cvv(text) when is_binary(text) do
-    Regex.replace(@cvv_pattern, text, "\\1: [REDACTED]")
-  end
-
-  defp do_sanitize_json_fields(text, fields) when is_binary(text) do
-    Enum.reduce(fields, text, fn field, acc ->
-      # Match JSON field patterns: "field": "value", "field": 123, "field": true/false/null
-      pattern =
-        ~r/"#{Regex.escape(field)}"\s*:\s*(?:"[^"]*"|[\d.]+(?:[eE][+-]?\d+)?|true|false|null)/i
-
-      Regex.replace(pattern, acc, "\"#{field}\": \"[REDACTED]\"")
-    end)
-  end
-
-  defp do_sanitize_map(map, fields) when is_map(map) do
-    Map.new(map, fn {key, value} ->
-      normalized_key = key |> to_string() |> String.downcase()
-
-      sanitized =
-        if normalized_key in fields, do: "[REDACTED]", else: do_sanitize_value(value, fields)
-
-      {key, sanitized}
-    end)
-  end
-
-  defp do_sanitize_value(value, fields) when is_map(value), do: do_sanitize_map(value, fields)
-
-  defp do_sanitize_value(value, fields) when is_list(value),
-    do: Enum.map(value, &do_sanitize_value(&1, fields))
-
-  defp do_sanitize_value(value, _fields) when is_binary(value) do
-    value
-    |> sanitize_credit_cards()
-    |> sanitize_cvv()
-  end
-
-  defp do_sanitize_value(value, _fields), do: value
 end

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`HTTPower.Sanitizer` module** — Extracted the PCI-compliant header/body sanitization logic out of `HTTPower.Logger` into a neutral, dedicated module. It is now the single source of truth, used by both `HTTPower.Client` (for telemetry metadata) and `HTTPower.Logger` (for log output). `HTTPower.Logger.sanitize_headers/1` and `HTTPower.Logger.sanitize_body/1` remain available as delegations for backward compatibility.
+
 ### Security
 
 - **Fixed PCI data leak in telemetry metadata** — Request/response headers and bodies were emitted into the `[:httpower, :request, :start | :stop]` telemetry metadata **unsanitized**. Redaction only happened inside `HTTPower.Logger`'s own handler, so every other telemetry consumer (Datadog/OpenTelemetry exporters, custom handlers) received credit card numbers, CVVs, `Authorization` headers, `Set-Cookie`, and full bodies in the clear. Sanitization now happens at the emission boundary in `HTTPower.Client`, so all telemetry consumers receive redacted metadata. The URL was already sanitized; headers and bodies now are too.

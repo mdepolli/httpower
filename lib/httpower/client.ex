@@ -211,8 +211,8 @@ defmodule HTTPower.Client do
           {:ok, response} ->
             %{
               status: response.status,
-              headers: HTTPower.Logger.sanitize_headers(response.headers),
-              body: HTTPower.Logger.sanitize_body(response.body),
+              headers: HTTPower.Sanitizer.sanitize_headers(response.headers),
+              body: HTTPower.Sanitizer.sanitize_body(response.body),
               retry_count: Keyword.get(request.opts, :retry_count, 0)
             }
 
@@ -235,8 +235,8 @@ defmodule HTTPower.Client do
     %{
       method: request.method,
       url: sanitize_uri_for_telemetry(request.url),
-      headers: HTTPower.Logger.sanitize_headers(request.headers),
-      body: HTTPower.Logger.sanitize_body(request.body)
+      headers: HTTPower.Sanitizer.sanitize_headers(request.headers),
+      body: HTTPower.Sanitizer.sanitize_body(request.body)
     }
   end
 
