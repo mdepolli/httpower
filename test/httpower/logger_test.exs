@@ -393,7 +393,7 @@ defmodule HTTPower.LoggerTest do
       body = ~s({"username": "john", "password": "secret123"})
       sanitized = HTTPowerLogger.sanitize_body(body)
 
-      assert sanitized =~ ~s("password": "[REDACTED]")
+      assert sanitized =~ ~s("password":"[REDACTED]")
       refute sanitized =~ "secret123"
       assert sanitized =~ "john"
     end
@@ -402,8 +402,8 @@ defmodule HTTPower.LoggerTest do
       body = ~s({"password": "secret", "api_key": "key123", "name": "John"})
       sanitized = HTTPowerLogger.sanitize_body(body)
 
-      assert sanitized =~ ~s("password": "[REDACTED]")
-      assert sanitized =~ ~s("api_key": "[REDACTED]")
+      assert sanitized =~ ~s("password":"[REDACTED]")
+      assert sanitized =~ ~s("api_key":"[REDACTED]")
       refute sanitized =~ "secret"
       refute sanitized =~ "key123"
       assert sanitized =~ "John"
@@ -427,7 +427,7 @@ defmodule HTTPower.LoggerTest do
       body = ~s({"custom_secret": "value", "normal": "data"})
       sanitized = HTTPowerLogger.sanitize_body(body)
 
-      assert sanitized =~ ~s("custom_secret": "[REDACTED]")
+      assert sanitized =~ ~s("custom_secret":"[REDACTED]")
       assert sanitized =~ "normal"
     end
 
@@ -435,7 +435,7 @@ defmodule HTTPower.LoggerTest do
       body = ~s({"pin": 1234, "name": "John"})
       sanitized = HTTPowerLogger.sanitize_body(body)
 
-      assert sanitized =~ ~s("pin": "[REDACTED]")
+      assert sanitized =~ ~s("pin":"[REDACTED]")
       refute sanitized =~ "1234"
       assert sanitized =~ "John"
     end
@@ -444,7 +444,7 @@ defmodule HTTPower.LoggerTest do
       body = ~s({"secret": true, "public": "data"})
       sanitized = HTTPowerLogger.sanitize_body(body)
 
-      assert sanitized =~ ~s("secret": "[REDACTED]")
+      assert sanitized =~ ~s("secret":"[REDACTED]")
       assert sanitized =~ "public"
     end
 
@@ -452,8 +452,53 @@ defmodule HTTPower.LoggerTest do
       body = ~s({"token": null, "user": "alice"})
       sanitized = HTTPowerLogger.sanitize_body(body)
 
-      assert sanitized =~ ~s("token": "[REDACTED]")
+      assert sanitized =~ ~s("token":"[REDACTED]")
       assert sanitized =~ "alice"
+    end
+  end
+
+  describe "body sanitization - PCI leak regressions" do
+    test "redacts CVV in form-encoded body" do
+      body = "card_holder=Jane&cvv=123&amount=100"
+      sanitized = HTTPowerLogger.sanitize_body(body)
+
+      refute sanitized =~ "cvv=123"
+      assert sanitized =~ "[REDACTED]"
+    end
+
+    test "redacts a sensitive field whose value is a nested JSON object" do
+      body = ~s({"token": {"access": "abc123", "refresh": "xyz789"}})
+      sanitized = HTTPowerLogger.sanitize_body(body)
+
+      refute sanitized =~ "abc123"
+      refute sanitized =~ "xyz789"
+    end
+
+    test "redacts JSON values containing escaped quotes without mangling output" do
+      body = ~s({"password": "she said \\"shibboleth\\" loud", "user": "bob"})
+      sanitized = HTTPowerLogger.sanitize_body(body)
+
+      refute sanitized =~ "shibboleth"
+      assert sanitized =~ "bob"
+      assert {:ok, _} = Jason.decode(sanitized)
+    end
+
+    test "redacts sensitive values nested inside arrays in a binary JSON body" do
+      # The map-input "lists of maps" test covers do_sanitize_map directly;
+      # this guards the binary-string -> decode -> array path the fix added.
+      body = ~s({"items": [{"card_number": "4111111111111111"}]})
+      sanitized = HTTPowerLogger.sanitize_body(body)
+
+      refute sanitized =~ "4111111111111111"
+      assert {:ok, _} = Jason.decode(sanitized)
+    end
+
+    test "does not over-redact keys that merely share a prefix with a sensitive field" do
+      body = ~s({"secrets": ["public-list-id"], "secret": "top"})
+      sanitized = HTTPowerLogger.sanitize_body(body)
+
+      refute sanitized =~ "top"
+      assert sanitized =~ "public-list-id"
     end
   end
 

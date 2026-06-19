@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+
+- **Fixed PCI data leaks in request/response body logging** — Sensitive values could survive sanitization and reach logs in three cases: (1) CVV/CVC codes in form-encoded bodies (e.g. `cvv=123`) were not redacted because the `=` separator was missing from the CVV pattern; (2) sensitive fields whose value was a nested JSON object (e.g. `{"token": {"access": "..."}}`) leaked entirely because field-name redaction only matched scalar values; (3) JSON string values containing escaped quotes were partially redacted, leaking the remainder and corrupting the logged JSON. Binary JSON bodies are now parsed and sanitized structurally via the recursive map path before re-encoding, which correctly handles nested objects, arrays, and escaped characters. Non-JSON bodies (e.g. form-encoded) continue to use regex-based sanitization, now with the corrected CVV pattern.
+
+### Changed
+
+- **Logged JSON request/response bodies are now re-serialized in compact form** — As a result of the structural sanitization fix above, JSON bodies in logs are emitted as canonical compact JSON (`{"k":"v"}`) rather than preserving the original formatting/whitespace. Redaction behavior is unchanged for non-JSON bodies.
+
 ## [0.22.0] - 2026-03-19
 
 ### Added

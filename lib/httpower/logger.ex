@@ -151,8 +151,9 @@ defmodule HTTPower.Logger do
   # Credit card pattern: 13-19 digits with optional spaces/dashes in any grouping
   @credit_card_pattern ~r/\b(?:\d[\s\-]*){12,18}\d\b/
 
-  # CVV pattern: 3-4 digits often after keywords
-  @cvv_pattern ~r/\b(cvv|cvc|cvv2|security_?code)[\s\"\:]+\d{3,4}\b/i
+  # CVV pattern: 3-4 digits often after keywords, separated by whitespace,
+  # quotes, colon, or equals (covers JSON, form-encoded, and plain text bodies)
+  @cvv_pattern ~r/\b(cvv|cvc|cvv2|security_?code)[\s"'=:]+\d{3,4}\b/i
 
   @doc """
   Attaches the HTTPower logger as a telemetry event handler.
@@ -284,10 +285,22 @@ defmodule HTTPower.Logger do
   def sanitize_body(body), do: body
 
   defp do_sanitize_body(body, fields) when is_binary(body) do
-    body
-    |> sanitize_credit_cards()
-    |> sanitize_cvv()
-    |> do_sanitize_json_fields(fields)
+    # Prefer structural sanitization: parse the JSON, redact via the recursive
+    # map path (which handles nested objects and field-name matching correctly),
+    # then re-encode. Falls back to regex sanitization for non-JSON bodies
+    # (e.g. form-encoded), which the regex path still covers.
+    case Jason.decode(body) do
+      {:ok, decoded} ->
+        decoded
+        |> do_sanitize_value(fields)
+        |> Jason.encode!()
+
+      {:error, _} ->
+        body
+        |> sanitize_credit_cards()
+        |> sanitize_cvv()
+        |> do_sanitize_json_fields(fields)
+    end
   end
 
   defp do_sanitize_body(body, fields) when is_map(body) do
