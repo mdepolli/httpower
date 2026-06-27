@@ -24,6 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING: Minimum Elixir version raised to 1.15** (was 1.14). HTTPower declares an unbounded optional `finch` dependency (`>= 0.19.0`), but Finch 0.22.0+ requires Elixir `~> 1.15`. The previous `~> 1.14` floor was a trap: a fresh consumer on Elixir 1.14 would resolve a current Finch and fail to compile, while HTTPower's own CI only passed on 1.14 because `mix.lock` pinned the older Finch 0.20.0. Raising the floor (rather than capping Finch, which would pin consumers to an old release) makes the supported Elixir range honest. The CI matrix drops Elixir 1.14 accordingly.
+
 - **Circuit breaker closed-state checks no longer round-trip through the GenServer** — `check_and_allow_request/2` now serves the common case (a closed or not-yet-created circuit) from a direct ETS read instead of a serializing `GenServer.call`. Only `:open` (time-based transition) and `:half_open` (attempt increment) still call the GenServer, since they coordinate writes. This removes the per-request single-mailbox bottleneck on the hot path under high concurrency. Behavior is unchanged; the brief closed→open transition window remains eventually-consistent, as it already was with async (`cast`) failure recording.
 
 - **Logged JSON request/response bodies are now re-serialized in compact form** — As a result of the structural sanitization fix above, JSON bodies in logs are emitted as canonical compact JSON (`{"k":"v"}`) rather than preserving the original formatting/whitespace. Redaction behavior is unchanged for non-JSON bodies.
