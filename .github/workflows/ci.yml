@@ -129,3 +129,9 @@ jobs:
 
       - name: Check for unused dependencies
         run: mix deps.unlock --check-unused
+
+      - name: Audit dependencies for known vulnerabilities
+        run: mix deps.audit
+
+      - name: Check for retired dependencies
+        run: mix hex.audit

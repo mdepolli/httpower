@@ -55,8 +55,11 @@ defmodule HTTPower.MixProject do
       {:jason, "~> 1.4"},
       # Plug - required for HTTPower.Test mock utilities
       {:plug, ">= 1.15.0", optional: true},
+
+      # Dev/Test
       {:ex_doc, "~> 0.40", only: :dev, runtime: false},
-      {:credo, "~> 1.7", only: [:dev, :test], runtime: false}
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      {:mix_audit, "~> 2.1", only: [:dev, :test], runtime: false}
     ]
   end
 
