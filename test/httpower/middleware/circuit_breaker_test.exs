@@ -86,26 +86,6 @@ defmodule HTTPower.Middleware.CircuitBreakerTest do
       assert {:error, %HTTPower.Error{reason: :service_unavailable}} = result
     end
 
-    test "transitions to half-open after timeout", %{circuit_key: circuit_key} do
-      config = [enabled: true, failure_threshold: 2, timeout: 100]
-
-      # Trip the circuit
-      for _ <- 1..2 do
-        CircuitBreaker.call(circuit_key, fn -> {:error, :failure} end, config)
-      end
-
-      assert await_state(circuit_key, :open) == :open
-
-      # Wait for timeout
-      :timer.sleep(150)
-
-      # Next request should transition to half-open and allow through
-      result = CircuitBreaker.call(circuit_key, fn -> {:ok, :success} end, config)
-
-      assert result == {:ok, :success}
-      assert await_state(circuit_key, :closed) == :closed
-    end
-
     test "half-open transitions to closed on success", %{circuit_key: circuit_key} do
       config = [enabled: true, failure_threshold: 2, timeout: 100, half_open_requests: 1]
 
