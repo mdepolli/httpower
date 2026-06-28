@@ -11,23 +11,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`HTTPower.Sanitizer` module** — Extracted the PCI-compliant header/body sanitization logic out of `HTTPower.Logger` into a neutral, dedicated module. It is now the single source of truth, used by both `HTTPower.Client` (for telemetry metadata) and `HTTPower.Logger` (for log output). `HTTPower.Logger.sanitize_headers/1` and `HTTPower.Logger.sanitize_body/1` remain available as delegations for backward compatibility.
 
-### Security
-
-- **Added dependency vulnerability auditing to CI** — Added `mix_audit` (dev/test) and wired `mix deps.audit` (known CVEs) plus `mix hex.audit` (retired packages) into the CI `deps_check` job, so vulnerable or retired dependencies fail the build. The first run surfaced a real issue: the locked `plug` was on a version affected by a high-severity multipart-header DoS advisory (GHSA-468c-vq7p-gh64); `mix.lock` is bumped to a patched `plug` release.
-
-- **Fixed PCI data leak in telemetry metadata** — Request/response headers and bodies were emitted into the `[:httpower, :request, :start | :stop]` telemetry metadata **unsanitized**. Redaction only happened inside `HTTPower.Logger`'s own handler, so every other telemetry consumer (Datadog/OpenTelemetry exporters, custom handlers) received credit card numbers, CVVs, `Authorization` headers, `Set-Cookie`, and full bodies in the clear. Sanitization now happens at the emission boundary in `HTTPower.Client`, so all telemetry consumers receive redacted metadata. The URL was already sanitized; headers and bodies now are too.
-- **Fixed PCI data leaks in request/response body logging** — Sensitive values could survive sanitization and reach logs in three cases: (1) CVV/CVC codes in form-encoded bodies (e.g. `cvv=123`) were not redacted because the `=` separator was missing from the CVV pattern; (2) sensitive fields whose value was a nested JSON object (e.g. `{"token": {"access": "..."}}`) leaked entirely because field-name redaction only matched scalar values; (3) JSON string values containing escaped quotes were partially redacted, leaking the remainder and corrupting the logged JSON. Binary JSON bodies are now parsed and sanitized structurally via the recursive map path before re-encoding, which correctly handles nested objects, arrays, and escaped characters. Non-JSON bodies (e.g. form-encoded) continue to use regex-based sanitization, now with the corrected CVV pattern.
-
-### Fixed
-
-- **Tesla adapter no longer raises when no client is configured** — Using the Tesla adapter without an `adapter_config` (e.g. `adapter: HTTPower.Adapter.Tesla` instead of the `{module, tesla_client}` tuple) raised an `ArgumentError`, breaking HTTPower's "never raises" contract. It now returns `{:error, %HTTPower.Error{reason: :missing_tesla_client}}` like every other error path.
-
-- **All adapters now normalize transport errors so they are retryable** — Transport failures were passed through as raw exception structs (`%Mint.TransportError{}` from Finch, `%Req.TransportError{}` from Req, and either from Tesla's underlying client). Because these are *returned* as `{:error, struct}` rather than raised, the adapters' `rescue`-based unwrapping never fired, so `HTTPower.Retry` — which only classifies bare reason atoms — never retried them; they surfaced as an opaque `%HTTPower.Error{reason: %…TransportError{}}`. All three adapters now unwrap the bare reason atom (e.g. `:timeout`, `:econnrefused`) on both the returned and raised error paths. The Req adapter additionally recognizes `%Req.TransportError{}` (previously only `%Mint.TransportError{}` was unwrapped).
-
-- **Req adapter no longer crashes on `proxy: :system`** — `proxy: :system` (the default) raised `CaseClauseError{term: {:ok, :system}}`: Req forwards `connect_options[:proxy]` to `Mint.HTTP.connect/4`, which only accepts a `{scheme, address, port, opts}` tuple. Neither Mint nor Req has system-proxy auto-detection, so `:system` is now treated as "no explicit proxy" (direct connection), matching the Finch adapter.
-
-- **Tesla adapter sends no body instead of an empty string for bodyless requests** — `build_tesla_opts` coerced a `nil` body to `""`, which emits `Content-Length: 0` on bodyless requests such as GET (RFC 9110 §9.3.1 says a GET should not include a body, and some servers reject it). `nil` is now passed through, matching `Tesla.Env`'s default.
-
 ### Changed
 
 - **BREAKING: Minimum Elixir version raised to 1.15** (was 1.14). HTTPower declares an unbounded optional `finch` dependency (`>= 0.19.0`), but Finch 0.22.0+ requires Elixir `~> 1.15`. The previous `~> 1.14` floor was a trap: a fresh consumer on Elixir 1.14 would resolve a current Finch and fail to compile, while HTTPower's own CI only passed on 1.14 because `mix.lock` pinned the older Finch 0.20.0. Raising the floor (rather than capping Finch, which would pin consumers to an old release) makes the supported Elixir range honest. The CI matrix drops Elixir 1.14 accordingly.
@@ -62,6 +45,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`HTTPower.Logger.sanitize_headers/1` and `HTTPower.Logger.sanitize_body/1`** — Now delegate to `HTTPower.Sanitizer` and emit a deprecation warning when called. Use `HTTPower.Sanitizer.sanitize_headers/1` and `HTTPower.Sanitizer.sanitize_body/1` instead. The delegations will be removed in a future release.
 
+### Fixed
+
+- **Tesla adapter no longer raises when no client is configured** — Using the Tesla adapter without an `adapter_config` (e.g. `adapter: HTTPower.Adapter.Tesla` instead of the `{module, tesla_client}` tuple) raised an `ArgumentError`, breaking HTTPower's "never raises" contract. It now returns `{:error, %HTTPower.Error{reason: :missing_tesla_client}}` like every other error path.
+
+- **All adapters now normalize transport errors so they are retryable** — Transport failures were passed through as raw exception structs (`%Mint.TransportError{}` from Finch, `%Req.TransportError{}` from Req, and either from Tesla's underlying client). Because these are *returned* as `{:error, struct}` rather than raised, the adapters' `rescue`-based unwrapping never fired, so `HTTPower.Retry` — which only classifies bare reason atoms — never retried them; they surfaced as an opaque `%HTTPower.Error{reason: %…TransportError{}}`. All three adapters now unwrap the bare reason atom (e.g. `:timeout`, `:econnrefused`) on both the returned and raised error paths. The Req adapter additionally recognizes `%Req.TransportError{}` (previously only `%Mint.TransportError{}` was unwrapped).
+
+- **Req adapter no longer crashes on `proxy: :system`** — `proxy: :system` (the default) raised `CaseClauseError{term: {:ok, :system}}`: Req forwards `connect_options[:proxy]` to `Mint.HTTP.connect/4`, which only accepts a `{scheme, address, port, opts}` tuple. Neither Mint nor Req has system-proxy auto-detection, so `:system` is now treated as "no explicit proxy" (direct connection), matching the Finch adapter.
+
+- **Tesla adapter sends no body instead of an empty string for bodyless requests** — `build_tesla_opts` coerced a `nil` body to `""`, which emits `Content-Length: 0` on bodyless requests such as GET (RFC 9110 §9.3.1 says a GET should not include a body, and some servers reject it). `nil` is now passed through, matching `Tesla.Env`'s default.
+
+### Security
+
+- **Added dependency vulnerability auditing to CI** — Added `mix_audit` (dev/test) and wired `mix deps.audit` (known CVEs) plus `mix hex.audit` (retired packages) into the CI `deps_check` job, so vulnerable or retired dependencies fail the build. The first run surfaced a real issue: the locked `plug` was on a version affected by a high-severity multipart-header DoS advisory (GHSA-468c-vq7p-gh64); `mix.lock` is bumped to a patched `plug` release.
+
+- **Fixed PCI data leak in telemetry metadata** — Request/response headers and bodies were emitted into the `[:httpower, :request, :start | :stop]` telemetry metadata **unsanitized**. Redaction only happened inside `HTTPower.Logger`'s own handler, so every other telemetry consumer (Datadog/OpenTelemetry exporters, custom handlers) received credit card numbers, CVVs, `Authorization` headers, `Set-Cookie`, and full bodies in the clear. Sanitization now happens at the emission boundary in `HTTPower.Client`, so all telemetry consumers receive redacted metadata. The URL was already sanitized; headers and bodies now are too.
+- **Fixed PCI data leaks in request/response body logging** — Sensitive values could survive sanitization and reach logs in three cases: (1) CVV/CVC codes in form-encoded bodies (e.g. `cvv=123`) were not redacted because the `=` separator was missing from the CVV pattern; (2) sensitive fields whose value was a nested JSON object (e.g. `{"token": {"access": "..."}}`) leaked entirely because field-name redaction only matched scalar values; (3) JSON string values containing escaped quotes were partially redacted, leaking the remainder and corrupting the logged JSON. Binary JSON bodies are now parsed and sanitized structurally via the recursive map path before re-encoding, which correctly handles nested objects, arrays, and escaped characters. Non-JSON bodies (e.g. form-encoded) continue to use regex-based sanitization, now with the corrected CVV pattern.
+
 ## [0.22.0] - 2026-03-19
 
 ### Added
@@ -90,23 +90,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Response decoding is now consistent across all adapters** — Finch, Req, and Tesla all decode response bodies via `HTTPower.Codec`, which applies Content-Type-driven JSON decoding. Previously, adapters had divergent behavior (Finch decoded all bodies as JSON; Req used its own decoding; Tesla depended on user middleware).
 
-- **POST requests no longer get a default `Content-Type: application/x-www-form-urlencoded`** — Use the new `form:` option or set the header explicitly. This default was added in v0.1.0 but conflicted with the new `json:` and `form:` encoding options and was inconsistent with other HTTP methods.
+- **BREAKING: POST requests no longer get a default `Content-Type: application/x-www-form-urlencoded`** — Use the new `form:` option or set the header explicitly. This default was added in v0.1.0 but conflicted with the new `json:` and `form:` encoding options and was inconsistent with other HTTP methods. Applications that relied on this default must add `form: params` or set the header explicitly.
+
+- **BREAKING: Finch adapter returns raw binary bodies for non-JSON responses** — Previously, non-JSON responses passed through Finch's blind JSON decode attempt (which would fail silently). Now they are returned as binary unless the `Content-Type` header indicates JSON.
+
+- **BREAKING: Tesla users with `Tesla.Middleware.JSON` must remove it** — Having both `Tesla.Middleware.JSON` and `HTTPower.Codec` in the stack results in double-decoding of JSON responses.
+
+- **BREAKING: Telemetry `request.body` metadata contains encoded JSON string when `json:` is used** — When using the `json:` option, the telemetry metadata reflects the encoded JSON string body rather than the original data structure.
+
+- **Normalize adapter callback URL type to `URI.t()`** — The adapter callback spec now correctly reflects `URI.t()` instead of `String.t()`. `call_adapter` normalizes strings to URI as a safety net. Finch and Req accept `URI.t()` natively; Tesla converts internally.
+
+- **Cache rate limiter default config at compile time** — `get_strategy/1` and `get_max_wait_time/1` now use `@default_config` via `Application.compile_env` instead of calling `Application.get_env` per request.
+
+- **Move `@cleanup_interval` to top of Dedup module** — Grouped with other module attributes for consistency.
+
+- **Remove no-op pipeline order test** — The test in `coordination_test.exs` asserted nothing and noted the behavior was already covered by dedup bypass tests.
 
 ### Removed
 
 - **Finch adapter no longer blindly decodes all response bodies as JSON** — The Finch adapter previously attempted JSON decoding on every response regardless of Content-Type. Decoding is now delegated to `HTTPower.Codec` and is driven by the `Content-Type` response header.
 
 - **Req adapter's built-in response decoding is disabled** — `HTTPower.Codec` handles all response decoding uniformly. Disabling Req's decoding prevents double-decoding and ensures consistent behavior across adapters.
-
-### Breaking Changes
-
-- **POST requests without `form:` or explicit Content-Type header no longer receive `application/x-www-form-urlencoded` default** — Applications that relied on this default must add `form: params` or set the header explicitly.
-
-- **Finch adapter returns raw binary bodies for non-JSON responses** — Previously, non-JSON responses passed through Finch's blind JSON decode attempt (which would fail silently). Now they are returned as binary unless the `Content-Type` header indicates JSON.
-
-- **Tesla users with `Tesla.Middleware.JSON` must remove it** — Having both `Tesla.Middleware.JSON` and `HTTPower.Codec` in the stack results in double-decoding of JSON responses.
-
-- **Telemetry `request.body` metadata contains encoded JSON string when `json:` is used** — When using the `json:` option, the telemetry metadata reflects the encoded JSON string body rather than the original data structure.
 
 ### Fixed
 
@@ -119,16 +123,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Use default GenServer timeout for dedup** — `Dedup.deduplicate/2` no longer uses `:infinity` timeout. The default 5s timeout surfaces a stuck GenServer instead of hanging indefinitely.
 
 - **Guard Logger against non-map headers** — `sanitize_if_enabled(:headers, ...)` now handles non-map input gracefully instead of crashing on `map_size/1`.
-
-### Changed
-
-- **Normalize adapter callback URL type to `URI.t()`** — The adapter callback spec now correctly reflects `URI.t()` instead of `String.t()`. `call_adapter` normalizes strings to URI as a safety net. Finch and Req accept `URI.t()` natively; Tesla converts internally.
-
-- **Cache rate limiter default config at compile time** — `get_strategy/1` and `get_max_wait_time/1` now use `@default_config` via `Application.compile_env` instead of calling `Application.get_env` per request.
-
-- **Move `@cleanup_interval` to top of Dedup module** — Grouped with other module attributes for consistency.
-
-- **Remove no-op pipeline order test** — The test in `coordination_test.exs` asserted nothing and noted the behavior was already covered by dedup bypass tests.
 
 ## [0.20.0] - 2026-03-08
 
