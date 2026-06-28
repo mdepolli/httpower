@@ -164,6 +164,35 @@ defmodule HTTPowerTest do
     end
   end
 
+  describe "header injection protection" do
+    test "rejects control characters in header values" do
+      HTTPower.Test.stub(fn conn -> HTTPower.Test.json(conn, %{ok: true}) end)
+
+      for evil <- ["value\r\nInjected: true", "line\nfeed", "nul\0byte"] do
+        assert {:error, %HTTPower.Error{reason: :invalid_header}} =
+                 HTTPower.get("https://api.example.com/x", headers: %{"X-Test" => evil})
+      end
+    end
+
+    test "rejects control characters in header names" do
+      HTTPower.Test.stub(fn conn -> HTTPower.Test.json(conn, %{ok: true}) end)
+
+      assert {:error, %HTTPower.Error{reason: :invalid_header}} =
+               HTTPower.get("https://api.example.com/x",
+                 headers: %{"X-Evil\r\nInjected" => "value"}
+               )
+    end
+
+    test "allows normal header values" do
+      HTTPower.Test.stub(fn conn -> HTTPower.Test.json(conn, %{ok: true}) end)
+
+      assert {:ok, %HTTPower.Response{status: 200}} =
+               HTTPower.get("https://api.example.com/x",
+                 headers: %{"Authorization" => "Bearer abc.def-123"}
+               )
+    end
+  end
+
   describe "retry logic and error handling" do
     test "returns clean error tuples, never raises" do
       HTTPower.Test.stub(fn _conn ->

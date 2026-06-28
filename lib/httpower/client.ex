@@ -133,6 +133,7 @@ defmodule HTTPower.Client do
          %Request{} = request <- Request.new(method, uri, body, headers, opts),
          {:ok, %Request{} = request, opts} <- Codec.encode_request(request, opts),
          request = %{request | opts: opts},
+         :ok <- validate_headers(request.headers),
          pipeline when is_list(pipeline) <- get_request_pipeline(opts) do
       fun = get_request_function(request, pipeline)
       execute_with_telemetry(request, fun)
@@ -143,6 +144,27 @@ defmodule HTTPower.Client do
       {:error, :network_blocked} ->
         {:error, %Error{reason: :network_blocked, message: "Network access blocked in test mode"}}
     end
+  end
+
+  # Reject CR/LF/NUL in header names and values to prevent request-splitting /
+  # header-injection via untrusted-derived header data. Valid HTTP headers never
+  # contain these, so this is safe to always enforce.
+  defp validate_headers(headers) do
+    if Enum.all?(headers, fn {name, value} ->
+         valid_header_part?(name) and valid_header_part?(value)
+       end) do
+      :ok
+    else
+      {:error,
+       %Error{
+         reason: :invalid_header,
+         message: "Header names and values must not contain control characters (CR, LF, NUL)"
+       }}
+    end
+  end
+
+  defp valid_header_part?(part) do
+    not (part |> to_string() |> String.contains?(["\r", "\n", "\0"]))
   end
 
   defp validate_url(url) when is_binary(url) do

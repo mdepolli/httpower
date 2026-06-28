@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **`HTTPower.Adapter.prepare_headers/2` is now `prepare_headers/1`** — the `method` argument was never used. Only relevant to custom adapter authors who called the helper directly.
+- **BREAKING: `HTTPower.Adapter.prepare_headers/2` is now `prepare_headers/1`** — the `method` argument was never used. Affects only custom adapter authors who called this public helper directly.
 
 - **Finch adapter: removed the non-functional per-request `ssl_verify`/`proxy` handling** — these options never took effect with the Finch adapter and were silently discarded: Finch configures TLS and proxy at the **pool** level (baked in at `Finch.start_link`), and `Finch.request/3` has no per-request connection options. The dead option-building (and the misleading tests that asserted it) is removed, so runtime behavior is unchanged. TLS/proxy are now documented as pool-level via `config :httpower, :finch_pools` (which flows into Finch's `:pools`). Without explicit TLS config the pool inherits Mint's default `verify: :verify_peer`, so certificates are still verified by default. The Req adapter continues to honor `ssl_verify`/`proxy` per request (it starts a Finch pool per distinct `connect_options`); the Tesla adapter configures them on the Tesla client.
 
@@ -78,6 +78,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Adaptive rate-limiting state no longer leaks for circuits that never recover** — the rate limiter records a per-circuit `{:adaptive_state, key}` row while a circuit is degraded and only clears it once a later request observes the circuit healthy. If traffic to that key stopped while the circuit was still open/half-open, the row was never cleared, and periodic cleanup skipped it (it matched only timestamped bucket rows). Adaptive-state rows now carry a timestamp that is refreshed on each degraded observation, and cleanup reaps any row idle past the bucket TTL.
 
 ### Security
+
+- **Reject CR/LF/NUL in request header names and values** — Header data derived from untrusted input could carry `\r\n` and inject additional headers or split the request (CRLF injection). `HTTPower.Client` now validates header names and values before dispatch and returns `{:error, %HTTPower.Error{reason: :invalid_header}}` if any contains a carriage return, line feed, or NUL byte. Enforced above the adapter layer, so the guarantee — and the clean error (never a raise) — is identical across the Finch, Req, and Tesla adapters, regardless of whether the underlying client also validates.
 
 - **Added dependency vulnerability auditing to CI** — Added `mix_audit` (dev/test) and wired `mix deps.audit` (known CVEs) plus `mix hex.audit` (retired packages) into the CI `deps_check` job, so vulnerable or retired dependencies fail the build. The first run surfaced a real issue: the locked `plug` was on a version affected by a high-severity multipart-header DoS advisory (GHSA-468c-vq7p-gh64); `mix.lock` is bumped to a patched `plug` release.
 
