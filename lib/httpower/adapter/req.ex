@@ -72,7 +72,7 @@ if Code.ensure_loaded?(Req) do
       base_opts = [
         method: method,
         url: url,
-        headers: prepare_headers(headers, method),
+        headers: prepare_headers(headers),
         receive_timeout: timeout * 1000,
         # IMPORTANT: Disable Req's built-in retry to avoid conflicts with HTTPower's retry logic
         retry: false,
@@ -144,7 +144,7 @@ if Code.ensure_loaded?(Req) do
       Keyword.put(opts, :connect_options, updated)
     end
 
-    defp prepare_headers(headers, method), do: Adapter.prepare_headers(headers, method)
+    defp prepare_headers(headers), do: Adapter.prepare_headers(headers)
 
     defp safe_req_request(req_opts) do
       case Req.request(req_opts) do

@@ -160,7 +160,7 @@ defmodule HTTPower.Codec do
       not is_binary(response.body) ->
         response
 
-      response.body in [nil, ""] ->
+      response.body == "" ->
         response
 
       true ->

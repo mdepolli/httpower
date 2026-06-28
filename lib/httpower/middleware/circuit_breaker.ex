@@ -604,8 +604,6 @@ defmodule HTTPower.Middleware.CircuitBreaker do
   # Telemetry Helpers
 
   defp emit_state_change_event(old_state, new_state, _config, circuit_key) do
-    key = circuit_key
-
     failure_count = new_state.failure_count
     total_count = new_state.failure_count + new_state.success_count
 
@@ -620,7 +618,7 @@ defmodule HTTPower.Middleware.CircuitBreaker do
       [:httpower, :circuit_breaker, :state_change],
       %{timestamp: System.system_time()},
       %{
-        circuit_key: key,
+        circuit_key: circuit_key,
         from_state: old_state.state,
         to_state: new_state.state,
         failure_count: failure_count,

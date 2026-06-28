@@ -37,6 +37,9 @@ defmodule HTTPower.Error do
 
   def message(:json_encode_error), do: "Failed to encode data as JSON"
 
+  def message({:feature_error, module, reason}),
+    do: "Middleware #{inspect(module)} failed: #{inspect(reason)}"
+
   def message(:missing_tesla_client),
     do:
       "Tesla adapter requires a Tesla client. " <>

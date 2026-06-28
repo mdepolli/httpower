@@ -67,9 +67,13 @@ defmodule HTTPower.ErrorTest do
       assert Error.message(:some_unknown_error) == ":some_unknown_error"
     end
 
-    test "catch-all with tuple inspects the reason" do
+    test "feature_error produces a friendly middleware-failure message" do
       assert Error.message({:feature_error, SomeModule, "details"}) ==
-               "{:feature_error, SomeModule, \"details\"}"
+               "Middleware SomeModule failed: \"details\""
+    end
+
+    test "catch-all with an unrecognized tuple inspects the reason" do
+      assert Error.message({:weird, :tuple}) == "{:weird, :tuple}"
     end
 
     test "catch-all with string inspects the reason" do

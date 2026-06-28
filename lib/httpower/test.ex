@@ -338,17 +338,21 @@ defmodule HTTPower.Test do
   end
 
   defp build_conn(method, url, body, headers) do
-    prepared_headers = prepare_headers(headers, method)
+    prepared_headers = prepare_headers(headers)
     uri = URI.parse(url)
     path = uri.path || "/"
 
     Plug.Test.conn(atom_to_http_method(method), path, body || "")
     |> Map.put(:host, uri.host)
     |> Map.put(:port, uri.port)
-    |> Map.put(:scheme, String.to_atom(uri.scheme || "https"))
+    |> Map.put(:scheme, scheme_to_atom(uri.scheme))
     |> put_request_headers(prepared_headers)
     |> Map.put(:query_string, uri.query || "")
   end
+
+  defp scheme_to_atom("http"), do: :http
+  defp scheme_to_atom("https"), do: :https
+  defp scheme_to_atom(_), do: :https
 
   defp conn_to_result(conn) do
     case conn.private[:httpower_transport_error] do
@@ -377,7 +381,7 @@ defmodule HTTPower.Test do
   defp atom_to_http_method(:head), do: "HEAD"
   defp atom_to_http_method(:options), do: "OPTIONS"
 
-  defp prepare_headers(headers, method), do: HTTPower.Adapter.prepare_headers(headers, method)
+  defp prepare_headers(headers), do: HTTPower.Adapter.prepare_headers(headers)
 
   defp put_request_headers(conn, headers) when is_map(headers) do
     Enum.reduce(headers, conn, fn {key, value}, acc ->

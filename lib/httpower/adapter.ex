@@ -96,8 +96,8 @@ defmodule HTTPower.Adapter do
   Used by all adapters and the test interceptor to ensure consistent header
   handling across the library.
   """
-  @spec prepare_headers(map() | nil, atom()) :: map()
-  def prepare_headers(headers, _method) do
+  @spec prepare_headers(map() | nil) :: map()
+  def prepare_headers(headers) do
     headers || %{}
   end
 

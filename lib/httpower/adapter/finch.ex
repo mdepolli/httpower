@@ -94,7 +94,7 @@ if Code.ensure_loaded?(Finch) do
     end
 
     defp safe_finch_request(method, url, body, headers, opts) do
-      prepared_headers = prepare_headers(headers, method)
+      prepared_headers = prepare_headers(headers)
       # Pass nil through as "no body"; Finch.build accepts nil. Coercing to ""
       # would emit Content-Length: 0 on bodyless requests (e.g. GET).
       request = Finch.build(method, url, format_headers(prepared_headers), body)
@@ -112,7 +112,7 @@ if Code.ensure_loaded?(Finch) do
     defp unwrap_transport_error(%{__struct__: Mint.TransportError, reason: reason}), do: reason
     defp unwrap_transport_error(error), do: error
 
-    defp prepare_headers(headers, method), do: HTTPower.Adapter.prepare_headers(headers, method)
+    defp prepare_headers(headers), do: HTTPower.Adapter.prepare_headers(headers)
 
     defp format_headers(headers) when is_map(headers) do
       Enum.map(headers, fn {key, value} -> {to_string(key), to_string(value)} end)

@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`HTTPower.Adapter.prepare_headers/2` is now `prepare_headers/1`** — the `method` argument was never used. Only relevant to custom adapter authors who called the helper directly.
+
 - **Finch adapter: removed the non-functional per-request `ssl_verify`/`proxy` handling** — these options never took effect with the Finch adapter and were silently discarded: Finch configures TLS and proxy at the **pool** level (baked in at `Finch.start_link`), and `Finch.request/3` has no per-request connection options. The dead option-building (and the misleading tests that asserted it) is removed, so runtime behavior is unchanged. TLS/proxy are now documented as pool-level via `config :httpower, :finch_pools` (which flows into Finch's `:pools`). Without explicit TLS config the pool inherits Mint's default `verify: :verify_peer`, so certificates are still verified by default. The Req adapter continues to honor `ssl_verify`/`proxy` per request (it starts a Finch pool per distinct `connect_options`); the Tesla adapter configures them on the Tesla client.
 
 - **BREAKING: Minimum Elixir version raised to 1.15** (was 1.14). HTTPower declares an unbounded optional `finch` dependency (`>= 0.19.0`), but Finch 0.22.0+ requires Elixir `~> 1.15`. The previous `~> 1.14` floor was a trap: a fresh consumer on Elixir 1.14 would resolve a current Finch and fail to compile, while HTTPower's own CI only passed on 1.14 because `mix.lock` pinned the older Finch 0.20.0. Raising the floor (rather than capping Finch, which would pin consumers to an old release) makes the supported Elixir range honest. The CI matrix drops Elixir 1.14 accordingly.
@@ -50,6 +52,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`HTTPower.Logger.sanitize_headers/1` and `HTTPower.Logger.sanitize_body/1`** — Now delegate to `HTTPower.Sanitizer` and emit a deprecation warning when called. Use `HTTPower.Sanitizer.sanitize_headers/1` and `HTTPower.Sanitizer.sanitize_body/1` instead. The delegations will be removed in a future release.
 
 ### Fixed
+
+- **`HTTPower.Error.message/1` now renders `{:feature_error, module, reason}` as a readable message** — `"Middleware <Module> failed: <reason>"` instead of falling through to `inspect/1` and dumping the raw tuple.
 
 - **Tesla adapter no longer raises when no client is configured** — Using the Tesla adapter without an `adapter_config` (e.g. `adapter: HTTPower.Adapter.Tesla` instead of the `{module, tesla_client}` tuple) raised an `ArgumentError`, breaking HTTPower's "never raises" contract. It now returns `{:error, %HTTPower.Error{reason: :missing_tesla_client}}` like every other error path.
 
