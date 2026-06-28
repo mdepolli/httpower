@@ -22,6 +22,9 @@ httpower-*.tar
 # Temporary files, for example, from tests.
 /tmp/
 
+# macOS directory metadata.
+.DS_Store
+
 # Claude Code configuration file and local settings
 CLAUDE.md
 .claude/
