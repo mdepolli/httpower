@@ -190,6 +190,10 @@ defmodule HTTPower.Middleware.CircuitBreaker do
   @spec call(circuit_key(), (-> {:ok, term()} | {:error, term()}), circuit_breaker_config()) ::
           {:ok, term()} | {:error, term()}
   def call(circuit_key, fun, config \\ []) do
+    # call/3 is a manual-use edge (separate from the Client pipeline), so it
+    # resolves global app-env config merged with the per-call config here.
+    config = HTTPower.Config.resolve(:circuit_breaker, circuit_breaker: config)
+
     if circuit_breaker_enabled?(config) do
       execute_with_circuit(circuit_key, fun, config)
     else
@@ -424,11 +428,7 @@ defmodule HTTPower.Middleware.CircuitBreaker do
   ## Private Functions
 
   defp circuit_breaker_enabled?(config) do
-    HTTPower.Config.enabled?(
-      config,
-      :circuit_breaker,
-      Keyword.get(@default_config, :enabled, false)
-    )
+    Keyword.get(config, :enabled, false)
   end
 
   defp check_and_allow_request(circuit_key, config) do
@@ -598,7 +598,7 @@ defmodule HTTPower.Middleware.CircuitBreaker do
   }
 
   defp get_config(config, key) do
-    HTTPower.Config.get(config, key, :circuit_breaker, @config_defaults[key])
+    Keyword.get(config, key, @config_defaults[key])
   end
 
   # Telemetry Helpers
