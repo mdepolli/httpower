@@ -130,11 +130,9 @@ defmodule HTTPower.Client do
 
     with {:ok, :allowed} <- check_test_mode_allows_request(opts),
          {:ok, %URI{} = uri} <- validate_url(url),
-         %Request{} = request <- Request.new(method, uri, body, headers, opts),
-         {:ok, %Request{} = request, opts} <- Codec.encode_request(request, opts),
-         request = %{request | opts: opts},
-         :ok <- validate_headers(request.headers),
-         pipeline when is_list(pipeline) <- get_request_pipeline(opts) do
+         {:ok, request} <- build_request(method, uri, body, headers, opts),
+         :ok <- validate_headers(request.headers) do
+      pipeline = get_request_pipeline(request.opts)
       fun = get_request_function(request, pipeline)
       execute_with_telemetry(request, fun)
     else
@@ -143,6 +141,17 @@ defmodule HTTPower.Client do
 
       {:error, :network_blocked} ->
         {:error, %Error{reason: :network_blocked, message: "Network access blocked in test mode"}}
+    end
+  end
+
+  # Builds the request struct and encodes its body. Returns `{:ok, request}` with
+  # the encoded opts merged in, or `{:error, %Error{}}` from codec encoding.
+  defp build_request(method, uri, body, headers, opts) do
+    request = Request.new(method, uri, body, headers, opts)
+
+    case Codec.encode_request(request, opts) do
+      {:ok, request, opts} -> {:ok, %{request | opts: opts}}
+      {:error, _} = error -> error
     end
   end
 
