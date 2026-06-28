@@ -431,15 +431,45 @@ defmodule HTTPower.Client do
     """
   end
 
+  # HTTPower-owned options, consumed by Client / Codec / middleware / Retry.
+  # Stripped before calling the adapter so they don't leak as options to the
+  # underlying HTTP client. Connection opts the adapters consume (:timeout,
+  # :ssl_verify, :proxy, :pool_timeout) and :adapter_config are kept. Adding a
+  # new HTTPower option means adding it here — adapters no longer enumerate the
+  # caller's option namespace.
+  @client_owned_opts [
+    :adapter,
+    :base_delay,
+    :body,
+    :circuit_breaker,
+    :circuit_breaker_key,
+    :deduplicate,
+    :form,
+    :headers,
+    :jitter_factor,
+    :json,
+    :max_delay,
+    :max_retries,
+    :params,
+    :profile,
+    :rate_limit,
+    :rate_limit_key,
+    :raw,
+    :request_steps,
+    :retry_safe
+  ]
+
   defp call_adapter({adapter_module, config}, method, url, body, headers, opts) do
-    adapter_opts = Keyword.put(opts, :adapter_config, config)
+    adapter_opts = opts |> adapter_opts() |> Keyword.put(:adapter_config, config)
     adapter_module.request(method, normalize_url(url), body, headers, adapter_opts)
   end
 
   defp call_adapter(adapter_module, method, url, body, headers, opts)
        when is_atom(adapter_module) do
-    adapter_module.request(method, normalize_url(url), body, headers, opts)
+    adapter_module.request(method, normalize_url(url), body, headers, adapter_opts(opts))
   end
+
+  defp adapter_opts(opts), do: Keyword.drop(opts, @client_owned_opts)
 
   defp normalize_url(%URI{} = uri), do: uri
   defp normalize_url(url) when is_binary(url), do: URI.parse(url)

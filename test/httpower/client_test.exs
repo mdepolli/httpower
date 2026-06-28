@@ -1,3 +1,16 @@
+defmodule HTTPower.ClientTest.OptsCapturingAdapter do
+  @moduledoc false
+  # Test adapter that records the opts it was handed, so we can assert which
+  # options Client passes through to the adapter layer.
+  @behaviour HTTPower.Adapter
+
+  @impl true
+  def request(_method, _url, _body, _headers, opts) do
+    send(self(), {:adapter_opts, opts})
+    {:ok, %HTTPower.Response{status: 200, headers: %{}, body: ""}}
+  end
+end
+
 defmodule HTTPower.ClientTest do
   alias HTTPower.TelemetryTestHelper
 
@@ -18,6 +31,32 @@ defmodule HTTPower.ClientTest do
   setup do
     HTTPower.Test.setup()
     :ok
+  end
+
+  describe "adapter option passing" do
+    test "strips HTTPower-owned options but passes through unknown options" do
+      HTTPower.get("https://api.example.com/x",
+        adapter: HTTPower.ClientTest.OptsCapturingAdapter,
+        circuit_breaker: [enabled: false],
+        rate_limit: [enabled: false],
+        deduplicate: false,
+        max_retries: 0,
+        base_delay: 1,
+        custom_passthrough: 123
+      )
+
+      assert_received {:adapter_opts, opts}
+
+      # HTTPower-owned options must not leak to the adapter / underlying client.
+      refute Keyword.has_key?(opts, :circuit_breaker)
+      refute Keyword.has_key?(opts, :rate_limit)
+      refute Keyword.has_key?(opts, :deduplicate)
+      refute Keyword.has_key?(opts, :max_retries)
+      refute Keyword.has_key?(opts, :base_delay)
+
+      # Unknown options pass straight through (e.g. adapter/Req-specific opts).
+      assert Keyword.get(opts, :custom_passthrough) == 123
+    end
   end
 
   describe "retryable_error?/2" do

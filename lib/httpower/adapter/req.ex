@@ -48,6 +48,10 @@ if Code.ensure_loaded?(Req) do
 
     alias HTTPower.{Adapter, Response}
 
+    # Connection/adapter-selection opts this adapter consumes itself. Dropped so
+    # they aren't passed raw to Req; everything else is caller passthrough.
+    @consumed_opts [:timeout, :ssl_verify, :proxy, :pool_timeout, :adapter_config]
+
     @impl true
     def request(method, url, body, headers, opts) do
       case HTTPower.TestInterceptor.intercept(method, url, body, headers) do
@@ -80,33 +84,11 @@ if Code.ensure_loaded?(Req) do
         decode_body: false
       ]
 
-      # Extract any additional options (like :plug for Req.Test)
-      additional_opts =
-        Keyword.drop(opts, [
-          :adapter,
-          :adapter_config,
-          :base_delay,
-          :body,
-          :circuit_breaker,
-          :circuit_breaker_key,
-          :deduplicate,
-          :form,
-          :headers,
-          :jitter_factor,
-          :json,
-          :max_delay,
-          :max_retries,
-          :params,
-          :profile,
-          :proxy,
-          :rate_limit,
-          :rate_limit_key,
-          :raw,
-          :request_steps,
-          :retry_safe,
-          :ssl_verify,
-          :timeout
-        ])
+      # HTTPower-owned options are already stripped by HTTPower.Client before the
+      # adapter is called. What remains is the connection opts this adapter
+      # consumes (dropped here so they aren't passed raw to Req) plus any
+      # caller-supplied Req passthrough options (e.g. :plug for Req.Test).
+      additional_opts = Keyword.drop(opts, @consumed_opts)
 
       base_opts
       |> maybe_add_body(body)
