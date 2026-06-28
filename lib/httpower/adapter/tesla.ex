@@ -69,6 +69,15 @@ if Code.ensure_loaded?(Tesla) do
         # After (correct)
         Tesla.client([])  # HTTPower handles JSON via json: option
 
+    ## Connection options are configured on the Tesla client, not per request
+
+    Unlike the Finch and Req adapters, this adapter does **not** forward the
+    `timeout`, `ssl_verify`, or `proxy` request options to Tesla — Tesla
+    configures those on the client itself (e.g. `Tesla.Middleware.Timeout` and
+    the chosen Tesla adapter's transport/proxy options). Passing them to
+    `HTTPower.get/2` etc. with this adapter has no effect; configure them when
+    you build the Tesla client instead.
+
     ## Example
 
         # Define Tesla client with middleware
@@ -134,7 +143,9 @@ if Code.ensure_loaded?(Tesla) do
       [
         method: method,
         url: url_to_string(url),
-        body: body || "",
+        # Pass nil through as "no body"; Tesla.Env.body defaults to nil. Coercing
+        # to "" would emit Content-Length: 0 on bodyless requests (e.g. GET).
+        body: body,
         headers: convert_headers(headers)
       ]
     end

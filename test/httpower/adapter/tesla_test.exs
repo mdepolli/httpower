@@ -416,7 +416,7 @@ defmodule HTTPower.Adapter.TeslaTest do
   end
 
   describe "body handling" do
-    test "converts nil body to empty string" do
+    test "handles nil body" do
       HTTPower.Test.stub(fn conn ->
         HTTPower.Test.json(conn, %{success: true})
       end)
@@ -426,6 +426,24 @@ defmodule HTTPower.Adapter.TeslaTest do
 
       assert {:ok, %Response{}} =
                TeslaAdapter.request(:get, "https://api.example.com/test", nil, %{}, opts)
+    end
+
+    test "sends nil body (not an empty string) for a bodyless request" do
+      # Reach the real adapter and capture the Tesla.Env it builds.
+      :ets.delete(:httpower_test_stubs, self())
+      test_pid = self()
+
+      tesla_client =
+        Tesla.client([], fn %Tesla.Env{} = env ->
+          send(test_pid, {:tesla_body, env.body})
+          {:ok, %Tesla.Env{env | status: 204, body: ""}}
+        end)
+
+      TeslaAdapter.request(:get, "https://api.example.com/x", nil, %{},
+        adapter_config: tesla_client
+      )
+
+      assert_received {:tesla_body, nil}
     end
 
     test "handles string body" do
