@@ -85,11 +85,9 @@ end
 # ============================================================================
 IO.puts("\n📡 Example 5: POST with JSON")
 
-body = Jason.encode!(%{title: "Test Issue", body: "Created by HTTPower"})
-
+# The json: option encodes the body and sets the JSON Content-Type/Accept headers.
 case HTTPower.post("https://httpbin.org/post",
-       body: body,
-       headers: %{"Content-Type" => "application/json"}
+       json: %{title: "Test Issue", body: "Created by HTTPower"}
      ) do
   {:ok, response} ->
     IO.puts("✓ POST successful: #{response.status}")

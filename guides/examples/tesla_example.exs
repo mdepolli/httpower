@@ -19,8 +19,10 @@ IO.puts("\n🚀 HTTPower with Tesla Adapter Examples\n")
 # ============================================================================
 IO.puts("📡 Example 1: Basic Tesla adapter")
 
-# Create a Tesla client
-tesla_client = Tesla.client([Tesla.Middleware.JSON])
+# Create a Tesla client.
+# Note: do NOT add Tesla.Middleware.JSON — HTTPower.Codec handles JSON encode/decode
+# at the HTTPower layer (consistently across all adapters).
+tesla_client = Tesla.client([])
 
 case HTTPower.get("https://api.github.com/repos/elixir-lang/elixir",
        adapter: {HTTPower.Adapter.Tesla, tesla_client}
@@ -42,7 +44,6 @@ IO.puts("\n📡 Example 2: Tesla with middleware")
 tesla_client =
   Tesla.client([
     {Tesla.Middleware.BaseURL, "https://api.github.com"},
-    Tesla.Middleware.JSON,
     {Tesla.Middleware.Headers, [{"user-agent", "HTTPower-Tesla-Example/1.0"}]}
   ])
 
@@ -65,8 +66,7 @@ IO.puts("\n📡 Example 3: HTTPower client with Tesla adapter")
 
 tesla_client =
   Tesla.client([
-    {Tesla.Middleware.BaseURL, "https://api.github.com"},
-    Tesla.Middleware.JSON
+    {Tesla.Middleware.BaseURL, "https://api.github.com"}
   ])
 
 httpower_client =
@@ -90,13 +90,12 @@ end
 # ============================================================================
 IO.puts("\n📡 Example 4: POST with Tesla")
 
-tesla_client = Tesla.client([Tesla.Middleware.JSON])
+tesla_client = Tesla.client([])
 
-body = Jason.encode!(%{title: "HTTPower + Tesla", description: "Working together!"})
-
+# Use HTTPower's json: option — it encodes the body and sets the JSON headers,
+# and HTTPower.Codec decodes the response (no Tesla.Middleware.JSON needed).
 case HTTPower.post("https://httpbin.org/post",
-       body: body,
-       headers: %{"Content-Type" => "application/json"},
+       json: %{title: "HTTPower + Tesla", description: "Working together!"},
        adapter: {HTTPower.Adapter.Tesla, tesla_client}
      ) do
   {:ok, response} ->
@@ -128,6 +127,4 @@ case HTTPower.get("https://httpbin.org/status/503",
 end
 
 IO.puts("\n✨ All examples completed!")
-IO.puts(
-  "🎯 HTTPower's retry, circuit breaker, and rate limiting work the same with Tesla!\n"
-)
+IO.puts("🎯 HTTPower's retry, circuit breaker, and rate limiting work the same with Tesla!\n")

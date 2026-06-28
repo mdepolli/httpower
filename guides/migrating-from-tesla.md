@@ -17,7 +17,7 @@ Update your `mix.exs`:
 def deps do
   [
     {:tesla, "~> 1.11"},        # Your existing Tesla dependency
-    {:httpower, "~> 0.5.0"}     # Add HTTPower
+    {:httpower, "~> 0.22.0"}    # Add HTTPower
   ]
 end
 ```
@@ -80,7 +80,7 @@ end
 
 Your Tesla middleware still runs - HTTPower calls Tesla, which executes all your plugs (BaseURL, Headers, Timeout, etc.).
 
-> **Important:** If your Tesla stack includes `Tesla.Middleware.JSON`, remove it before using HTTPower. HTTPower now handles JSON encoding (via the `json:` option) and response decoding (via `HTTPower.Codec`) at its own layer. Leaving `Tesla.Middleware.JSON` active causes double-decoding: Tesla decodes the response body to a map, then HTTPower tries to decode it again and fails. See the [JSON Encoding and Decoding](#json-encoding-and-decoding) section below.
+> **Important:** If your Tesla stack includes `Tesla.Middleware.JSON`, remove it before using HTTPower. HTTPower now handles JSON encoding (via the `json:` option) and response decoding (via `HTTPower.Codec`) at its own layer. Leaving `Tesla.Middleware.JSON` active means the body is handled twice: Tesla decodes it to a map, then HTTPower passes the already-decoded value through unchanged — redundant work and inconsistent with the other adapters. See the [JSON Encoding and Decoding](#json-encoding-and-decoding) section below.
 
 ## Step 4: Configure Global Settings (Recommended)
 
@@ -110,7 +110,10 @@ config :httpower,
   # Logging configuration
   logging: [
     enabled: true,
-    level: :info,
+    level: :info
+  ],
+  # Sanitization (used by both telemetry redaction and the logger)
+  sanitization: [
     sanitize_headers: ["authorization", "api-key"],
     sanitize_body_fields: ["credit_card", "cvv", "password"]
   ]
@@ -279,10 +282,10 @@ HTTPower handles JSON encoding and decoding independently of Tesla through `HTTP
 
 ### Why remove Tesla.Middleware.JSON?
 
-When `Tesla.Middleware.JSON` is present in your stack and HTTPower also decodes the response, the response body is decoded twice:
+When `Tesla.Middleware.JSON` is present in your stack and HTTPower also decodes the response, the body is handled twice:
 
 1. Tesla decodes the JSON response body into a map
-2. HTTPower's Codec sees a map (not a binary), fails to decode it, or returns unexpected results
+2. HTTPower's Codec receives an already-decoded value (not a binary), so it passes it through unchanged — redundant work, and surprising for callers expecting HTTPower to own decoding consistently across adapters
 
 ### How to migrate JSON handling
 
@@ -434,7 +437,9 @@ config :httpower,
     strategy: :error           # Return error instead of waiting
   ],
   logging: [
-    enabled: true,
+    enabled: true
+  ],
+  sanitization: [
     sanitize_body_fields: ["card_number", "cvv", "card_cvc"]
   ]
 ```
@@ -539,11 +544,11 @@ HTTPower.Middleware.CircuitBreaker.get_state("my_api")
 3. Use custom bucket keys to separate different endpoints
 4. Check if multiple instances are sharing the rate limiter
 
-### Issue: Response body is a map when expecting a decoded struct, or decoding errors
+### Issue: Response body is an already-decoded map instead of being decoded by HTTPower
 
-**Symptom:** JSON response body comes back as a raw string, or you get unexpected decoding errors.
+**Symptom:** The response body is a map decoded by Tesla rather than by HTTPower, so behavior is inconsistent with the Finch/Req adapters.
 
-**Solution:** Check for double-decoding caused by `Tesla.Middleware.JSON` still being in your Tesla stack. Remove it — HTTPower handles JSON decoding automatically:
+**Solution:** Check for double-handling caused by `Tesla.Middleware.JSON` still being in your Tesla stack. Remove it — HTTPower handles JSON decoding automatically:
 
 ```elixir
 # Remove Tesla.Middleware.JSON from your Tesla client
@@ -568,6 +573,11 @@ If you need to opt out of HTTPower's automatic decoding (e.g., for binary respon
 1. Make sure you're passing the Tesla client: `adapter: {HTTPower.Adapter.Tesla, MyApp.Client.client()}`
 2. Check that `client()` function builds Tesla client with middleware
 3. Verify Tesla middleware order - some plugs must come first
+
+> **Note:** If you select the Tesla adapter without a client (`adapter: HTTPower.Adapter.Tesla`
+> instead of the `{HTTPower.Adapter.Tesla, client}` tuple), HTTPower returns
+> `{:error, %HTTPower.Error{reason: :missing_tesla_client}}` rather than raising — consistent
+> with HTTPower's "never raises" contract.
 
 ## Next Steps
 

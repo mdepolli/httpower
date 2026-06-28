@@ -57,7 +57,7 @@ Add `httpower` and your HTTP client of choice to `mix.exs`:
 ```elixir
 def deps do
   [
-    {:httpower, "~> 0.18.0"},
+    {:httpower, "~> 0.22.0"},
 
     # Pick one (or more):
     {:finch, ">= 0.19.0"},     # High performance (default)
@@ -291,7 +291,11 @@ HTTPower.Logger.attach(
 config :httpower, :logging,
   level: :info,
   log_headers: true,
-  log_body: true,
+  log_body: true
+
+# Sanitization rules live under a separate :sanitization key
+# (shared by telemetry redaction and the logger)
+config :httpower, :sanitization,
   sanitize_headers: ["x-custom-token"],
   sanitize_body_fields: ["secret_key"]
 ```
@@ -338,9 +342,13 @@ HTTPower includes built-in rate limiting using a token bucket algorithm to preve
 The token bucket algorithm works by:
 
 1. Each API endpoint has a bucket with a maximum capacity of tokens
-2. Tokens are refilled at a fixed rate (e.g., 100 tokens per minute)
+2. Capacity refills continuously at a fixed rate (e.g., 100 requests per minute)
 3. Each request consumes one token
 4. If no tokens are available, the request either waits or returns an error
+
+> Internally this is implemented with the GCRA (Generic Cell Rate Algorithm) formulation —
+> a single timestamp per bucket rather than a stored token count — which keeps the hot path
+> lock-free. The token-bucket semantics above are preserved exactly.
 
 ### Basic Usage
 
@@ -440,12 +448,18 @@ headers = %{
 {:ok, rate_limit_info} = HTTPower.RateLimitHeaders.parse(headers)
 # => %{limit: 60, remaining: 42, reset_at: ~U[2009-02-13 23:31:30Z], format: :github}
 
-# Update rate limiter bucket from server headers
-HTTPower.Middleware.RateLimiter.update_from_headers("api.github.com", rate_limit_info)
+# Update rate limiter bucket from server headers (pass the bucket's rate config)
+HTTPower.Middleware.RateLimiter.update_from_headers(
+  "api.github.com", rate_limit_info, requests: 60, per: :minute
+)
 
-# Get current bucket information
+# Inspect raw GCRA bucket state (theoretical arrival time, in µs)
 HTTPower.Middleware.RateLimiter.get_info("api.github.com")
-# => %{current_tokens: 42.0, last_refill_ms: 1234567890}
+# => %{tat_us: 1234567890}
+
+# For a human-meaningful "tokens remaining" value, use check_rate_limit/2:
+HTTPower.Middleware.RateLimiter.check_rate_limit("api.github.com", requests: 60, per: :minute)
+# => {:ok, 42.0}
 ```
 
 Supported header formats:

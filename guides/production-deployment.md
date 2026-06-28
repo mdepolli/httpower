@@ -4,10 +4,12 @@ This guide covers deploying HTTPower in production environments with proper conf
 
 ## Application Supervision Tree
 
-HTTPower starts a supervision tree automatically when added to your application. The supervision tree manages two GenServers:
+HTTPower starts a supervision tree automatically when added to your application. The supervision tree manages three GenServers (plus a Finch pool when Finch is loaded):
 
 - `HTTPower.Middleware.RateLimiter` - Manages rate limiting state in ETS
 - `HTTPower.Middleware.CircuitBreaker` - Manages circuit breaker state in ETS
+- `HTTPower.Middleware.Dedup` - Manages in-flight request deduplication state
+- `Finch` (named `HTTPower.Finch`) - Started only when the Finch adapter is available
 
 ### Automatic Startup
 
@@ -24,7 +26,7 @@ end
 
 def deps do
   [
-    {:httpower, "~> 0.5.0"}
+    {:httpower, "~> 0.22.0"}
   ]
 end
 ```
@@ -46,7 +48,9 @@ end
 YourApp.Supervisor
 ├── HTTPower.Supervisor (one_for_one strategy)
 │   ├── HTTPower.Middleware.RateLimiter (GenServer with ETS)
-│   └── HTTPower.Middleware.CircuitBreaker (GenServer with ETS)
+│   ├── HTTPower.Middleware.CircuitBreaker (GenServer with ETS)
+│   ├── HTTPower.Middleware.Dedup (GenServer with ETS)
+│   └── Finch (HTTPower.Finch) — only when Finch is loaded
 └── Your other children...
 ```
 
@@ -67,6 +71,8 @@ iex> Process.whereis(HTTPower.Middleware.CircuitBreaker)
 # Check supervisor
 iex> Supervisor.which_children(HTTPower.Supervisor)
 [
+  {Finch, #PID<0.236.0>, :supervisor, [Finch]},
+  {HTTPower.Middleware.Dedup, #PID<0.236.0>, :worker, [HTTPower.Middleware.Dedup]},
   {HTTPower.Middleware.CircuitBreaker, #PID<0.235.0>, :worker, [HTTPower.Middleware.CircuitBreaker]},
   {HTTPower.Middleware.RateLimiter, #PID<0.234.0>, :worker, [HTTPower.Middleware.RateLimiter]}
 ]
@@ -106,7 +112,11 @@ config :httpower,
   # Logging
   logging: [
     enabled: true,
-    level: :info,              # Use :info in production
+    level: :info               # Use :info in production
+  ],
+
+  # Sanitization (used by both telemetry redaction and the logger)
+  sanitization: [
     sanitize_headers: ["authorization", "api-key", "x-api-key", "cookie"],
     sanitize_body_fields: [
       "password", "secret", "token",
@@ -257,22 +267,36 @@ HTTPower uses ETS for rate limiter and circuit breaker state. For high-volume ap
 
 ### Connection Pooling
 
-Connection pooling is handled by the underlying adapter (Req/Finch or Tesla):
+Connection pooling is handled by the underlying adapter:
 
-**For Req (default):**
-Finch manages connection pooling automatically. Configure if needed:
+**For Finch (default):**
+HTTPower starts its own Finch pool (`HTTPower.Finch`). Configure it — including pool sizing
+and pool-level TLS/proxy — via `config :httpower, :finch_pools`, which flows into Finch's
+`:pools` option:
 
 ```elixir
 # config/config.exs
-config :req, finch: [
-  pools: %{
-    default: [size: 25, count: 5]
+config :httpower, :finch_pools,
+  default: [
+    size: 25,
+    count: System.schedulers_online(),
+    # Pool-level TLS / proxy (per-request ssl_verify/proxy are no-ops on Finch)
+    conn_opts: [
+      transport_opts: [verify: :verify_peer]
+    ]
   ]
-]
 ```
 
+Per-request `pool_timeout` controls how long a request waits to check out a pooled
+connection (defaults to Finch's 5000ms).
+
+**For Req:**
+Req manages its own Finch pool; configure via `config :req, finch: [pools: ...]`. The Req
+adapter also honors per-request `ssl_verify`/`proxy`.
+
 **For Tesla:**
-Configure your Tesla adapter's connection pool (Finch, Hackney, etc.).
+Configure your Tesla adapter's connection pool (Finch, Hackney, etc.) and TLS/proxy on the
+Tesla client.
 
 ### Timeout Strategy
 
@@ -332,10 +356,25 @@ config :httpower,
 
 ### 1. SSL Verification
 
-Always enable SSL verification in production:
+Certificates are verified by default. How you configure TLS depends on the adapter:
+
+- **Finch (default):** TLS is configured at the pool level. Without explicit config the pool
+  inherits Mint's default `verify: :verify_peer`, so certificates are verified. To set it
+  explicitly (or pin CA certs), use `config :httpower, :finch_pools`:
+
+  ```elixir
+  config :httpower, :finch_pools,
+    default: [conn_opts: [transport_opts: [verify: :verify_peer]]]
+  ```
+
+  The per-request `ssl_verify` option is **ignored** by the Finch adapter.
+
+- **Req / Tesla:** The per-request `ssl_verify: true` option (the default) applies on the Req
+  adapter; Tesla configures verification on its client.
 
 ```elixir
-config :httpower, ssl_verify: true  # Default
+# Req adapter — disable verification (NOT recommended for production)
+HTTPower.get(url, ssl_verify: false, adapter: HTTPower.Adapter.Req)
 ```
 
 ### 2. Sensitive Data Logging
@@ -347,7 +386,10 @@ config :httpower,
   logging: [
     level: :info,
     log_headers: true,
-    log_body: true,
+    log_body: true
+  ],
+  # Sanitization lives under its own key (shared by telemetry redaction and the logger)
+  sanitization: [
     sanitize_headers: [
       "authorization", "api-key", "x-api-key",
       "cookie", "set-cookie", "x-auth-token"

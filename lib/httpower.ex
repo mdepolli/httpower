@@ -62,8 +62,15 @@ defmodule HTTPower do
   - `timeout` - Request timeout in seconds (default: 60)
   - `max_retries` - Maximum retries after initial attempt (default: 3)
   - `retry_safe` - Enable retries for connection resets (default: false)
-  - `ssl_verify` - Enable SSL verification (default: true)
-  - `proxy` - Proxy configuration (default: :system)
+  - `ssl_verify` - Enable SSL verification (default: true). **Adapter-specific:** honored
+    per-request only by the Req adapter. The default Finch adapter configures TLS at the
+    pool level via `config :httpower, :finch_pools` and ignores this option per-request
+    (certificates are still verified by default). Tesla configures TLS on its client.
+  - `proxy` - Proxy configuration (default: `:system`, which means a direct connection —
+    there is no system-proxy auto-detection). Adapter-specific like `ssl_verify`: per-request
+    on Req, pool-level on Finch, client-level on Tesla.
+  - `pool_timeout` - Finch adapter only: max time in ms to wait for a pooled connection
+    (default: Finch's 5000ms)
   - `headers` - Request headers map
   - `json` - Data to encode as JSON request body (sets Content-Type and Accept headers)
   - `form` - Data to encode as form-urlencoded request body (keyword list or map, flat only)

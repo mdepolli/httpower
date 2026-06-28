@@ -58,13 +58,14 @@ defmodule HTTPower.Logger do
   ## Sanitization Rules
 
   The logger automatically sanitizes:
-  - Credit card numbers (any 13-19 digit sequence)
+  - Credit card numbers (13-19 digit, Luhn-validated)
   - CVV codes (3-4 digit security codes)
   - Authorization headers (Bearer tokens, Basic auth)
   - API keys and secret tokens
   - Password fields
-  - Email addresses (optional)
-  - Phone numbers (optional)
+
+  See `HTTPower.Sanitizer` for the full default header/body field lists and the
+  redaction patterns.
 
   ## Configuration
 

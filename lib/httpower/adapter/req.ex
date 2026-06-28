@@ -9,10 +9,11 @@ if Code.ensure_loaded?(Req) do
 
     ## Features
 
-    - Automatic JSON encoding/decoding
+    - JSON encoding/decoding handled by `HTTPower.Codec` (Req's own request retry and
+      response decoding are disabled to avoid conflicts/double-decoding)
     - Response body decompression (gzip, brotli, zstd)
     - SSL/TLS support with configurable verification
-    - Proxy support (system or custom)
+    - Proxy support (per-request, forwarded to Mint)
     - Integration with `Req.Test` for testing
 
     ## Configuration
@@ -21,7 +22,10 @@ if Code.ensure_loaded?(Req) do
 
     - `timeout` - Request timeout in seconds (converted to milliseconds for Req)
     - `ssl_verify` - Enable SSL verification (default: true)
-    - `proxy` - Proxy configuration (`:system`, `nil`, or custom options)
+    - `proxy` - Proxy configuration. `:system` (the default) and `nil` both mean a direct
+      connection with no proxy — there is no system-proxy auto-detection. An explicit proxy
+      must be a Mint `{scheme, address, port, opts}` tuple, which is forwarded to
+      `connect_options[:proxy]`.
     - `plug` - Req.Test plug for testing (e.g., `{Req.Test, MyApp}`)
 
     ## Testing

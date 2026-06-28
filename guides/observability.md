@@ -54,12 +54,24 @@ Emitted when an HTTP request begins.
 **Metadata:**
 - `method` - HTTP method (`:get`, `:post`, `:put`, `:delete`)
 - `url` - Sanitized URL (query params and fragments stripped for lower cardinality)
+- `headers` - Sanitized request headers (sensitive values redacted)
+- `body` - Sanitized request body (sensitive values redacted)
+
+> **Sanitization:** Headers and bodies are redacted at the emission boundary, so **every**
+> telemetry consumer (Datadog/OpenTelemetry exporters, custom handlers) receives PCI-safe
+> metadata — not just `HTTPower.Logger`. No credit card numbers, CVVs, `Authorization`
+> headers, `Set-Cookie`, etc. reach your handlers in the clear.
 
 **Example:**
 ```elixir
 event: [:httpower, :request, :start]
 measurements: %{system_time: 1640995200000000000}
-metadata: %{method: :get, url: "https://api.example.com/users"}
+metadata: %{
+  method: :get,
+  url: "https://api.example.com/users",
+  headers: %{"authorization" => "[REDACTED]"},
+  body: ""
+}
 ```
 
 #### `[:httpower, :request, :stop]`
@@ -70,12 +82,21 @@ Emitted when an HTTP request completes (success or error).
 - `duration` - Request duration in native time units (use `System.convert_time_unit/3`)
 - `monotonic_time` - Monotonic time when request completed
 
-**Metadata:**
+**Metadata (always present):**
 - `method` - HTTP method
 - `url` - Sanitized URL
-- `status` - HTTP status code (for successful responses)
-- `error_type` - Error reason atom (for failed requests)
-- `retry_count` - Number of retries performed (default: 0)
+- `headers` - Sanitized headers (response headers on success, request headers on error)
+- `body` - Sanitized body (response body on success, request body on error)
+
+**On success, additionally:**
+- `status` - HTTP status code
+- `retry_count` - Number of retries performed (0 if none)
+
+**On error, additionally:**
+- `error_type` - Error reason atom
+
+> As with the start event, headers and bodies are sanitized at emission. Note `retry_count`
+> is present only on successful requests; failed requests carry `error_type` instead.
 
 **Example (success):**
 ```elixir
@@ -85,6 +106,8 @@ metadata: %{
   method: :get,
   url: "https://api.example.com/users",
   status: 200,
+  headers: %{"content-type" => ["application/json"]},
+  body: "{\"users\":[]}",
   retry_count: 0
 }
 ```
@@ -96,8 +119,7 @@ measurements: %{duration: 5_000_000, monotonic_time: -576460751234567890}
 metadata: %{
   method: :post,
   url: "https://api.example.com/orders",
-  error_type: :timeout,
-  retry_count: 3
+  error_type: :timeout
 }
 ```
 
@@ -348,7 +370,7 @@ Available metadata fields:
 - `httpower_headers` / `httpower_response_headers` - Sanitized headers
 - `httpower_body` / `httpower_response_body` - Sanitized body
 
-**Note on `httpower_body` with JSON encoding:** When you use the `json:` option, `httpower_body` contains the encoded JSON string (the wire format), not the original map. This is the value after `HTTPower.Codec` has serialized it — the same bytes sent over the network — and is subject to normal PCI sanitization rules.
+**Note on `httpower_body` with JSON encoding:** When you use the `json:` option, `httpower_body` contains the encoded JSON string (the wire format), not the original map. This is the JSON after sanitization — `HTTPower.Sanitizer` parses JSON bodies, redacts sensitive fields, and re-encodes them in compact form, so the logged value may differ in whitespace from the exact bytes on the wire. Non-JSON bodies are redacted via regex and otherwise preserved.
 
 **Custom Logger**
 

@@ -62,8 +62,9 @@ This table shows which options are supported at each configuration level:
 | `form` | ❌ | ❌ | ✅ | Per-request only; encodes body as form-urlencoded |
 | `raw` | ❌ | ❌ | ✅ | Per-request only; skips response decoding |
 | `timeout` | ❌ | ✅ | ✅ | Per-client/request only |
-| `ssl_verify` | ❌ | ✅ | ✅ | Per-client/request only |
-| `proxy` | ❌ | ✅ | ✅ | Per-client/request only |
+| `pool_timeout` | ❌ | ✅ | ✅ | Finch adapter only; connection-checkout wait (ms) |
+| `ssl_verify` | ❌ | ✅ | ✅ | Per-request on **Req** only; Finch (default) uses pool-level TLS, Tesla configures it on the client |
+| `proxy` | ❌ | ✅ | ✅ | Per-request on **Req** only; Finch (default) uses pool-level proxy, Tesla configures it on the client |
 
 ## Global Configuration
 
@@ -72,7 +73,7 @@ Set in `config/config.exs`, `config/prod.exs`, etc.
 ```elixir
 config :httpower,
   # Adapter (optional - auto-detects if not specified)
-  adapter: HTTPower.Adapter.Req,  # or HTTPower.Adapter.Tesla
+  adapter: HTTPower.Adapter.Finch,  # or HTTPower.Adapter.Req / HTTPower.Adapter.Tesla
 
   # Retry Configuration
   max_retries: 3,
@@ -103,7 +104,11 @@ config :httpower,
   # Logging
   logging: [
     enabled: true,
-    level: :info,
+    level: :info
+  ],
+
+  # Sanitization (used by both telemetry redaction and the logger)
+  sanitization: [
     sanitize_headers: [],      # Additional headers to sanitize (adds to defaults)
     sanitize_body_fields: []   # Additional body fields to sanitize (adds to defaults)
   ],
@@ -116,7 +121,7 @@ config :httpower,
 
 ### `adapter`
 - **Type:** `module() | {module(), term()}`
-- **Default:** Auto-detected (prefers Req, then Tesla)
+- **Default:** Auto-detected (prefers Finch, then Req, then Tesla)
 - **Supported:** Global config, per-client, per-request
 - **Description:** HTTP adapter to use. Can be specified globally or overridden per-client/request.
 
@@ -407,22 +412,24 @@ All options can be passed to `HTTPower.Logger.attach/1` or configured via Applic
 - **Type:** `list(String.t())`
 - **Default:** `[]` (adds to built-in defaults)
 - **Description:** Additional header names to sanitize (case-insensitive). **Additive** - adds to defaults.
-- **Built-in defaults:** `["authorization", "api-key", "x-api-key", "token", "cookie", "secret"]`
+- **Built-in defaults:** `["authorization", "api-key", "x-api-key", "api_key", "apikey", "secret", "token", "x-auth-token", "x-csrf-token", "cookie", "set-cookie"]` (see `HTTPower.Sanitizer.default_sanitize_headers/0`)
 - **Example:**
   ```elixir
   HTTPower.Logger.attach(sanitize_headers: ["x-custom-token"])
   # Or in config
-  config :httpower, :logging, sanitize_headers: ["x-custom-token"]
+  config :httpower, :sanitization, sanitize_headers: ["x-custom-token"]
   ```
 
 #### `sanitize_body_fields`
 - **Type:** `list(String.t())`
 - **Default:** `[]` (adds to built-in defaults)
 - **Description:** Additional body field names to sanitize. **Additive** - adds to defaults.
-- **Built-in defaults:** `["password", "credit_card", "cvv", "card_number", "api_key", "token", "ssn"]`
+- **Built-in defaults:** `["password", "passwd", "pwd", "secret", "api_key", "apikey", "token", "credit_card", "creditcard", "card_number", "cardnumber", "cvv", "cvv2", "cvc", "pin", "ssn", "social_security"]` (see `HTTPower.Sanitizer.default_sanitize_body_fields/0`)
 - **Example:**
   ```elixir
   HTTPower.Logger.attach(sanitize_body_fields: ["tax_id", "secret"])
+  # Or in config
+  config :httpower, :sanitization, sanitize_body_fields: ["tax_id", "secret"]
   ```
 
 ### Disabling Logging
@@ -494,22 +501,40 @@ HTTPower.Logger.detach()
   Jason.decode!(response.body)
   ```
 
+### `pool_timeout`
+- **Type:** `non_neg_integer()` (milliseconds)
+- **Default:** Finch's default (5000)
+- **Adapter:** Finch only — maximum time to wait when checking out a pooled connection.
+- **Example:**
+  ```elixir
+  HTTPower.get(url, pool_timeout: 2000)
+  ```
+
 ### `ssl_verify`
 - **Type:** `boolean()`
 - **Default:** `true`
 - **Description:** Enable SSL certificate verification.
+- **Adapter-specific:** Honored per-request only by the **Req** adapter. The default **Finch**
+  adapter ignores this option per-request — TLS is configured at the pool level via
+  `config :httpower, :finch_pools` and certificates are verified by default (Mint's
+  `verify: :verify_peer`). The **Tesla** adapter configures TLS on its client.
 - **Example:**
   ```elixir
-  HTTPower.get(url, ssl_verify: false)  # Not recommended for production
+  HTTPower.get(url, ssl_verify: false, adapter: HTTPower.Adapter.Req)  # Not recommended for production
   ```
 
 ### `proxy`
-- **Type:** `:system | keyword()`
+- **Type:** `:system | nil | {scheme, address, port, opts}`
 - **Default:** `:system`
-- **Description:** Proxy configuration. `:system` uses system environment variables.
+- **Description:** Proxy configuration. `:system` (the default) and `nil` both mean a direct
+  connection — there is no system-proxy auto-detection. An explicit proxy must be a Mint
+  `{scheme, address, port, opts}` tuple.
+- **Adapter-specific:** Honored per-request only by the **Req** adapter; the **Finch** adapter
+  configures a proxy at the pool level (`config :httpower, :finch_pools`), and **Tesla**
+  configures it on its client.
 - **Example:**
   ```elixir
-  HTTPower.get(url, proxy: [host: "proxy.example.com", port: 8080])
+  HTTPower.get(url, proxy: {:http, "proxy.example.com", 8080, []}, adapter: HTTPower.Adapter.Req)
   ```
 
 ## Per-Client Configuration
@@ -639,7 +664,9 @@ config :httpower,
   ],
   logging: [
     enabled: true,
-    level: :info,
+    level: :info
+  ],
+  sanitization: [
     sanitize_headers: ["authorization", "api-key"],
     sanitize_body_fields: ["password", "credit_card", "cvv"]
   ]

@@ -2,7 +2,11 @@
 
 This guide shows you how to add HTTPower's production reliability features to your Req-based application.
 
-Since HTTPower uses Req as its default adapter, migration is straightforward. HTTPower adds circuit breaker, rate limiting, PCI-compliant logging, and enhanced retry logic on top of Req's foundation.
+HTTPower supports Req as one of its adapters, so migration is straightforward. HTTPower adds circuit breaker, rate limiting, PCI-compliant logging, and enhanced retry logic on top of Req's foundation.
+
+> **Note:** Finch is HTTPower's *default* adapter. To keep routing requests through Req, set
+> the adapter explicitly — `config :httpower, adapter: HTTPower.Adapter.Req` globally, or
+> `adapter: HTTPower.Adapter.Req` per-client/request. Otherwise requests go through Finch.
 
 ## Prerequisites
 
@@ -17,7 +21,7 @@ Update your `mix.exs`:
 def deps do
   [
     {:req, "~> 0.4.0"},         # Your existing Req dependency
-    {:httpower, "~> 0.5.0"}     # Add HTTPower
+    {:httpower, "~> 0.22.0"}    # Add HTTPower
   ]
 end
 ```
@@ -305,7 +309,7 @@ response = Req.get!("https://api.example.com")
 **HTTPower:**
 - Configurable retry with exponential backoff and jitter
 - Retryable status codes: 408, 429, 500-504
-- Retryable errors: timeout, closed, econnrefused (if `retry_safe: true`)
+- Retryable transport errors: timeout, closed, econnrefused (always); econnreset (only if `retry_safe: true`)
 - Disable Req's retry to avoid double-retrying: `retry: false`
 
 ### JSON Encoding and Decoding
@@ -349,6 +353,21 @@ HTTPower.get("https://api.example.com",
   decode_body: false
 )
 ```
+
+### SSL/TLS and Proxy
+
+The Req adapter honors `ssl_verify` and `proxy` **per request** (forwarded to Mint's
+`connect_options`):
+
+```elixir
+HTTPower.get(url, ssl_verify: false)  # Not recommended in production
+HTTPower.get(url, proxy: {:http, "proxy.example.com", 8080, []})
+```
+
+`proxy: :system` (the default) and `nil` both mean a direct connection — there is no
+system-proxy auto-detection. Note this is adapter-specific: if you switch to the default
+Finch adapter, `ssl_verify`/`proxy` are configured at the pool level
+(`config :httpower, :finch_pools`) rather than per request.
 
 ## Common Scenarios
 
@@ -402,7 +421,9 @@ config :httpower,
     timeout: 30_000
   ],
   logging: [
-    enabled: true,
+    enabled: true
+  ],
+  sanitization: [
     sanitize_body_fields: ["card_number", "cvv"]
   ]
 
