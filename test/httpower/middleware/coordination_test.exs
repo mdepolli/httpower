@@ -63,8 +63,8 @@ defmodule HTTPower.Middleware.CoordinationTest do
                _ -> false
              end)
 
-      # Get final counts
-      Process.sleep(100)
+      # Events are emitted synchronously in the request path, so they're
+      # already collected by the time the requests return.
       final_state = Agent.get(agent, & &1)
 
       # Should have bypassed rate limiting for duplicate requests
@@ -110,7 +110,6 @@ defmodule HTTPower.Middleware.CoordinationTest do
           deduplicate: [enabled: true]
         )
 
-      Process.sleep(100)
       events = Agent.get(agent, & &1)
 
       # Should have at least one cache hit event
@@ -170,7 +169,6 @@ defmodule HTTPower.Middleware.CoordinationTest do
       # Make a request - should trigger adaptive reduction
       RateLimiter.handle_request(request, config)
 
-      Process.sleep(100)
       events = Agent.get(agent, & &1)
 
       # Should have recorded an adaptive reduction
@@ -200,7 +198,7 @@ defmodule HTTPower.Middleware.CoordinationTest do
       # Simulate timeout passing and transition to half-open
       # We'll manually set it for testing
       send(CircuitBreaker, {:set_state_for_test, circuit_key, :half_open})
-      Process.sleep(50)
+      flush_circuit_breaker()
 
       config = [
         enabled: true,
@@ -230,7 +228,6 @@ defmodule HTTPower.Middleware.CoordinationTest do
 
       RateLimiter.handle_request(request, config)
 
-      Process.sleep(100)
       events = Agent.get(agent, & &1)
 
       # Note: This test may not trigger if circuit breaker doesn't support half-open state
@@ -283,7 +280,6 @@ defmodule HTTPower.Middleware.CoordinationTest do
 
       RateLimiter.handle_request(request, config)
 
-      Process.sleep(100)
       events = Agent.get(agent, & &1)
 
       # Should NOT have any adaptive reduction events when circuit is closed
@@ -329,7 +325,6 @@ defmodule HTTPower.Middleware.CoordinationTest do
 
       RateLimiter.handle_request(request, config)
 
-      Process.sleep(100)
       events = Agent.get(agent, & &1)
 
       # Should NOT have any adaptive reduction when disabled
@@ -479,8 +474,8 @@ defmodule HTTPower.Middleware.CoordinationTest do
         )
       end
 
-      # Wait for async cast to process
-      Process.sleep(100)
+      # Flush the async failure-recording casts before reading state
+      flush_circuit_breaker()
 
       # Circuit should be open because 5xx responses are server failures
       assert CircuitBreaker.get_state(circuit_key) == :open
@@ -509,7 +504,7 @@ defmodule HTTPower.Middleware.CoordinationTest do
         )
       end
 
-      Process.sleep(100)
+      flush_circuit_breaker()
 
       assert CircuitBreaker.get_state(circuit_key) == :open
     end
@@ -535,7 +530,7 @@ defmodule HTTPower.Middleware.CoordinationTest do
         )
       end
 
-      Process.sleep(100)
+      flush_circuit_breaker()
 
       # 4xx are client errors - circuit should stay closed
       state = CircuitBreaker.get_state(circuit_key)
@@ -562,10 +557,16 @@ defmodule HTTPower.Middleware.CoordinationTest do
         )
       end
 
-      Process.sleep(100)
+      flush_circuit_breaker()
 
       state = CircuitBreaker.get_state(circuit_key)
       assert state in [:closed, nil]
     end
   end
+
+  # CircuitBreaker records results via async GenServer.cast and get_state/1 reads
+  # ETS directly, so a synchronous call flushes the mailbox: when it returns, all
+  # previously-enqueued casts (and test send/3 messages) have been processed and
+  # their ETS writes are visible. Deterministic replacement for a fixed sleep.
+  defp flush_circuit_breaker, do: :sys.get_state(CircuitBreaker)
 end
