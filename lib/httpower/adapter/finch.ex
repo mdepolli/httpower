@@ -106,7 +106,7 @@ if Code.ensure_loaded?(Finch) do
     rescue
       error -> {:error, unwrap_transport_error(error)}
     catch
-      error -> {:error, error}
+      error -> {:error, unwrap_transport_error(error)}
     end
 
     defp unwrap_transport_error(%{__struct__: Mint.TransportError, reason: reason}), do: reason

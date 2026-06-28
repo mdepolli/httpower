@@ -169,7 +169,7 @@ if Code.ensure_loaded?(Tesla) do
     rescue
       error -> {:error, unwrap_transport_error(error)}
     catch
-      error -> {:error, error}
+      error -> {:error, unwrap_transport_error(error)}
     end
 
     # Mirror the Finch/Req adapters: extract the bare reason atom from a

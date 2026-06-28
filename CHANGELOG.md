@@ -51,6 +51,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   Other `:logging` options (`level`, `log_headers`, `log_body`) are unchanged, as are the `:sanitize_headers`/`:sanitize_body_fields` options passed directly to `HTTPower.Logger.attach/1`.
 
+- **Internal `HTTPower.Middleware.Dedup` functions are now `@doc false`** — `deduplicate/2`, `complete/3`, `cancel/1`, and `hash/3` operate on the internal SHA256 request hash and were never part of the public surface, but appeared in the generated docs (with stale `HTTPower.RequestDeduplicator` examples). They are now hidden. No behavior or signature change.
+
 ### Deprecated
 
 - **`HTTPower.Logger.sanitize_headers/1` and `HTTPower.Logger.sanitize_body/1`** — Now delegate to `HTTPower.Sanitizer` and emit a deprecation warning when called. Use `HTTPower.Sanitizer.sanitize_headers/1` and `HTTPower.Sanitizer.sanitize_body/1` instead. The delegations will be removed in a future release.
@@ -60,6 +62,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`HTTPower.Error.message/1` now renders `{:feature_error, module, reason}` as a readable message** — `"Middleware <Module> failed: <reason>"` instead of falling through to `inspect/1` and dumping the raw tuple.
 
 - **Tesla adapter no longer raises when no client is configured** — Using the Tesla adapter without an `adapter_config` (e.g. `adapter: HTTPower.Adapter.Tesla` instead of the `{module, tesla_client}` tuple) raised an `ArgumentError`, breaking HTTPower's "never raises" contract. It now returns `{:error, %HTTPower.Error{reason: :missing_tesla_client}}` like every other error path.
+
+- **Adapter `catch` branches now unwrap transport errors like the `rescue` branch** — A thrown (rather than returned or raised) `%Mint.TransportError{}`/`%Req.TransportError{}` left the `catch` clause in the Finch, Req, and Tesla adapters returning the wrapped struct instead of the bare reason atom, so `HTTPower.Retry` could not classify it as a retryable transport error. The `catch` clause now applies `unwrap_transport_error/1`, matching the `rescue` clause.
 
 - **All adapters now normalize transport errors so they are retryable** — Transport failures were passed through as raw exception structs (`%Mint.TransportError{}` from Finch, `%Req.TransportError{}` from Req, and either from Tesla's underlying client). Because these are *returned* as `{:error, struct}` rather than raised, the adapters' `rescue`-based unwrapping never fired, so `HTTPower.Retry` — which only classifies bare reason atoms — never retried them; they surfaced as an opaque `%HTTPower.Error{reason: %…TransportError{}}`. All three adapters now unwrap the bare reason atom (e.g. `:timeout`, `:econnrefused`) on both the returned and raised error paths. The Req adapter additionally recognizes `%Req.TransportError{}` (previously only `%Mint.TransportError{}` was unwrapped).
 

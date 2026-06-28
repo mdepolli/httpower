@@ -168,31 +168,10 @@ defmodule HTTPower.Middleware.Dedup do
     end
   end
 
-  @doc """
-  Attempts to deduplicate a request.
-
-  Returns:
-  - `{:ok, :execute}` - First occurrence, proceed with execution
-  - `{:ok, :wait, ref}` - Duplicate request, wait for in-flight to complete
-  - `{:ok, response}` - Request just completed, return cached response
-  - `{:error, reason}` - Deduplication disabled or error occurred
-
-  ## Examples
-
-      case HTTPower.RequestDeduplicator.deduplicate(request_hash, config) do
-        {:ok, :execute} ->
-          # Execute the request
-          execute_request()
-
-        {:ok, :wait, ref} ->
-          # Wait for in-flight request to complete
-          await_response(ref)
-
-        {:ok, response} ->
-          # Use cached response from just-completed request
-          {:ok, response}
-      end
-  """
+  # Internal middleware API — called by the Dedup middleware itself and by
+  # `HTTPower.Client`. Operates on the internal SHA256 request hash, so it is
+  # intentionally undocumented (not part of the public surface).
+  @doc false
   @spec deduplicate(String.t(), keyword()) ::
           {:ok, :execute} | {:ok, :wait, reference()} | {:ok, any()} | {:error, atom()}
   def deduplicate(request_hash, config \\ []) do
@@ -203,13 +182,7 @@ defmodule HTTPower.Middleware.Dedup do
     end
   end
 
-  @doc """
-  Completes a request, storing the response and notifying waiters.
-
-  ## Examples
-
-      HTTPower.RequestDeduplicator.complete(request_hash, response, config)
-  """
+  @doc false
   @spec complete(String.t(), any(), keyword()) :: :ok
   def complete(request_hash, response, config \\ []) do
     if deduplication_enabled?(config) do
@@ -219,25 +192,13 @@ defmodule HTTPower.Middleware.Dedup do
     end
   end
 
-  @doc """
-  Cancels an in-flight request (called on error/timeout).
-
-  ## Examples
-
-      HTTPower.RequestDeduplicator.cancel(request_hash)
-  """
+  @doc false
   @spec cancel(String.t()) :: :ok
   def cancel(request_hash) do
     GenServer.cast(__MODULE__, {:cancel, request_hash})
   end
 
-  @doc """
-  Generates a deduplication hash from request parameters.
-
-  ## Examples
-
-      hash = HTTPower.RequestDeduplicator.hash(:post, "https://api.com/charge", ~s({"amount": 100}))
-  """
+  @doc false
   @spec hash(atom(), String.t(), String.t() | nil) :: String.t()
   def hash(method, url, body) do
     content = "#{method}:#{url}:#{body || ""}"

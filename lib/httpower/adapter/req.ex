@@ -142,7 +142,7 @@ if Code.ensure_loaded?(Req) do
     rescue
       error -> {:error, unwrap_transport_error(error)}
     catch
-      error -> {:error, error}
+      error -> {:error, unwrap_transport_error(error)}
     end
 
     # Req wraps transport failures in %Req.TransportError{}; older/other paths
