@@ -403,16 +403,20 @@ defmodule HTTPower.Middleware.RateLimiter do
   # GCRA parameters derived from the rate config:
   #   T   = emission interval (µs per token)
   #   tau = burst tolerance, sized so an idle bucket admits a burst of `requests`
-  # Falls back to the runtime :rate_limit config for keys not in `config`.
+  # The global :rate_limit default is read lazily, only for keys the (already
+  # merged) per-request config omits — so the hot path does no app-env lookup.
   defp gcra_params(config) do
-    default = Application.get_env(:httpower, :rate_limit, [])
-    requests = Keyword.get(config, :requests) || Keyword.get(default, :requests, 100)
-    per = Keyword.get(config, :per) || Keyword.get(default, :per, :second)
+    requests = Keyword.get(config, :requests) || rate_limit_default(:requests, 100)
+    per = Keyword.get(config, :per) || rate_limit_default(:per, :second)
 
     t = max(1, div(window_us(per), requests))
     tau = (requests - 1) * t
 
     {requests, t, tau}
+  end
+
+  defp rate_limit_default(key, fallback) do
+    Application.get_env(:httpower, :rate_limit, []) |> Keyword.get(key, fallback)
   end
 
   defp window_us(:second), do: 1_000_000
