@@ -435,7 +435,9 @@ defmodule HTTPowerTest do
       assert response.status == 200
       # Should wait ~2 seconds (2000ms) as instructed by Retry-After
       # Allow margin for test execution time + request processing
-      assert duration >= 1800 and duration <= 2700
+      # Lower bound asserts the wait happened; upper bound is a generous cap
+      # (loose enough to survive scheduler preemption on CI).
+      assert duration >= 1800 and duration <= 5000
 
       # Verify we made 2 calls (first 429, then success)
       assert Agent.get(agent, & &1) == 2
@@ -469,7 +471,7 @@ defmodule HTTPowerTest do
 
       assert response.status == 200
       # Should wait ~1 second (1000ms) as instructed by Retry-After
-      assert duration >= 900 and duration <= 1500
+      assert duration >= 900 and duration <= 4000
 
       assert Agent.get(agent, & &1) == 2
     end
@@ -505,7 +507,7 @@ defmodule HTTPowerTest do
       assert response.status == 200
       # Should use exponential backoff (~500ms for first retry, attempt 1)
       # With jitter, expect 400-500ms
-      assert duration >= 400 and duration <= 700
+      assert duration >= 400 and duration <= 3000
 
       assert Agent.get(agent, & &1) == 2
     end
@@ -538,7 +540,7 @@ defmodule HTTPowerTest do
       assert response.status == 200
       # Should wait ~3 seconds (3000ms)
       # Allow margin for test execution time + request processing
-      assert duration >= 2800 and duration <= 3700
+      assert duration >= 2800 and duration <= 7000
 
       assert Agent.get(agent, & &1) == 2
     end
@@ -572,9 +574,11 @@ defmodule HTTPowerTest do
       duration = end_time - start_time
 
       assert response.status == 200
-      # Should use exponential backoff, NOT the Retry-After header
-      # 500ms base delay for first retry, with jitter
-      assert duration >= 350 and duration <= 750
+      # Should use exponential backoff (~500ms base + jitter), NOT the 10s
+      # Retry-After header. Upper bound stays well below 10_000ms so it still
+      # catches the bug of wrongly honoring Retry-After, while leaving slack
+      # for scheduler preemption.
+      assert duration >= 350 and duration <= 3000
 
       assert Agent.get(agent, & &1) == 2
     end

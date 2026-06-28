@@ -78,9 +78,10 @@ defmodule HTTPower.Middleware.RateLimiterTest do
       )
 
       # Restart GenServer to pick up new config (config is cached at startup)
+      old_pid = Process.whereis(RateLimiter)
       GenServer.stop(RateLimiter)
-      # Wait for supervisor to restart
-      Process.sleep(50)
+      # Wait for the supervisor to restart it (poll instead of a fixed sleep)
+      await_rate_limiter_restart(old_pid)
 
       # Should use global config
       assert :ok = RateLimiter.consume("test_bucket")
@@ -563,8 +564,8 @@ defmodule HTTPower.Middleware.RateLimiterTest do
         1_000 -> flunk("GenServer didn't die")
       end
 
-      # Wait for supervisor to restart
-      :timer.sleep(100)
+      # Wait for the supervisor to restart it (poll instead of a fixed sleep)
+      await_rate_limiter_restart(pid)
 
       # Should be able to use rate limiter again (new ETS table created)
       assert :ok = RateLimiter.consume("crash_test", config)
@@ -660,6 +661,29 @@ defmodule HTTPower.Middleware.RateLimiterTest do
       {:telemetry, _, _, _} -> flush_telemetry()
     after
       0 -> :ok
+    end
+  end
+
+  # Polls for the supervisor to restart the RateLimiter with a fresh pid,
+  # instead of guessing a fixed sleep duration.
+  defp await_rate_limiter_restart(old_pid, timeout \\ 1_000) do
+    deadline = System.monotonic_time(:millisecond) + timeout
+    do_await_rate_limiter_restart(old_pid, deadline)
+  end
+
+  defp do_await_rate_limiter_restart(old_pid, deadline) do
+    pid = Process.whereis(RateLimiter)
+
+    cond do
+      is_pid(pid) and pid != old_pid and Process.alive?(pid) ->
+        pid
+
+      System.monotonic_time(:millisecond) >= deadline ->
+        flunk("RateLimiter did not restart within timeout")
+
+      true ->
+        Process.sleep(5)
+        do_await_rate_limiter_restart(old_pid, deadline)
     end
   end
 end
