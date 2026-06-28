@@ -74,6 +74,8 @@ defmodule HTTPower.Middleware.CircuitBreaker do
   use GenServer
   require Logger
 
+  alias HTTPower.Config
+
   @table_name :httpower_circuit_breaker
 
   # Compile-time config caching for performance (avoids repeated Application.get_env calls)
@@ -192,7 +194,7 @@ defmodule HTTPower.Middleware.CircuitBreaker do
   def call(circuit_key, fun, config \\ []) do
     # call/3 is a manual-use edge (separate from the Client pipeline), so it
     # resolves global app-env config merged with the per-call config here.
-    config = HTTPower.Config.resolve(:circuit_breaker, circuit_breaker: config)
+    config = Config.resolve(:circuit_breaker, circuit_breaker: config)
 
     if circuit_breaker_enabled?(config) do
       execute_with_circuit(circuit_key, fun, config)
