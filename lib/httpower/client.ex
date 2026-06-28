@@ -280,14 +280,21 @@ defmodule HTTPower.Client do
   defp execute_http_with_retry(%Request{} = request) do
     adapter = get_adapter(request.opts)
 
-    HTTPower.Retry.execute_with_retry(
-      request.method,
-      request.url,
-      request.body,
-      request.headers,
-      adapter,
-      request.opts
-    )
+    execute_fn = fn ->
+      call_adapter(
+        adapter,
+        request.method,
+        request.url,
+        request.body,
+        request.headers,
+        request.opts
+      )
+    end
+
+    HTTPower.Retry.execute_with_retry(execute_fn, request.opts, %{
+      method: request.method,
+      url: request.url
+    })
   end
 
   defp handle_post_request(request, result) do
@@ -424,15 +431,13 @@ defmodule HTTPower.Client do
     """
   end
 
-  @doc false
-  def call_adapter({adapter_module, config}, method, url, body, headers, opts) do
+  defp call_adapter({adapter_module, config}, method, url, body, headers, opts) do
     adapter_opts = Keyword.put(opts, :adapter_config, config)
     adapter_module.request(method, normalize_url(url), body, headers, adapter_opts)
   end
 
-  @doc false
-  def call_adapter(adapter_module, method, url, body, headers, opts)
-      when is_atom(adapter_module) do
+  defp call_adapter(adapter_module, method, url, body, headers, opts)
+       when is_atom(adapter_module) do
     adapter_module.request(method, normalize_url(url), body, headers, opts)
   end
 

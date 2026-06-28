@@ -109,19 +109,21 @@ defmodule HTTPower.Retry do
   @retryable_status_codes [408, 429, 500, 502, 503, 504]
 
   @doc """
-  Executes an HTTP request with retry logic.
+  Executes a request closure with retry logic.
 
-  This is the main entry point called by `HTTPower.Client`. It wraps the
-  HTTP adapter call with retry logic and exponential backoff.
+  This is the main entry point called by `HTTPower.Client`. It wraps a single
+  adapter call (provided as a 0-arity `execute_fn`) with retry logic and
+  exponential backoff. Retry has no knowledge of adapters or `HTTPower.Client`
+  — it just retries the closure — which keeps the two modules decoupled.
 
   ## Parameters
 
-  - `method` - HTTP method (:get, :post, :put, :delete)
-  - `url` - Request URL (URI struct or string)
-  - `body` - Request body (string or nil)
-  - `headers` - Request headers (map)
-  - `adapter` - HTTP adapter module or {module, config} tuple
-  - `opts` - Request options (includes retry configuration)
+  - `execute_fn` - 0-arity closure that performs one HTTP attempt and returns
+    `{:ok, HTTPower.Response.t()}` or `{:error, reason}`
+  - `opts` - Request options (retry configuration: `:max_retries`, `:retry_safe`,
+    `:base_delay`, `:max_delay`, `:jitter_factor`)
+  - `telemetry_metadata` - Optional map merged into the `[:httpower, :retry, :attempt]`
+    telemetry metadata (e.g. `%{method: :get, url: uri}`)
 
   ## Returns
 
@@ -136,33 +138,26 @@ defmodule HTTPower.Retry do
   ## Examples
 
       HTTPower.Retry.execute_with_retry(
-        :get,
-        URI.parse("https://api.example.com"),
-        nil,
-        %{},
-        HTTPower.Adapter.Finch,
-        [max_retries: 3]
+        fn -> HTTPower.Adapter.Finch.request(:get, uri, nil, %{}, []) end,
+        [max_retries: 3],
+        %{method: :get, url: uri}
       )
   """
-  def execute_with_retry(method, url, body, headers, adapter, opts) do
-    retry_opts = %{
-      max_retries: Keyword.get(opts, :max_retries, @default_max_retries),
-      retry_safe: Keyword.get(opts, :retry_safe, @default_retry_safe),
-      base_delay: Keyword.get(opts, :base_delay, @default_base_delay),
-      max_delay: Keyword.get(opts, :max_delay, @default_max_delay),
-      jitter_factor: Keyword.get(opts, :jitter_factor, @default_jitter_factor)
+  def execute_with_retry(execute_fn, opts, telemetry_metadata \\ %{})
+      when is_function(execute_fn, 0) do
+    ctx = %{
+      execute_fn: execute_fn,
+      telemetry_metadata: telemetry_metadata,
+      retry_opts: %{
+        max_retries: Keyword.get(opts, :max_retries, @default_max_retries),
+        retry_safe: Keyword.get(opts, :retry_safe, @default_retry_safe),
+        base_delay: Keyword.get(opts, :base_delay, @default_base_delay),
+        max_delay: Keyword.get(opts, :max_delay, @default_max_delay),
+        jitter_factor: Keyword.get(opts, :jitter_factor, @default_jitter_factor)
+      }
     }
 
-    request_params = %{
-      method: method,
-      url: url,
-      body: body,
-      headers: headers,
-      opts: opts,
-      adapter: adapter
-    }
-
-    {result, final_attempt} = execute_http_request(request_params, retry_opts, 1)
+    {result, final_attempt} = execute_http_request(ctx, 1)
     {result, final_attempt - 1}
   end
 
@@ -252,27 +247,19 @@ defmodule HTTPower.Retry do
 
   # Private Functions
 
-  defp execute_http_request(request_params, retry_opts, attempt) do
-    %{
-      adapter: adapter,
-      method: method,
-      url: url,
-      body: body,
-      headers: headers,
-      opts: opts
-    } = request_params
-
-    with {:ok, response} <-
-           HTTPower.Client.call_adapter(adapter, method, url, body, headers, opts),
+  defp execute_http_request(ctx, attempt) do
+    with {:ok, response} <- ctx.execute_fn.(),
          {:ok, :final_response} <- check_if_response_is_retryable(response) do
       {{:ok, response}, attempt}
     else
-      {:error, :should_retry, reason} -> handle_retry(request_params, retry_opts, attempt, reason)
-      {:error, reason} -> handle_retry(request_params, retry_opts, attempt, reason)
+      {:error, :should_retry, reason} -> handle_retry(ctx, attempt, reason)
+      {:error, reason} -> handle_retry(ctx, attempt, reason)
     end
   end
 
-  defp handle_retry(request_params, retry_opts, attempt, reason) do
+  defp handle_retry(ctx, attempt, reason) do
+    retry_opts = ctx.retry_opts
+
     if attempt <= retry_opts.max_retries and retryable_error?(reason, retry_opts.retry_safe) do
       log_retry_attempt(attempt, reason, retry_opts.max_retries)
       delay = calculate_retry_delay(reason, attempt, retry_opts)
@@ -280,15 +267,11 @@ defmodule HTTPower.Retry do
       :telemetry.execute(
         [:httpower, :retry, :attempt],
         %{attempt_number: attempt + 1, delay_ms: delay},
-        %{
-          method: request_params.method,
-          url: request_params.url,
-          reason: extract_retry_reason(reason)
-        }
+        Map.put(ctx.telemetry_metadata, :reason, extract_retry_reason(reason))
       )
 
       :timer.sleep(delay)
-      execute_http_request(request_params, retry_opts, attempt + 1)
+      execute_http_request(ctx, attempt + 1)
     else
       case reason do
         # HTTP responses are always {:ok, response}, even retryable statuses
