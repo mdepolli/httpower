@@ -46,7 +46,7 @@ if Code.ensure_loaded?(Req) do
 
     @behaviour HTTPower.Adapter
 
-    alias HTTPower.Response
+    alias HTTPower.{Adapter, Response}
 
     @impl true
     def request(method, url, body, headers, opts) do
@@ -134,15 +134,17 @@ if Code.ensure_loaded?(Req) do
 
     defp maybe_add_proxy_options(opts, nil), do: opts
 
-    defp maybe_add_proxy_options(opts, proxy_opts) when is_list(proxy_opts) do
+    # Forward any explicit proxy value to Req's connect_options, which passes it
+    # to Mint. Mint expects a {scheme, address, port, opts} tuple and validates
+    # it; previously a tuple was silently dropped (only keyword lists matched),
+    # so a configured proxy had no effect.
+    defp maybe_add_proxy_options(opts, proxy) do
       existing = Keyword.get(opts, :connect_options, [])
-      updated = Keyword.put(existing, :proxy, proxy_opts)
+      updated = Keyword.put(existing, :proxy, proxy)
       Keyword.put(opts, :connect_options, updated)
     end
 
-    defp maybe_add_proxy_options(opts, _), do: opts
-
-    defp prepare_headers(headers, method), do: HTTPower.Adapter.prepare_headers(headers, method)
+    defp prepare_headers(headers, method), do: Adapter.prepare_headers(headers, method)
 
     defp safe_req_request(req_opts) do
       case Req.request(req_opts) do
@@ -166,7 +168,7 @@ if Code.ensure_loaded?(Req) do
     defp convert_response(%Req.Response{status: status, headers: headers, body: body}) do
       %Response{
         status: status,
-        headers: Map.new(headers),
+        headers: Adapter.normalize_response_headers(headers),
         body: body
       }
     end

@@ -100,4 +100,30 @@ defmodule HTTPower.Adapter do
   def prepare_headers(headers, _method) do
     headers || %{}
   end
+
+  @doc """
+  Normalizes response headers into a `%{String.t() => [String.t()]}` map.
+
+  HTTP headers can repeat (e.g. `Set-Cookie`), so values are always lists.
+  Accepts either a list of `{key, value}` tuples (as Finch, Tesla, and Req < 0.5
+  return) or a map whose values are strings or lists (as Req >= 0.5 returns),
+  producing a single consistent shape across all adapters. Keys are downcased
+  to strings; tuple order is preserved for repeated keys.
+  """
+  @spec normalize_response_headers([{term(), term()}] | map()) :: %{String.t() => [String.t()]}
+  def normalize_response_headers(headers) when is_list(headers) do
+    headers
+    |> Enum.reduce(%{}, fn {key, value}, acc ->
+      key = to_string(key)
+      Map.update(acc, key, [value], fn existing -> [value | existing] end)
+    end)
+    |> Map.new(fn {key, values} -> {key, Enum.reverse(values)} end)
+  end
+
+  def normalize_response_headers(headers) when is_map(headers) do
+    Map.new(headers, fn
+      {key, values} when is_list(values) -> {to_string(key), values}
+      {key, value} -> {to_string(key), [value]}
+    end)
+  end
 end

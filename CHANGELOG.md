@@ -55,6 +55,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Tesla adapter sends no body instead of an empty string for bodyless requests** — `build_tesla_opts` coerced a `nil` body to `""`, which emits `Content-Length: 0` on bodyless requests such as GET (RFC 9110 §9.3.1 says a GET should not include a body, and some servers reject it). `nil` is now passed through, matching `Tesla.Env`'s default.
 
+- **Req adapter response headers are now consistently list-valued across adapters** — `convert_response` used `Map.new(headers)`, which on Req < 0.5 (where headers are a `[{k, v}]` tuple list) produced string-valued headers `%{k => v}`. `HTTPower.Codec`'s content-type detection only reads list-valued headers, so JSON responses would silently fail to decode under older Req. Header normalization is now shared via `HTTPower.Adapter.normalize_response_headers/1`, which always yields `%{k => [v]}` from either a tuple list or a map, matching the Finch and Tesla adapters.
+
+- **Req adapter no longer silently drops a configured proxy** — `maybe_add_proxy_options` only forwarded `proxy` values that were keyword lists, so a Mint-style `{scheme, address, port, opts}` tuple (the format Mint actually requires) fell through to a catch-all and was discarded. Any explicit proxy value is now forwarded to Req's `connect_options[:proxy]`.
+
 ### Security
 
 - **Added dependency vulnerability auditing to CI** — Added `mix_audit` (dev/test) and wired `mix deps.audit` (known CVEs) plus `mix hex.audit` (retired packages) into the CI `deps_check` job, so vulnerable or retired dependencies fail the build. The first run surfaced a real issue: the locked `plug` was on a version affected by a high-severity multipart-header DoS advisory (GHSA-468c-vq7p-gh64); `mix.lock` is bumped to a patched `plug` release.
