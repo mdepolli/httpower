@@ -116,12 +116,13 @@ defmodule HTTPower.RateLimitHeaders do
   defp parse_github_style(headers) do
     with {:ok, limit} <- get_integer_header(headers, "x-ratelimit-limit"),
          {:ok, remaining} <- get_integer_header(headers, "x-ratelimit-remaining"),
-         {:ok, reset} <- get_integer_header(headers, "x-ratelimit-reset") do
+         {:ok, reset} <- get_integer_header(headers, "x-ratelimit-reset"),
+         {:ok, reset_at} <- unix_to_datetime(reset) do
       {:ok,
        %{
          limit: limit,
          remaining: remaining,
-         reset_at: DateTime.from_unix!(reset),
+         reset_at: reset_at,
          format: :github
        }}
     end
@@ -130,12 +131,13 @@ defmodule HTTPower.RateLimitHeaders do
   defp parse_rfc_style(headers) do
     with {:ok, limit} <- get_integer_header(headers, "ratelimit-limit"),
          {:ok, remaining} <- get_integer_header(headers, "ratelimit-remaining"),
-         {:ok, reset} <- get_integer_header(headers, "ratelimit-reset") do
+         {:ok, reset} <- get_integer_header(headers, "ratelimit-reset"),
+         {:ok, reset_at} <- unix_to_datetime(reset) do
       {:ok,
        %{
          limit: limit,
          remaining: remaining,
-         reset_at: DateTime.from_unix!(reset),
+         reset_at: reset_at,
          format: :rfc
        }}
     end
@@ -144,14 +146,26 @@ defmodule HTTPower.RateLimitHeaders do
   defp parse_stripe_style(headers) do
     with {:ok, limit} <- get_integer_header(headers, "x-stripe-ratelimit-limit"),
          {:ok, remaining} <- get_integer_header(headers, "x-stripe-ratelimit-remaining"),
-         {:ok, reset} <- get_integer_header(headers, "x-stripe-ratelimit-reset") do
+         {:ok, reset} <- get_integer_header(headers, "x-stripe-ratelimit-reset"),
+         {:ok, reset_at} <- unix_to_datetime(reset) do
       {:ok,
        %{
          limit: limit,
          remaining: remaining,
-         reset_at: DateTime.from_unix!(reset),
+         reset_at: reset_at,
          format: :stripe
        }}
+    end
+  end
+
+  # A malicious or buggy server can send an out-of-range `*-reset` value (the
+  # max representable is year 9999); `DateTime.from_unix!/1` would raise on it,
+  # breaking HTTPower's never-raises contract. Treat any unrepresentable
+  # timestamp as "no usable rate-limit info" rather than letting it propagate.
+  defp unix_to_datetime(seconds) do
+    case DateTime.from_unix(seconds) do
+      {:ok, datetime} -> {:ok, datetime}
+      {:error, _} -> {:error, :not_found}
     end
   end
 

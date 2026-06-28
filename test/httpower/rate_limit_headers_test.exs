@@ -73,6 +73,18 @@ defmodule HTTPower.RateLimitHeadersTest do
 
       assert {:error, :not_found} = RateLimitHeaders.parse(headers)
     end
+
+    test "returns error (does not raise) for an out-of-range reset timestamp" do
+      # A malicious/buggy server can send an unrepresentable reset value (beyond
+      # year 9999). DateTime.from_unix!/1 would raise on it; parse must not.
+      headers = %{
+        "x-ratelimit-limit" => "60",
+        "x-ratelimit-remaining" => "55",
+        "x-ratelimit-reset" => "99999999999999999999"
+      }
+
+      assert RateLimitHeaders.parse(headers) == {:error, :not_found}
+    end
   end
 
   describe "parse/2 with RFC-style headers" do

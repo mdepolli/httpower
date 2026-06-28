@@ -100,6 +100,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Redact secret-shaped path segments in telemetry URLs** — `sanitize_uri_for_telemetry/1` already stripped query/fragment but left the path intact, so a secret embedded in a URL path (e.g. `/v1/keys/sk_live_.../rotate`) leaked into request telemetry metadata. Path segments matching known provider key prefixes (Stripe `sk_`/`pk_`/`rk_`/`whsec_`, GitHub `ghp_`/`github_pat_`/…, Slack `xox*-`, AWS `AKIA…`) are now replaced with `[REDACTED]`. The match is deliberately conservative so ordinary resource ids and slugs (UUIDs, `cus_123`) stay intact for useful, low-cardinality metrics.
 
+- **Rate-limit header parsing no longer raises on an out-of-range reset** — A malicious or buggy server sending an unrepresentable `*-ratelimit-reset` value (beyond year 9999) made `HTTPower.RateLimitHeaders.parse/2` raise via `DateTime.from_unix!/1`, breaking the never-raises contract. Out-of-range timestamps are now treated as "no usable rate-limit info" (`{:error, :not_found}`) instead.
+
 ## [0.22.0] - 2026-03-19
 
 ### Added
