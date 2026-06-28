@@ -78,18 +78,6 @@ defmodule HTTPower.Middleware.CircuitBreaker do
 
   @table_name :httpower_circuit_breaker
 
-  # Compile-time config caching for performance (avoids repeated Application.get_env calls)
-  @default_config Application.compile_env(:httpower, :circuit_breaker, [])
-  @default_failure_threshold Keyword.get(@default_config, :failure_threshold, 5)
-  @default_failure_threshold_percentage Keyword.get(
-                                          @default_config,
-                                          :failure_threshold_percentage,
-                                          nil
-                                        )
-  @default_window_size Keyword.get(@default_config, :window_size, 10)
-  @default_timeout Keyword.get(@default_config, :timeout, 60_000)
-  @default_half_open_requests Keyword.get(@default_config, :half_open_requests, 1)
-
   @type circuit_key :: String.t()
   @type state :: :closed | :open | :half_open
   @type circuit_breaker_config :: [
@@ -138,7 +126,7 @@ defmodule HTTPower.Middleware.CircuitBreaker do
   """
   @impl HTTPower.Middleware
   def handle_request(request, config) do
-    # Config is already merged by Client (runtime + compile-time)
+    # Config is already resolved by Client (request opt + app-env)
     if circuit_breaker_enabled?(config) do
       circuit_key =
         Keyword.get(config, :circuit_breaker_key) ||
@@ -591,12 +579,15 @@ defmodule HTTPower.Middleware.CircuitBreaker do
     absolute_threshold_exceeded or percentage_threshold_exceeded
   end
 
+  # Hardcoded fallbacks for keys absent from the resolved config. Config.resolve/2
+  # already layers runtime app-env over request opts at the Client edge, so these
+  # are the final defaults only — matching RateLimiter/Dedup (no compile-time snapshot).
   @config_defaults %{
-    failure_threshold: @default_failure_threshold,
-    failure_threshold_percentage: @default_failure_threshold_percentage,
-    window_size: @default_window_size,
-    timeout: @default_timeout,
-    half_open_requests: @default_half_open_requests
+    failure_threshold: 5,
+    failure_threshold_percentage: nil,
+    window_size: 10,
+    timeout: 60_000,
+    half_open_requests: 1
   }
 
   defp get_config(config, key) do

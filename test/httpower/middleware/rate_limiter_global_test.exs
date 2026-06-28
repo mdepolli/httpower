@@ -73,6 +73,20 @@ defmodule HTTPower.Middleware.RateLimiterGlobalTest do
       assert {:ok, :disabled} = RateLimiter.check_rate_limit("test_bucket")
       assert :ok = RateLimiter.consume("test_bucket")
     end
+
+    test "update_from_headers honors global rate_limit config for the bucket ceiling" do
+      # Regression: update_from_headers/2 (no explicit config) must resolve the
+      # global :rate_limit like consume/2 and check_rate_limit/2 do, instead of
+      # falling back to the hardcoded 100/sec default in gcra_params/1.
+      Application.put_env(:httpower, :rate_limit, enabled: true, requests: 5, per: :second)
+      key = "headers_global_#{System.unique_integer([:positive])}"
+
+      # The server reports far more headroom than our globally-configured ceiling
+      # of 5. The bucket must clamp to the global `requests`, not the 100 default.
+      assert :ok = RateLimiter.update_from_headers(key, %{remaining: 50})
+
+      assert {:ok, 5.0} = RateLimiter.check_rate_limit(key)
+    end
   end
 
   describe "adaptive state cleanup" do

@@ -132,7 +132,7 @@ defmodule HTTPower.Middleware.RateLimiter do
   """
   @impl HTTPower.Middleware
   def handle_request(request, config) do
-    # Config is already merged by Client (runtime + compile-time)
+    # Config is already resolved by Client (request opt + app-env)
     if rate_limiting_enabled?(config) do
       rate_limit_key = Keyword.get(config, :rate_limit_key) || request.url.host
 
@@ -338,6 +338,7 @@ defmodule HTTPower.Middleware.RateLimiter do
   @spec update_from_headers(bucket_key(), map(), rate_limit_config()) :: :ok
   def update_from_headers(bucket_key, rate_limit_info, config \\ [])
       when is_map(rate_limit_info) do
+    config = Config.resolve(:rate_limit, rate_limit: config)
     {requests, t, tau} = gcra_params(config)
 
     remaining =
