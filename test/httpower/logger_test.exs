@@ -48,6 +48,26 @@ defmodule HTTPower.LoggerTest do
     end
   end
 
+  describe "telemetry handler robustness" do
+    test "a crashing handler is not detached by telemetry" do
+      HTTPowerLogger.attach()
+
+      # A :stop event with no measurements.duration would raise inside the
+      # handler. :telemetry permanently detaches any handler that raises, which
+      # would silently kill all logging — crash isolation must prevent that.
+      capture_log(fn ->
+        :telemetry.execute([:httpower, :request, :stop], %{}, %{status: 200})
+      end)
+
+      handler_ids =
+        [:httpower, :request, :stop]
+        |> :telemetry.list_handlers()
+        |> Enum.map(& &1.id)
+
+      assert HTTPowerLogger in handler_ids
+    end
+  end
+
   describe "request logging via telemetry" do
     test "logs basic GET request" do
       HTTPower.Test.stub(fn conn ->

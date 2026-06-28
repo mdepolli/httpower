@@ -639,6 +639,26 @@ defmodule HTTPowerTest do
       assert metadata.method == :get
     end
 
+    test "stop event reports the number of retries performed" do
+      flush_mailbox()
+
+      HTTPower.Test.stub(fn conn ->
+        Plug.Conn.resp(conn, 500, "Server Error")
+      end)
+
+      test_url = "https://httpbin.org/retry-count"
+
+      # 500 is retried max_retries times, then returned as the final response.
+      {:ok, response} =
+        HTTPower.get(test_url, max_retries: 2, base_delay: 1, max_delay: 1)
+
+      assert response.status == 500
+
+      assert_received {:telemetry, [:httpower, :request, :stop], _, %{url: ^test_url} = metadata}
+
+      assert metadata.retry_count == 2
+    end
+
     test "sanitizes URLs in telemetry metadata" do
       HTTPower.Test.stub(fn conn ->
         HTTPower.Test.json(conn, %{success: true})

@@ -99,13 +99,14 @@ defmodule HTTPower.Middleware.CircuitBreaker do
           half_open_requests: pos_integer()
         ]
 
-  @type request_result :: {:success | :failure, integer()}
-
   @type circuit_state :: %{
           state: state(),
-          requests: [request_result()],
+          window: :queue.queue(:success | :failure),
+          failure_count: non_neg_integer(),
+          success_count: non_neg_integer(),
           opened_at: integer() | nil,
-          half_open_attempts: integer()
+          half_open_attempts: non_neg_integer(),
+          half_open_successes: non_neg_integer()
         }
 
   ## Public API
@@ -343,7 +344,16 @@ defmodule HTTPower.Middleware.CircuitBreaker do
           timeout = get_config(config, :timeout)
 
           if circuit_state.opened_at && now - circuit_state.opened_at >= timeout do
-            new_circuit_state = %{circuit_state | state: :half_open, half_open_attempts: 0}
+            # Zero the half-open probe counter so only successes recorded *while
+            # half-open* count toward closing — pre-trip successes still in the
+            # window must not satisfy `half_open_requests` on their own.
+            new_circuit_state = %{
+              circuit_state
+              | state: :half_open,
+                half_open_attempts: 0,
+                half_open_successes: 0
+            }
+
             :ets.insert(@table_name, {circuit_key, new_circuit_state})
 
             Logger.info(
@@ -452,8 +462,15 @@ defmodule HTTPower.Middleware.CircuitBreaker do
       failure_count: 0,
       success_count: 0,
       opened_at: nil,
-      half_open_attempts: 0
+      half_open_attempts: 0,
+      half_open_successes: 0
     }
+  end
+
+  # While half-open, a success only advances the probe counter that gates
+  # closing; the sliding window is reserved for the closed-state threshold.
+  defp add_success(%{state: :half_open} = circuit_state, _config) do
+    %{circuit_state | half_open_successes: circuit_state.half_open_successes + 1}
   end
 
   defp add_success(circuit_state, config), do: add_result(circuit_state, :success, config)
@@ -505,9 +522,9 @@ defmodule HTTPower.Middleware.CircuitBreaker do
     # In half-open, we need to successfully complete ALL test requests before closing
     with :half_open <- circuit_state.state,
          half_open_requests <- get_config(config, :half_open_requests),
-         true <- circuit_state.success_count >= half_open_requests do
+         true <- circuit_state.half_open_successes >= half_open_requests do
       Logger.info(
-        "Circuit breaker transitioning from :half_open to :closed after #{circuit_state.success_count} successful attempts"
+        "Circuit breaker transitioning from :half_open to :closed after #{circuit_state.half_open_successes} successful attempts"
       )
 
       new_state = new_circuit()

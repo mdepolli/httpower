@@ -125,6 +125,9 @@ defmodule HTTPower.Retry do
 
   ## Returns
 
+  A `{result, retry_count}` tuple, where `retry_count` is the number of retries
+  performed (`0` if the first attempt was final) and `result` is one of:
+
   - `{:ok, HTTPower.Response.t()}` - an HTTP response was received (any status code,
     including 5xx after retries are exhausted)
   - `{:error, HTTPower.Error.t()}` - a transport/network error occurred after
@@ -159,7 +162,8 @@ defmodule HTTPower.Retry do
       adapter: adapter
     }
 
-    execute_http_request(request_params, retry_opts, 1)
+    {result, final_attempt} = execute_http_request(request_params, retry_opts, 1)
+    {result, final_attempt - 1}
   end
 
   @doc """
@@ -261,7 +265,7 @@ defmodule HTTPower.Retry do
     with {:ok, response} <-
            HTTPower.Client.call_adapter(adapter, method, url, body, headers, opts),
          {:ok, :final_response} <- check_if_response_is_retryable(response) do
-      {:ok, response}
+      {{:ok, response}, attempt}
     else
       {:error, :should_retry, reason} -> handle_retry(request_params, retry_opts, attempt, reason)
       {:error, reason} -> handle_retry(request_params, retry_opts, attempt, reason)
@@ -290,10 +294,10 @@ defmodule HTTPower.Retry do
         # HTTP responses are always {:ok, response}, even retryable statuses
         # after retries are exhausted — only transport errors become {:error, ...}
         {:http_status, _status, response} ->
-          {:ok, response}
+          {{:ok, response}, attempt}
 
         _ ->
-          wrap_error(reason)
+          {wrap_error(reason), attempt}
       end
     end
   end

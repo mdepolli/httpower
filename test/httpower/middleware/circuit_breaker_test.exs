@@ -312,6 +312,47 @@ defmodule HTTPower.Middleware.CircuitBreakerTest do
       assert {:error, %HTTPower.Error{reason: :service_unavailable}} = result
     end
 
+    test "pre-trip successes do not count toward closing from half-open" do
+      # A circuit requiring multiple half-open successes must only close after
+      # that many successes *while half-open*. Successes recorded before the
+      # circuit tripped must not be carried over, or a single probe could close
+      # a circuit configured to require several.
+      config = [
+        enabled: true,
+        failure_threshold: 2,
+        timeout: 100,
+        half_open_requests: 2,
+        window_size: 10
+      ]
+
+      key = "half_open_pretrip_#{System.unique_integer([:positive])}"
+
+      # A success recorded while closed, before the circuit trips.
+      CircuitBreaker.call(key, fn -> {:ok, :early} end, config)
+
+      # Trip the circuit open.
+      for _ <- 1..2 do
+        CircuitBreaker.call(key, fn -> {:error, :failure} end, config)
+      end
+
+      assert await_state(key, :open) == :open
+
+      # Wait for the open -> half-open timeout.
+      Process.sleep(150)
+
+      # First successful probe: must NOT close (needs 2 half-open successes).
+      CircuitBreaker.call(key, fn -> {:ok, :probe1} end, config)
+      # record_success is an async cast; flush it with a synchronous call so the
+      # state we read reflects the recorded probe.
+      :sys.get_state(CircuitBreaker)
+      assert CircuitBreaker.get_state(key) == :half_open
+
+      # Second successful probe closes the circuit.
+      CircuitBreaker.call(key, fn -> {:ok, :probe2} end, config)
+      :sys.get_state(CircuitBreaker)
+      assert CircuitBreaker.get_state(key) == :closed
+    end
+
     test "prevents concurrent requests beyond half-open limit (race condition fix)" do
       config = [enabled: true, failure_threshold: 2, timeout: 100, half_open_requests: 3]
 

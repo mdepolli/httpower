@@ -187,23 +187,23 @@ defmodule HTTPower.Client do
 
   defp get_request_function(%Request{} = request, pipeline) do
     fn ->
-      result =
+      {result, retry_count} =
         case run_request_steps(request, pipeline) do
           {:ok, %Request{} = final_request} ->
-            result = execute_http_with_retry(final_request)
-            handle_post_request(final_request, result)
-            decode_result(result, request.opts)
+            {raw_result, retry_count} = execute_http_with_retry(final_request)
+            handle_post_request(final_request, raw_result)
+            {decode_result(raw_result, request.opts), retry_count}
 
           {:halt, %Response{} = response} ->
             # Pipeline short-circuited (e.g., dedup cache hit, circuit breaker open)
             # Response already finalized, no HTTP call needed
-            {:ok, Codec.decode_response(response, request.opts)}
+            {{:ok, Codec.decode_response(response, request.opts)}, 0}
 
           {:error, %Error{}} = error ->
-            error
+            {error, 0}
 
           {:error, reason} ->
-            {:error, %Error{reason: reason, message: Error.message(reason)}}
+            {{:error, %Error{reason: reason, message: Error.message(reason)}}, 0}
         end
 
       response_metadata =
@@ -213,7 +213,7 @@ defmodule HTTPower.Client do
               status: response.status,
               headers: HTTPower.Sanitizer.sanitize_headers(response.headers),
               body: HTTPower.Sanitizer.sanitize_body(response.body),
-              retry_count: Keyword.get(request.opts, :retry_count, 0)
+              retry_count: retry_count
             }
 
           {:error, %Error{reason: reason}} ->
@@ -412,7 +412,7 @@ defmodule HTTPower.Client do
 
   defp can_do_request?(opts) do
     not Application.get_env(:httpower, :test_mode, false) or
-      HTTPower.Test.mock_enabled?() or
+      (Code.ensure_loaded?(HTTPower.Test) and HTTPower.Test.mock_enabled?()) or
       Keyword.has_key?(opts, :plug) or
       match?({_module, _config}, Keyword.get(opts, :adapter))
   end

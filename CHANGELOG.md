@@ -63,6 +63,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Req adapter no longer silently drops a configured proxy** — `maybe_add_proxy_options` only forwarded `proxy` values that were keyword lists, so a Mint-style `{scheme, address, port, opts}` tuple (the format Mint actually requires) fell through to a catch-all and was discarded. Any explicit proxy value is now forwarded to Req's `connect_options[:proxy]`.
 
+- **Circuit breaker no longer closes early from half-open when configured for multiple probes** — On the open→half-open transition the sliding window was not reset, so `maybe_transition_from_half_open_to_closed` counted successes recorded *before* the trip. With `half_open_requests > 1`, a single successful probe could already satisfy the threshold and close the circuit prematurely (masked by the default of `1`). The window and its success/failure counts are now cleared on entering half-open, so only successes recorded while half-open count toward closing.
+
+- **Telemetry handler no longer detaches itself on a malformed event** — `HTTPower.Logger`'s handler read `measurements.duration` directly with no error handling, and `:telemetry` permanently detaches any handler that raises — so one malformed event silently killed all subsequent logging. Handler bodies are now wrapped so an exception is logged as a warning and the event dropped, keeping the handler attached.
+
+- **`retry_count` in `[:httpower, :request, :stop]` telemetry now reflects actual retries** — the metadata read a `:retry_count` option that was never written, so it was always `0`. `HTTPower.Retry.execute_with_retry/6` now returns `{result, retry_count}` and `HTTPower.Client` threads the real count into the stop metadata.
+
+- **`can_do_request?` guards the `HTTPower.Test` lookup** — when `test_mode: true`, the test-mode check called `HTTPower.Test.mock_enabled?/0` unguarded, which would raise if the test module were not loaded. It is now wrapped in `Code.ensure_loaded?(HTTPower.Test)`, mirroring `HTTPower.TestInterceptor`.
+
 ### Security
 
 - **Added dependency vulnerability auditing to CI** — Added `mix_audit` (dev/test) and wired `mix deps.audit` (known CVEs) plus `mix hex.audit` (retired packages) into the CI `deps_check` job, so vulnerable or retired dependencies fail the build. The first run surfaced a real issue: the locked `plug` was on a version affected by a high-severity multipart-header DoS advisory (GHSA-468c-vq7p-gh64); `mix.lock` is bumped to a patched `plug` release.

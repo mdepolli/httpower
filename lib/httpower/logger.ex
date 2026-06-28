@@ -206,7 +206,22 @@ defmodule HTTPower.Logger do
   ## Telemetry Event Handlers
 
   @doc false
-  def handle_event([:httpower, :request, :start], _measurements, metadata, config) do
+  def handle_event(event, measurements, metadata, config) do
+    do_handle_event(event, measurements, metadata, config)
+  rescue
+    exception ->
+      # :telemetry permanently detaches a handler that raises, which would
+      # silently kill all logging. Swallow the error so one malformed event
+      # can't take down the handler.
+      Logger.warning(
+        "HTTPower.Logger telemetry handler raised, dropping event: " <>
+          Exception.message(exception)
+      )
+
+      :ok
+  end
+
+  defp do_handle_event([:httpower, :request, :start], _measurements, metadata, config) do
     correlation_id = get_or_create_correlation_id()
 
     # Store correlation_id in process dictionary for :stop event
@@ -235,7 +250,7 @@ defmodule HTTPower.Logger do
     log(message, config)
   end
 
-  def handle_event([:httpower, :request, :stop], measurements, metadata, config) do
+  defp do_handle_event([:httpower, :request, :stop], measurements, metadata, config) do
     correlation_id = Process.get(:httpower_correlation_id) || "req_unknown"
     duration_ms = System.convert_time_unit(measurements.duration, :native, :millisecond)
 
@@ -264,7 +279,7 @@ defmodule HTTPower.Logger do
     log(message, config)
   end
 
-  def handle_event([:httpower, :request, :exception], measurements, metadata, _config) do
+  defp do_handle_event([:httpower, :request, :exception], measurements, metadata, _config) do
     correlation_id = Process.get(:httpower_correlation_id) || "req_unknown"
     duration_ms = System.convert_time_unit(measurements.duration, :native, :millisecond)
 
