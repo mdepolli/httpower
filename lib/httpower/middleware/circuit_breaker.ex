@@ -318,18 +318,8 @@ defmodule HTTPower.Middleware.CircuitBreaker do
 
   @impl true
   def handle_call({:close_circuit, circuit_key}, _from, state) do
-    circuit_state = get_or_create_circuit(circuit_key)
-
-    new_circuit_state = %{
-      circuit_state
-      | state: :closed,
-        requests: [],
-        opened_at: nil,
-        half_open_attempts: 0
-    }
-
-    :ets.insert(@table_name, {circuit_key, new_circuit_state})
-
+    # Closing fully resets the circuit (clears the window).
+    :ets.insert(@table_name, {circuit_key, new_circuit()})
     {:reply, :ok, state}
   end
 
@@ -389,12 +379,11 @@ defmodule HTTPower.Middleware.CircuitBreaker do
   # Async recording for performance (5-10x improvement in high-throughput scenarios)
   @impl true
   def handle_cast({:record_success, circuit_key, config}, state) do
-    now = System.monotonic_time(:millisecond)
     circuit_state = get_or_create_circuit(circuit_key)
 
     new_circuit_state =
       circuit_state
-      |> add_success(now, config)
+      |> add_success(config)
       |> maybe_transition_from_half_open_to_closed(config, circuit_key)
 
     :ets.insert(@table_name, {circuit_key, new_circuit_state})
@@ -409,7 +398,7 @@ defmodule HTTPower.Middleware.CircuitBreaker do
 
     new_circuit_state =
       circuit_state
-      |> add_failure(now, config)
+      |> add_failure(config)
       |> maybe_transition_to_open(config, now, circuit_key)
 
     :ets.insert(@table_name, {circuit_key, new_circuit_state})
@@ -450,45 +439,78 @@ defmodule HTTPower.Middleware.CircuitBreaker do
         circuit_state
 
       [] ->
-        %{
-          state: :closed,
-          requests: [],
-          opened_at: nil,
-          half_open_attempts: 0
-        }
+        new_circuit()
     end
   end
 
-  defp add_success(circuit_state, now, config) do
-    window_size = get_config(config, :window_size)
-    requests = [{:success, now} | circuit_state.requests] |> Enum.take(window_size)
-    %{circuit_state | requests: requests}
+  # Sliding window of the last `window_size` results, tracked as a bounded FIFO
+  # plus maintained counts so threshold checks are O(1) instead of O(window).
+  defp new_circuit do
+    %{
+      state: :closed,
+      window: :queue.new(),
+      failure_count: 0,
+      success_count: 0,
+      opened_at: nil,
+      half_open_attempts: 0
+    }
   end
 
-  defp add_failure(circuit_state, now, config) do
-    window_size = get_config(config, :window_size)
-    requests = [{:failure, now} | circuit_state.requests] |> Enum.take(window_size)
-    %{circuit_state | requests: requests}
+  defp add_success(circuit_state, config), do: add_result(circuit_state, :success, config)
+  defp add_failure(circuit_state, config), do: add_result(circuit_state, :failure, config)
+
+  # Append a result to the bounded window, maintaining the failure/success
+  # counts incrementally and evicting the oldest result(s) once over window_size.
+  defp add_result(circuit_state, result, config) do
+    circuit_state
+    |> push_result(result)
+    |> trim_window(get_config(config, :window_size))
   end
+
+  defp push_result(circuit_state, :success) do
+    %{
+      circuit_state
+      | window: :queue.in(:success, circuit_state.window),
+        success_count: circuit_state.success_count + 1
+    }
+  end
+
+  defp push_result(circuit_state, :failure) do
+    %{
+      circuit_state
+      | window: :queue.in(:failure, circuit_state.window),
+        failure_count: circuit_state.failure_count + 1
+    }
+  end
+
+  defp trim_window(circuit_state, window_size) do
+    if circuit_state.failure_count + circuit_state.success_count > window_size do
+      {{:value, evicted}, window} = :queue.out(circuit_state.window)
+
+      %{circuit_state | window: window}
+      |> evict_result(evicted)
+      |> trim_window(window_size)
+    else
+      circuit_state
+    end
+  end
+
+  defp evict_result(circuit_state, :success),
+    do: %{circuit_state | success_count: circuit_state.success_count - 1}
+
+  defp evict_result(circuit_state, :failure),
+    do: %{circuit_state | failure_count: circuit_state.failure_count - 1}
 
   defp maybe_transition_from_half_open_to_closed(circuit_state, config, circuit_key) do
     # In half-open, we need to successfully complete ALL test requests before closing
     with :half_open <- circuit_state.state,
          half_open_requests <- get_config(config, :half_open_requests),
-         successful_attempts <- count_successes(circuit_state.requests),
-         true <- successful_attempts >= half_open_requests do
+         true <- circuit_state.success_count >= half_open_requests do
       Logger.info(
-        "Circuit breaker transitioning from :half_open to :closed after #{successful_attempts} successful attempts"
+        "Circuit breaker transitioning from :half_open to :closed after #{circuit_state.success_count} successful attempts"
       )
 
-      new_state = %{
-        circuit_state
-        | state: :closed,
-          requests: [],
-          opened_at: nil,
-          half_open_attempts: 0
-      }
-
+      new_state = new_circuit()
       emit_state_change_event(circuit_state, new_state, config, circuit_key)
       new_state
     else
@@ -534,8 +556,8 @@ defmodule HTTPower.Middleware.CircuitBreaker do
     failure_percentage = get_config(config, :failure_threshold_percentage)
     window_size = get_config(config, :window_size)
 
-    failure_count = count_failures(circuit_state.requests)
-    total_count = length(circuit_state.requests)
+    failure_count = circuit_state.failure_count
+    total_count = circuit_state.failure_count + circuit_state.success_count
 
     absolute_threshold_exceeded = failure_count >= failure_threshold
 
@@ -548,14 +570,6 @@ defmodule HTTPower.Middleware.CircuitBreaker do
       end
 
     absolute_threshold_exceeded or percentage_threshold_exceeded
-  end
-
-  defp count_failures(requests) do
-    Enum.count(requests, fn {result, _timestamp} -> result == :failure end)
-  end
-
-  defp count_successes(requests) do
-    Enum.count(requests, fn {result, _timestamp} -> result == :success end)
   end
 
   @config_defaults %{
@@ -575,8 +589,8 @@ defmodule HTTPower.Middleware.CircuitBreaker do
   defp emit_state_change_event(old_state, new_state, _config, circuit_key) do
     key = circuit_key
 
-    failure_count = count_failures(new_state.requests)
-    total_count = length(new_state.requests)
+    failure_count = new_state.failure_count
+    total_count = new_state.failure_count + new_state.success_count
 
     failure_rate =
       if total_count > 0 do
