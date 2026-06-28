@@ -63,13 +63,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Req adapter no longer silently drops a configured proxy** — `maybe_add_proxy_options` only forwarded `proxy` values that were keyword lists, so a Mint-style `{scheme, address, port, opts}` tuple (the format Mint actually requires) fell through to a catch-all and was discarded. Any explicit proxy value is now forwarded to Req's `connect_options[:proxy]`.
 
-- **Circuit breaker no longer closes early from half-open when configured for multiple probes** — On the open→half-open transition the sliding window was not reset, so `maybe_transition_from_half_open_to_closed` counted successes recorded *before* the trip. With `half_open_requests > 1`, a single successful probe could already satisfy the threshold and close the circuit prematurely (masked by the default of `1`). The window and its success/failure counts are now cleared on entering half-open, so only successes recorded while half-open count toward closing.
+- **Circuit breaker no longer closes early from half-open when configured for multiple probes** — `maybe_transition_from_half_open_to_closed` counted window-wide successes, which still included successes recorded *before* the trip. With `half_open_requests > 1`, a single successful probe could already satisfy the threshold and close the circuit prematurely (masked by the default of `1`). Half-open probe successes are now tracked in a dedicated counter that resets on entering half-open, so only successes recorded while half-open count toward closing.
 
 - **Telemetry handler no longer detaches itself on a malformed event** — `HTTPower.Logger`'s handler read `measurements.duration` directly with no error handling, and `:telemetry` permanently detaches any handler that raises — so one malformed event silently killed all subsequent logging. Handler bodies are now wrapped so an exception is logged as a warning and the event dropped, keeping the handler attached.
 
 - **`retry_count` in `[:httpower, :request, :stop]` telemetry now reflects actual retries** — the metadata read a `:retry_count` option that was never written, so it was always `0`. `HTTPower.Retry.execute_with_retry/6` now returns `{result, retry_count}` and `HTTPower.Client` threads the real count into the stop metadata.
 
 - **`can_do_request?` guards the `HTTPower.Test` lookup** — when `test_mode: true`, the test-mode check called `HTTPower.Test.mock_enabled?/0` unguarded, which would raise if the test module were not loaded. It is now wrapped in `Code.ensure_loaded?(HTTPower.Test)`, mirroring `HTTPower.TestInterceptor`.
+
+- **Adaptive rate-limiting state no longer leaks for circuits that never recover** — the rate limiter records a per-circuit `{:adaptive_state, key}` row while a circuit is degraded and only clears it once a later request observes the circuit healthy. If traffic to that key stopped while the circuit was still open/half-open, the row was never cleared, and periodic cleanup skipped it (it matched only timestamped bucket rows). Adaptive-state rows now carry a timestamp that is refreshed on each degraded observation, and cleanup reaps any row idle past the bucket TTL.
 
 ### Security
 

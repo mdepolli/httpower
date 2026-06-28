@@ -249,6 +249,27 @@ defmodule HTTPower.Middleware.RateLimiterTest do
     end
   end
 
+  describe "adaptive state cleanup" do
+    test "reaps adaptive-state rows left idle beyond the TTL" do
+      # When a circuit degrades, the rate limiter records an adaptive-state row.
+      # If traffic to that key stops before the circuit recovers, nothing clears
+      # it, so the periodic cleanup must reap rows idle past the bucket TTL —
+      # otherwise they leak forever.
+      table = :httpower_rate_limiter
+      adaptive_key = {:adaptive_state, "idle_circuit_#{System.unique_integer([:positive])}"}
+
+      # A row last touched an hour ago — far beyond the 300s TTL.
+      stale_ts = System.monotonic_time(:microsecond) - 3_600_000_000
+      :ets.insert(table, {adaptive_key, :open, stale_ts})
+
+      send(RateLimiter, :cleanup)
+      # Flush the async :cleanup message with a synchronous call.
+      :sys.get_state(RateLimiter)
+
+      assert :ets.lookup(table, adaptive_key) == []
+    end
+  end
+
   describe "integration scenarios" do
     test "realistic API rate limit scenario" do
       # Simulate GitHub API: 60 requests per minute

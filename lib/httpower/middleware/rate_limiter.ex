@@ -515,11 +515,13 @@ defmodule HTTPower.Middleware.RateLimiter do
   defp cleanup_old_buckets do
     cutoff_us = now_us() - @bucket_ttl * 1000
 
-    # Delete idle bucket rows (integer tat value) whose TAT is older than the
-    # TTL. The is_integer guard excludes adaptive-state rows, whose value is an
-    # atom (circuit state).
     :ets.select_delete(@table_name, [
-      {{:"$1", :"$2"}, [{:is_integer, :"$2"}, {:<, :"$2", cutoff_us}], [true]}
+      # Idle GCRA bucket rows: {bucket_key, tat} with an integer TAT past the TTL.
+      {{:"$1", :"$2"}, [{:is_integer, :"$2"}, {:<, :"$2", cutoff_us}], [true]},
+      # Idle adaptive-state rows: {{:adaptive_state, key}, state, touched_us} not
+      # refreshed within the TTL — the circuit went quiet without recovering, so
+      # nothing cleared the row. Without this they would leak forever.
+      {{:"$1", :"$2", :"$3"}, [{:<, :"$3", cutoff_us}], [true]}
     ])
   end
 
@@ -596,11 +598,16 @@ defmodule HTTPower.Middleware.RateLimiter do
          reduction_factor
        ) do
     adaptive_key = {:adaptive_state, circuit_key}
-    last_state = :ets.lookup(@table_name, adaptive_key)
 
-    unless last_state == [{adaptive_key, circuit_state}] do
-      :ets.insert(@table_name, {adaptive_key, circuit_state})
+    already_recorded? =
+      match?([{^adaptive_key, ^circuit_state, _ts}], :ets.lookup(@table_name, adaptive_key))
 
+    # Refresh the row (and its timestamp) on every degraded observation so an
+    # actively-degraded circuit stays alive; the timestamp lets periodic cleanup
+    # reap it once traffic stops without the circuit recovering.
+    :ets.insert(@table_name, {adaptive_key, circuit_state, now_us()})
+
+    unless already_recorded? do
       :telemetry.execute(
         [:httpower, :rate_limit, :adaptive_reduction],
         %{
