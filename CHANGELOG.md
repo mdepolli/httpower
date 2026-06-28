@@ -53,6 +53,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Internal `HTTPower.Middleware.Dedup` functions are now `@doc false`** — `deduplicate/2`, `complete/3`, `cancel/1`, and `hash/3` operate on the internal SHA256 request hash and were never part of the public surface, but appeared in the generated docs (with stale `HTTPower.RequestDeduplicator` examples). They are now hidden. No behavior or signature change.
 
+- **Rate limiter `:wait` strategy adds wakeup jitter** — When many requests block on the same bucket waiting for a token to refill, they previously slept for the exact same computed interval and all woke simultaneously to retry the lock-free consume, contending on the same refilled token (thundering herd). The sleep now adds a small upward jitter (up to ~20%, min 1ms) to spread wakeups. Jitter is always additive so a waiter never wakes before a token is available, and `max_wait_time` accounting is unchanged (it tracks the base wait, not the jittered sleep).
+
 ### Deprecated
 
 - **`HTTPower.Logger.sanitize_headers/1` and `HTTPower.Logger.sanitize_body/1`** — Now delegate to `HTTPower.Sanitizer` and emit a deprecation warning when called. Use `HTTPower.Sanitizer.sanitize_headers/1` and `HTTPower.Sanitizer.sanitize_body/1` instead. The delegations will be removed in a future release.

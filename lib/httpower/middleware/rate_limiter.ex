@@ -440,6 +440,16 @@ defmodule HTTPower.Middleware.RateLimiter do
   # Time until the next token is available (ms, rounded up).
   defp wait_ms(tat, now, tau), do: div(tat - tau - now + 999, 1000)
 
+  # Spread concurrent waiters' wakeups so they don't all retry the lock-free
+  # consume at the same instant the token refills (thundering herd, which wastes
+  # CAS attempts). Jitter is always additive (up to ~20%, min 1ms) so the sleeper
+  # still waits at least long enough for a token to be available. The timeout
+  # accounting in wait_and_retry/6 stays on the base wait so max_wait_time
+  # semantics are unaffected.
+  defp jittered_wait_ms(wait_time_ms) do
+    wait_time_ms + :rand.uniform(max(1, div(wait_time_ms, 5)))
+  end
+
   defp rate_limiting_enabled?(config) do
     Keyword.get(config, :enabled, false)
   end
@@ -475,7 +485,7 @@ defmodule HTTPower.Middleware.RateLimiter do
         %{bucket_key: bucket_key, strategy: :wait}
       )
 
-      :timer.sleep(wait_time_ms)
+      :timer.sleep(jittered_wait_ms(wait_time_ms))
 
       # Re-check and consume after waiting — another request may have
       # consumed the token that refilled during our sleep
