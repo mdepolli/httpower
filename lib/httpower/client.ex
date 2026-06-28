@@ -23,7 +23,7 @@ defmodule HTTPower.Client do
   Runtime options passed per-request always take precedence.
   """
 
-  alias HTTPower.{Codec, Error, Request, Response}
+  alias HTTPower.{Codec, Config, Error, Request, Response}
   alias HTTPower.Middleware.{CircuitBreaker, Dedup}
 
   # Compile-time config caching for performance (avoids repeated Application.get_env calls)
@@ -54,7 +54,7 @@ defmodule HTTPower.Client do
 
                            # Features are enabled by default unless explicitly disabled
                            if Keyword.get(config, :enabled, true) do
-                             [{module, key, config} | acc]
+                             [{module, key} | acc]
                            else
                              acc
                            end
@@ -271,7 +271,8 @@ defmodule HTTPower.Client do
     }
   end
 
-  # Get request pipeline (compile-time default + runtime custom steps)
+  # Get request pipeline (compile-time default + runtime custom steps).
+  # Custom steps are {module, option_key} tuples.
   defp get_request_pipeline(opts) do
     custom_steps = Keyword.get(opts, :request_steps, [])
     @default_request_steps ++ custom_steps
@@ -333,12 +334,10 @@ defmodule HTTPower.Client do
 
   defp run_request_steps(request, []), do: {:ok, request}
 
-  defp run_request_steps(request, [{module, option_key, compile_config} | rest]) do
-    # Merge runtime config from request.opts (runtime takes precedence)
-    runtime_config = extract_runtime_config(request.opts, option_key)
-    merged_config = Keyword.merge(compile_config, runtime_config)
+  defp run_request_steps(request, [{module, option_key} | rest]) do
+    config = Config.resolve(option_key, request.opts)
 
-    case module.handle_request(request, merged_config) do
+    case module.handle_request(request, config) do
       :ok -> run_request_steps(request, rest)
       {:ok, modified_request} -> run_request_steps(modified_request, rest)
       {:halt, response} -> {:halt, response}
@@ -351,19 +350,6 @@ defmodule HTTPower.Client do
          reason: {:feature_error, module, error},
          message: "Middleware #{module} failed: #{inspect(error)}"
        }}
-  end
-
-  # Extracts runtime configuration from request options
-  # Handles: option: true → [enabled: true], option: false → [enabled: false],
-  #          option: [key: value] → [key: value], nil/missing → []
-  defp extract_runtime_config(opts, option_key) do
-    case Keyword.get(opts, option_key) do
-      nil -> []
-      true -> [enabled: true]
-      false -> [enabled: false]
-      config when is_list(config) -> config
-      _ -> []
-    end
   end
 
   defp check_test_mode_allows_request(opts) do
