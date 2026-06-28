@@ -15,11 +15,6 @@ defmodule HTTPower.ClientTest do
   use ExUnit.Case, async: true
   alias HTTPower.Retry
 
-  setup_all do
-    Application.put_env(:httpower, :test_mode, true)
-    :ok
-  end
-
   setup do
     HTTPower.Test.setup()
     :ok

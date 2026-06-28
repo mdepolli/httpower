@@ -1,4 +1,7 @@
 defmodule HTTPower.ConfigTest do
+  # async-safe despite Application.put_env/3: the keys used below
+  # (:test_config_key, :test_config_key2) are private to this test and read by
+  # nothing else, so concurrent tests can't observe them.
   use ExUnit.Case, async: true
 
   alias HTTPower.Config
