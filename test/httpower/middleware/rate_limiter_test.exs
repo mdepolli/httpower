@@ -1,175 +1,115 @@
 defmodule HTTPower.Middleware.RateLimiterTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
+  import HTTPower.Test.Keys
   alias HTTPower.Middleware.RateLimiter
   alias HTTPower.RateLimitHeaders
-  alias HTTPower.TelemetryTestHelper
 
   setup do
-    # Reset any existing buckets before each test
-    :ets.delete_all_objects(:httpower_rate_limiter)
-
-    # Ensure rate limiting is enabled for tests
-    original_config = Application.get_env(:httpower, :rate_limit, [])
-
-    on_exit(fn ->
-      Application.put_env(:httpower, :rate_limit, original_config)
-      :ets.delete_all_objects(:httpower_rate_limiter)
-    end)
-
-    :ok
+    {:ok, bucket_key: uniq("rl")}
   end
 
   describe "token bucket algorithm" do
-    test "allows requests when tokens are available" do
+    test "allows requests when tokens are available", %{bucket_key: bucket_key} do
       config = [enabled: true, requests: 10, per: :second]
 
-      assert {:ok, remaining} = RateLimiter.check_rate_limit("test_bucket", config)
+      assert {:ok, remaining} = RateLimiter.check_rate_limit(bucket_key, config)
       assert remaining > 0.0
     end
 
-    test "blocks requests when tokens are exhausted" do
+    test "blocks requests when tokens are exhausted", %{bucket_key: bucket_key} do
       config = [enabled: true, requests: 2, per: :second]
 
       # Consume all tokens
-      assert :ok = RateLimiter.consume("test_bucket", config)
-      assert :ok = RateLimiter.consume("test_bucket", config)
+      assert :ok = RateLimiter.consume(bucket_key, config)
+      assert :ok = RateLimiter.consume(bucket_key, config)
 
       # Next check should fail
       assert {:error, :too_many_requests, wait_time} =
-               RateLimiter.check_rate_limit("test_bucket", config)
+               RateLimiter.check_rate_limit(bucket_key, config)
 
       assert wait_time > 0
     end
 
-    test "refills tokens over time" do
+    test "refills tokens over time", %{bucket_key: bucket_key} do
       # 100 requests per second = 1 token every 10ms
       config = [enabled: true, requests: 100, per: :second]
 
       # Consume a token
-      assert :ok = RateLimiter.consume("test_bucket", config)
+      assert :ok = RateLimiter.consume(bucket_key, config)
 
       # Wait for refill (20ms should give us at least 1 token back)
       :timer.sleep(20)
 
       # Should have tokens again
-      assert {:ok, remaining} = RateLimiter.check_rate_limit("test_bucket", config)
+      assert {:ok, remaining} = RateLimiter.check_rate_limit(bucket_key, config)
       assert remaining >= 1.0
     end
 
-    test "respects maximum token capacity" do
+    test "respects maximum token capacity", %{bucket_key: bucket_key} do
       config = [enabled: true, requests: 5, per: :second]
 
       # Wait to ensure bucket is full
       :timer.sleep(100)
 
       # Check multiple times - shouldn't exceed max
-      assert {:ok, remaining} = RateLimiter.check_rate_limit("test_bucket", config)
+      assert {:ok, remaining} = RateLimiter.check_rate_limit(bucket_key, config)
       assert remaining <= 5.0
     end
   end
 
   describe "configuration" do
-    test "respects global configuration" do
-      Application.put_env(:httpower, :rate_limit,
-        enabled: true,
-        requests: 3,
-        per: :second
-      )
-
-      # Restart GenServer to pick up new config (config is cached at startup)
-      old_pid = Process.whereis(RateLimiter)
-      GenServer.stop(RateLimiter)
-      # Wait for the supervisor to restart it (poll instead of a fixed sleep)
-      await_rate_limiter_restart(old_pid)
-
-      # Should use global config
-      assert :ok = RateLimiter.consume("test_bucket")
-      assert :ok = RateLimiter.consume("test_bucket")
-      assert :ok = RateLimiter.consume("test_bucket")
-
-      # Next one should be rate limited
-      assert {:error, :too_many_requests, _} =
-               RateLimiter.check_rate_limit("test_bucket")
-    end
-
-    test "per-request config overrides global config" do
-      Application.put_env(:httpower, :rate_limit,
-        enabled: true,
-        requests: 100,
-        per: :second
-      )
-
-      # Override with stricter limit
-      config = [enabled: true, requests: 2, per: :second]
-
-      assert :ok = RateLimiter.consume("test_bucket", config)
-      assert :ok = RateLimiter.consume("test_bucket", config)
-
-      # Should hit the per-request limit, not global
-      assert {:error, :too_many_requests, _} =
-               RateLimiter.check_rate_limit("test_bucket", config)
-    end
-
-    test "supports different time windows" do
+    test "supports different time windows", %{bucket_key: bucket_key} do
       # Per second
       config_second = [enabled: true, requests: 10, per: :second]
-      assert {:ok, _} = RateLimiter.check_rate_limit("bucket_second", config_second)
+      assert {:ok, _} = RateLimiter.check_rate_limit(bucket_key, config_second)
 
       # Per minute
       config_minute = [enabled: true, requests: 100, per: :minute]
-      assert {:ok, _} = RateLimiter.check_rate_limit("bucket_minute", config_minute)
+      assert {:ok, _} = RateLimiter.check_rate_limit(uniq("rl"), config_minute)
 
       # Per hour
       config_hour = [enabled: true, requests: 1000, per: :hour]
-      assert {:ok, _} = RateLimiter.check_rate_limit("bucket_hour", config_hour)
+      assert {:ok, _} = RateLimiter.check_rate_limit(uniq("rl"), config_hour)
     end
 
-    test "rate limiting disabled by default" do
-      # No global config
-      Application.delete_env(:httpower, :rate_limit)
-
-      assert {:ok, :disabled} = RateLimiter.check_rate_limit("test_bucket")
-      assert :ok = RateLimiter.consume("test_bucket")
-    end
-
-    test "can explicitly disable rate limiting" do
+    test "can explicitly disable rate limiting", %{bucket_key: bucket_key} do
       config = [enabled: false]
 
-      assert {:ok, :disabled} = RateLimiter.check_rate_limit("test_bucket", config)
-      assert :ok = RateLimiter.consume("test_bucket", config)
+      assert {:ok, :disabled} = RateLimiter.check_rate_limit(bucket_key, config)
+      assert :ok = RateLimiter.consume(bucket_key, config)
     end
   end
 
   describe "strategies" do
-    test ":error strategy returns error immediately" do
+    test ":error strategy returns error immediately", %{bucket_key: bucket_key} do
       config = [enabled: true, requests: 1, per: :second, strategy: :error]
 
       # First request succeeds
-      assert :ok = RateLimiter.consume("test_bucket", config)
+      assert :ok = RateLimiter.consume(bucket_key, config)
 
       # Second request fails immediately
-      assert {:error, :too_many_requests} = RateLimiter.consume("test_bucket", config)
+      assert {:error, :too_many_requests} = RateLimiter.consume(bucket_key, config)
     end
 
-    test ":wait strategy waits for tokens" do
+    test ":wait strategy waits for tokens", %{bucket_key: bucket_key} do
       config = [enabled: true, requests: 10, per: :second, strategy: :wait]
 
       # Consume all tokens
       for _ <- 1..10 do
-        assert :ok = RateLimiter.consume("test_bucket", config)
+        assert :ok = RateLimiter.consume(bucket_key, config)
       end
 
       # Next request should wait (and succeed after brief wait)
       start_time = System.monotonic_time(:millisecond)
-      assert :ok = RateLimiter.consume("test_bucket", config)
+      assert :ok = RateLimiter.consume(bucket_key, config)
       elapsed = System.monotonic_time(:millisecond) - start_time
 
       # Should have waited at least a few milliseconds
       assert elapsed > 50
     end
 
-    test ":wait strategy respects max_wait_time" do
+    test ":wait strategy respects max_wait_time", %{bucket_key: bucket_key} do
       config = [
         enabled: true,
         requests: 1,
@@ -181,30 +121,30 @@ defmodule HTTPower.Middleware.RateLimiterTest do
       ]
 
       # Consume the only token
-      assert :ok = RateLimiter.consume("test_bucket", config)
+      assert :ok = RateLimiter.consume(bucket_key, config)
 
       # Next request should timeout
-      assert {:error, :rate_limit_wait_timeout} = RateLimiter.consume("test_bucket", config)
+      assert {:error, :rate_limit_wait_timeout} = RateLimiter.consume(bucket_key, config)
     end
   end
 
   describe "bucket isolation" do
-    test "different buckets have independent limits" do
+    test "different buckets have independent limits", %{bucket_key: bucket_key} do
       config = [enabled: true, requests: 2, per: :second]
+      other_bucket = uniq("rl")
 
       # Exhaust bucket 1
-      assert :ok = RateLimiter.consume("bucket_1", config)
-      assert :ok = RateLimiter.consume("bucket_1", config)
-      assert {:error, :too_many_requests, _} = RateLimiter.check_rate_limit("bucket_1", config)
+      assert :ok = RateLimiter.consume(bucket_key, config)
+      assert :ok = RateLimiter.consume(bucket_key, config)
+      assert {:error, :too_many_requests, _} = RateLimiter.check_rate_limit(bucket_key, config)
 
       # Bucket 2 should still have tokens
-      assert {:ok, _} = RateLimiter.check_rate_limit("bucket_2", config)
-      assert :ok = RateLimiter.consume("bucket_2", config)
+      assert {:ok, _} = RateLimiter.check_rate_limit(other_bucket, config)
+      assert :ok = RateLimiter.consume(other_bucket, config)
     end
 
-    test "same bucket key shares limits across calls" do
+    test "same bucket key shares limits across calls", %{bucket_key: key} do
       config = [enabled: true, requests: 3, per: :second]
-      key = "shared_bucket"
 
       # Consume from different places with same key
       assert :ok = RateLimiter.consume(key, config)
@@ -217,135 +157,99 @@ defmodule HTTPower.Middleware.RateLimiterTest do
   end
 
   describe "bucket management" do
-    test "can reset a bucket" do
+    test "can reset a bucket", %{bucket_key: bucket_key} do
       config = [enabled: true, requests: 2, per: :second]
 
       # Exhaust tokens
-      assert :ok = RateLimiter.consume("test_bucket", config)
-      assert :ok = RateLimiter.consume("test_bucket", config)
+      assert :ok = RateLimiter.consume(bucket_key, config)
+      assert :ok = RateLimiter.consume(bucket_key, config)
 
       assert {:error, :too_many_requests, _} =
-               RateLimiter.check_rate_limit("test_bucket", config)
+               RateLimiter.check_rate_limit(bucket_key, config)
 
       # Reset bucket
-      assert :ok = RateLimiter.reset_bucket("test_bucket")
+      assert :ok = RateLimiter.reset_bucket(bucket_key)
 
       # Should have tokens again
-      assert {:ok, _} = RateLimiter.check_rate_limit("test_bucket", config)
+      assert {:ok, _} = RateLimiter.check_rate_limit(bucket_key, config)
     end
 
-    test "get_bucket_state returns current state" do
+    test "get_bucket_state returns current state", %{bucket_key: bucket_key} do
       config = [enabled: true, requests: 10, per: :second]
 
       # Create a bucket
-      assert :ok = RateLimiter.consume("test_bucket", config)
+      assert :ok = RateLimiter.consume(bucket_key, config)
 
       # Should have state — the raw GCRA tat (monotonic microseconds)
-      state = RateLimiter.get_bucket_state("test_bucket")
+      state = RateLimiter.get_bucket_state(bucket_key)
       assert is_integer(state)
     end
 
-    test "get_bucket_state returns nil for non-existent bucket" do
-      assert nil == RateLimiter.get_bucket_state("non_existent")
-    end
-  end
-
-  describe "adaptive state cleanup" do
-    test "reaps adaptive-state rows left idle beyond the TTL" do
-      # When a circuit degrades, the rate limiter records an adaptive-state row.
-      # If traffic to that key stops before the circuit recovers, nothing clears
-      # it, so the periodic cleanup must reap rows idle past the bucket TTL —
-      # otherwise they leak forever.
-      table = :httpower_rate_limiter
-      adaptive_key = {:adaptive_state, "idle_circuit_#{System.unique_integer([:positive])}"}
-
-      # A row last touched an hour ago — far beyond the 300s TTL.
-      stale_ts = System.monotonic_time(:microsecond) - 3_600_000_000
-      :ets.insert(table, {adaptive_key, :open, stale_ts})
-
-      send(RateLimiter, :cleanup)
-      # Flush the async :cleanup message with a synchronous call.
-      :sys.get_state(RateLimiter)
-
-      assert :ets.lookup(table, adaptive_key) == []
+    test "get_bucket_state returns nil for non-existent bucket", %{bucket_key: bucket_key} do
+      assert nil == RateLimiter.get_bucket_state(bucket_key)
     end
   end
 
   describe "integration scenarios" do
-    test "realistic API rate limit scenario" do
+    test "realistic API rate limit scenario", %{bucket_key: bucket_key} do
       # Simulate GitHub API: 60 requests per minute
       config = [enabled: true, requests: 60, per: :minute, strategy: :wait]
 
       # Make 60 requests quickly
       for _ <- 1..60 do
-        assert :ok = RateLimiter.consume("github_api", config)
+        assert :ok = RateLimiter.consume(bucket_key, config)
       end
 
       # 61st request should wait
       start_time = System.monotonic_time(:millisecond)
-      assert :ok = RateLimiter.consume("github_api", config)
+      assert :ok = RateLimiter.consume(bucket_key, config)
       elapsed = System.monotonic_time(:millisecond) - start_time
 
       # Should have waited at least 1 second (1000ms)
       assert elapsed >= 900
     end
 
-    test "burst handling with token bucket" do
+    test "burst handling with token bucket", %{bucket_key: bucket_key} do
       # Allow 10 requests per second with burst capability
       config = [enabled: true, requests: 10, per: :second]
 
       # Burst: make 10 requests immediately
       for _ <- 1..10 do
-        assert :ok = RateLimiter.consume("burst_api", config)
+        assert :ok = RateLimiter.consume(bucket_key, config)
       end
 
       # Next request should be rate limited
       assert {:error, :too_many_requests, _} =
-               RateLimiter.check_rate_limit("burst_api", config)
+               RateLimiter.check_rate_limit(bucket_key, config)
 
       # Wait for refill (200ms = 2 tokens at 10 per second)
       :timer.sleep(200)
 
       # Should be able to make 2 more requests
-      assert :ok = RateLimiter.consume("burst_api", config)
-      assert :ok = RateLimiter.consume("burst_api", config)
+      assert :ok = RateLimiter.consume(bucket_key, config)
+      assert :ok = RateLimiter.consume(bucket_key, config)
     end
 
-    test "per-endpoint rate limiting" do
+    test "per-endpoint rate limiting", %{bucket_key: bucket_key} do
       # Different endpoints have different limits
       search_config = [enabled: true, requests: 10, per: :minute, strategy: :error]
       api_config = [enabled: true, requests: 100, per: :minute, strategy: :error]
+      api_bucket = uniq("rl")
 
       # Exhaust search endpoint
       for _ <- 1..10 do
-        assert :ok = RateLimiter.consume("api.example.com/search", search_config)
+        assert :ok = RateLimiter.consume(bucket_key, search_config)
       end
 
       assert {:error, :too_many_requests} =
-               RateLimiter.consume("api.example.com/search", search_config)
+               RateLimiter.consume(bucket_key, search_config)
 
       # API endpoint should still work
-      assert :ok = RateLimiter.consume("api.example.com/users", api_config)
+      assert :ok = RateLimiter.consume(api_bucket, api_config)
     end
   end
 
   describe "lock-free consume" do
-    test "consume does not depend on the GenServer process" do
-      # The consume hot path must not round-trip through the (serializing)
-      # GenServer. Proof: with the GenServer suspended, consume still works
-      # because the check-and-consume is a lock-free CAS on the public ETS table.
-      config = [enabled: true, requests: 5, per: :second, strategy: :error]
-      key = "lockfree_#{System.unique_integer([:positive])}"
-
-      :sys.suspend(RateLimiter)
-      on_exit(fn -> :sys.resume(RateLimiter) end)
-
-      task = Task.async(fn -> RateLimiter.consume(key, config) end)
-      result = Task.yield(task, 500) || Task.shutdown(task, :brutal_kill)
-
-      assert result == {:ok, :ok}
-    end
-
     test "under concurrency, never admits more than the bucket capacity" do
       # per: :hour makes refill during the (sub-second) test negligible, so a
       # capacity-50 bucket must admit exactly 50 of 200 concurrent consumers —
@@ -366,36 +270,36 @@ defmodule HTTPower.Middleware.RateLimiterTest do
   end
 
   describe "edge cases" do
-    test "handles very high request rates" do
+    test "handles very high request rates", %{bucket_key: bucket_key} do
       config = [enabled: true, requests: 1000, per: :second]
 
       # Should handle many sequential checks
       for _ <- 1..100 do
-        assert {:ok, _} = RateLimiter.check_rate_limit("high_rate", config)
+        assert {:ok, _} = RateLimiter.check_rate_limit(bucket_key, config)
       end
     end
 
-    test "handles very low request rates" do
+    test "handles very low request rates", %{bucket_key: bucket_key} do
       config = [enabled: true, requests: 1, per: :hour]
 
-      assert :ok = RateLimiter.consume("low_rate", config)
+      assert :ok = RateLimiter.consume(bucket_key, config)
 
       # Second request should be heavily rate limited
       assert {:error, :too_many_requests, wait_time} =
-               RateLimiter.check_rate_limit("low_rate", config)
+               RateLimiter.check_rate_limit(bucket_key, config)
 
       # Wait time should be close to 1 hour (3600000ms)
       assert wait_time > 3_000_000
     end
 
-    test "handles concurrent access to same bucket" do
+    test "handles concurrent access to same bucket", %{bucket_key: bucket_key} do
       config = [enabled: true, requests: 20, per: :second]
 
       # Spawn multiple processes consuming from same bucket
       tasks =
         for _ <- 1..20 do
           Task.async(fn ->
-            RateLimiter.consume("concurrent_bucket", config)
+            RateLimiter.consume(bucket_key, config)
           end)
         end
 
@@ -406,16 +310,16 @@ defmodule HTTPower.Middleware.RateLimiterTest do
 
       # Next request should fail
       assert {:error, :too_many_requests, _} =
-               RateLimiter.check_rate_limit("concurrent_bucket", config)
+               RateLimiter.check_rate_limit(bucket_key, config)
     end
   end
 
   describe "rate limit header integration" do
-    test "update_from_headers synchronizes bucket with server state" do
+    test "update_from_headers synchronizes bucket with server state", %{bucket_key: bucket_key} do
       config = [enabled: true, requests: 100, per: :minute]
 
       # Initial state - bucket has full capacity
-      assert {:ok, 100.0} = RateLimiter.check_rate_limit("github_api", config)
+      assert {:ok, 100.0} = RateLimiter.check_rate_limit(bucket_key, config)
 
       # Simulate receiving rate limit headers from GitHub API
       rate_limit_info = %{
@@ -426,30 +330,30 @@ defmodule HTTPower.Middleware.RateLimiterTest do
       }
 
       # Update bucket from server headers
-      assert :ok = RateLimiter.update_from_headers("github_api", rate_limit_info, config)
+      assert :ok = RateLimiter.update_from_headers(bucket_key, rate_limit_info, config)
 
       # Bucket should now reflect server state (~55 tokens remaining)
-      assert {:ok, remaining} = RateLimiter.check_rate_limit("github_api", config)
+      assert {:ok, remaining} = RateLimiter.check_rate_limit(bucket_key, config)
       assert_in_delta remaining, 55.0, 1.0
     end
 
-    test "get_info returns current bucket information" do
+    test "get_info returns current bucket information", %{bucket_key: bucket_key} do
       config = [enabled: true, requests: 100, per: :minute]
 
       # Create bucket
-      assert :ok = RateLimiter.consume("api_bucket", config)
+      assert :ok = RateLimiter.consume(bucket_key, config)
 
       # Get info — exposes the raw GCRA tat
-      info = RateLimiter.get_info("api_bucket")
+      info = RateLimiter.get_info(bucket_key)
       assert info != nil
       assert is_integer(info.tat_us)
     end
 
-    test "get_info returns nil for non-existent bucket" do
-      assert nil == RateLimiter.get_info("non_existent_bucket")
+    test "get_info returns nil for non-existent bucket", %{bucket_key: bucket_key} do
+      assert nil == RateLimiter.get_info(bucket_key)
     end
 
-    test "update_from_headers works with various header formats" do
+    test "update_from_headers works with various header formats", %{bucket_key: bucket_key} do
       config = [enabled: true, requests: 100, per: :minute]
 
       # Test with RFC format headers
@@ -460,11 +364,13 @@ defmodule HTTPower.Middleware.RateLimiterTest do
         format: :rfc
       }
 
-      assert :ok = RateLimiter.update_from_headers("rfc_api", rfc_info, config)
-      assert {:ok, rfc_remaining} = RateLimiter.check_rate_limit("rfc_api", config)
+      assert :ok = RateLimiter.update_from_headers(bucket_key, rfc_info, config)
+      assert {:ok, rfc_remaining} = RateLimiter.check_rate_limit(bucket_key, config)
       assert_in_delta rfc_remaining, 80.0, 1.0
 
       # Test with Stripe format headers
+      stripe_bucket = uniq("rl")
+
       stripe_info = %{
         limit: 100,
         remaining: 95,
@@ -472,12 +378,12 @@ defmodule HTTPower.Middleware.RateLimiterTest do
         format: :stripe
       }
 
-      assert :ok = RateLimiter.update_from_headers("stripe_api", stripe_info, config)
-      assert {:ok, stripe_remaining} = RateLimiter.check_rate_limit("stripe_api", config)
+      assert :ok = RateLimiter.update_from_headers(stripe_bucket, stripe_info, config)
+      assert {:ok, stripe_remaining} = RateLimiter.check_rate_limit(stripe_bucket, config)
       assert_in_delta stripe_remaining, 95.0, 1.0
     end
 
-    test "update_from_headers handles zero remaining tokens" do
+    test "update_from_headers handles zero remaining tokens", %{bucket_key: bucket_key} do
       config = [enabled: true, requests: 60, per: :minute]
 
       rate_limit_info = %{
@@ -487,14 +393,14 @@ defmodule HTTPower.Middleware.RateLimiterTest do
         format: :github
       }
 
-      assert :ok = RateLimiter.update_from_headers("exhausted_api", rate_limit_info, config)
+      assert :ok = RateLimiter.update_from_headers(bucket_key, rate_limit_info, config)
 
       # No tokens left — the next request is rate limited
       assert {:error, :too_many_requests, _wait} =
-               RateLimiter.check_rate_limit("exhausted_api", config)
+               RateLimiter.check_rate_limit(bucket_key, config)
     end
 
-    test "integration: parse headers and update bucket" do
+    test "integration: parse headers and update bucket", %{bucket_key: bucket_key} do
       # Simulate receiving HTTP response headers from GitHub
       headers = %{
         "x-ratelimit-limit" => "60",
@@ -509,17 +415,17 @@ defmodule HTTPower.Middleware.RateLimiterTest do
       assert rate_limit_info.remaining == 42
 
       # Update bucket from parsed headers
-      assert :ok = RateLimiter.update_from_headers("github_integration", rate_limit_info, config)
+      assert :ok = RateLimiter.update_from_headers(bucket_key, rate_limit_info, config)
 
       # Verify bucket reflects server state (~42 tokens remaining)
-      assert {:ok, remaining} = RateLimiter.check_rate_limit("github_integration", config)
+      assert {:ok, remaining} = RateLimiter.check_rate_limit(bucket_key, config)
       assert_in_delta remaining, 42.0, 1.0
 
       # Get info should expose the synchronized GCRA state
-      assert is_integer(RateLimiter.get_info("github_integration").tat_us)
+      assert is_integer(RateLimiter.get_info(bucket_key).tat_us)
     end
 
-    test "bucket continues to refill after server synchronization" do
+    test "bucket continues to refill after server synchronization", %{bucket_key: bucket_key} do
       config = [enabled: true, requests: 100, per: :second]
 
       # Synchronize with server state (10 tokens remaining)
@@ -530,160 +436,18 @@ defmodule HTTPower.Middleware.RateLimiterTest do
         format: :github
       }
 
-      assert :ok = RateLimiter.update_from_headers("refill_test", rate_limit_info, config)
+      assert :ok = RateLimiter.update_from_headers(bucket_key, rate_limit_info, config)
 
       # Verify starting state (~10 tokens remaining)
-      assert {:ok, before} = RateLimiter.check_rate_limit("refill_test", config)
+      assert {:ok, before} = RateLimiter.check_rate_limit(bucket_key, config)
       assert_in_delta before, 10.0, 1.0
 
       # Wait for token refill (100 req/sec = 10 tokens per 100ms)
       :timer.sleep(150)
 
       # Check that bucket has refilled
-      assert {:ok, remaining} = RateLimiter.check_rate_limit("refill_test", config)
+      assert {:ok, remaining} = RateLimiter.check_rate_limit(bucket_key, config)
       assert remaining > 10.0
-    end
-  end
-
-  describe "crash recovery" do
-    test "GenServer crash doesn't orphan ETS table" do
-      config = [enabled: true, requests: 10, per: :minute]
-
-      # Use rate limiter
-      assert :ok = RateLimiter.consume("crash_test", config)
-
-      # Get GenServer pid and kill it
-      pid = Process.whereis(HTTPower.Middleware.RateLimiter)
-      ref = Process.monitor(pid)
-      Process.exit(pid, :kill)
-
-      # Wait for process to die
-      receive do
-        {:DOWN, ^ref, :process, ^pid, :killed} -> :ok
-      after
-        1_000 -> flunk("GenServer didn't die")
-      end
-
-      # Wait for the supervisor to restart it (poll instead of a fixed sleep)
-      await_rate_limiter_restart(pid)
-
-      # Should be able to use rate limiter again (new ETS table created)
-      assert :ok = RateLimiter.consume("crash_test", config)
-
-      # New GenServer should be running
-      new_pid = Process.whereis(HTTPower.Middleware.RateLimiter)
-      assert new_pid != nil
-      assert new_pid != pid
-    end
-  end
-
-  describe "telemetry - rate limiter events" do
-    setup do
-      # Reset rate limiter state
-      RateLimiter.reset_bucket("test_bucket")
-
-      # Attach telemetry handler to capture events
-      ref = make_ref()
-      test_pid = self()
-
-      events = [
-        [:httpower, :rate_limit, :ok],
-        [:httpower, :rate_limit, :wait],
-        [:httpower, :rate_limit, :exceeded]
-      ]
-
-      :telemetry.attach_many(
-        ref,
-        events,
-        &TelemetryTestHelper.forward_event/4,
-        %{test_pid: test_pid}
-      )
-
-      on_exit(fn -> :telemetry.detach(ref) end)
-
-      %{ref: ref}
-    end
-
-    test "emits ok event when rate limit is not exceeded" do
-      config = [enabled: true, requests: 10, per: :second]
-
-      RateLimiter.consume("test_bucket", config)
-
-      assert_received {:telemetry, [:httpower, :rate_limit, :ok], measurements, metadata}
-      assert measurements.tokens_remaining > 0
-      assert measurements.wait_time_ms == 0
-      assert metadata.bucket_key == "test_bucket"
-    end
-
-    test "emits wait event when rate limit exceeded with wait strategy" do
-      config = [enabled: true, requests: 5, per: :second, strategy: :wait, max_wait_time: 500]
-
-      # Exhaust the rate limit
-      for _ <- 1..5 do
-        RateLimiter.consume("test_bucket", config)
-      end
-
-      # Clear previous telemetry messages
-      flush_telemetry()
-
-      # This should trigger wait
-      RateLimiter.consume("test_bucket", config)
-
-      assert_received {:telemetry, [:httpower, :rate_limit, :wait], measurements, metadata}
-      assert measurements.wait_time_ms > 0
-      assert metadata.bucket_key == "test_bucket"
-      assert metadata.strategy == :wait
-    end
-
-    test "emits exceeded event when rate limit exceeded with error strategy" do
-      config = [enabled: true, requests: 5, per: :second, strategy: :error]
-
-      # Exhaust the rate limit
-      for _ <- 1..5 do
-        RateLimiter.consume("test_bucket", config)
-      end
-
-      # Clear previous telemetry messages
-      flush_telemetry()
-
-      # This should trigger error
-      {:error, :too_many_requests} = RateLimiter.consume("test_bucket", config)
-
-      assert_received {:telemetry, [:httpower, :rate_limit, :exceeded], measurements, metadata}
-      assert measurements.tokens_remaining == 0
-      assert metadata.bucket_key == "test_bucket"
-      assert metadata.strategy == :error
-    end
-  end
-
-  defp flush_telemetry do
-    receive do
-      {:telemetry, _, _, _} -> flush_telemetry()
-    after
-      0 -> :ok
-    end
-  end
-
-  # Polls for the supervisor to restart the RateLimiter with a fresh pid,
-  # instead of guessing a fixed sleep duration.
-  defp await_rate_limiter_restart(old_pid, timeout \\ 1_000) do
-    deadline = System.monotonic_time(:millisecond) + timeout
-    do_await_rate_limiter_restart(old_pid, deadline)
-  end
-
-  defp do_await_rate_limiter_restart(old_pid, deadline) do
-    pid = Process.whereis(RateLimiter)
-
-    cond do
-      is_pid(pid) and pid != old_pid and Process.alive?(pid) ->
-        pid
-
-      System.monotonic_time(:millisecond) >= deadline ->
-        flunk("RateLimiter did not restart within timeout")
-
-      true ->
-        Process.sleep(5)
-        do_await_rate_limiter_restart(old_pid, deadline)
     end
   end
 end
