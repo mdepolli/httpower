@@ -26,10 +26,15 @@ defmodule HTTPower.Middleware.RateLimiterGlobalTest do
 
   describe "configuration" do
     test "respects global configuration" do
+      # per: :minute (not :second) so GCRA refill is negligible during the test:
+      # at requests: 3 per minute a token takes ~20s to refill, so the 4th check
+      # is reliably rejected even when the scheduler is loaded (e.g. right after
+      # the async suite's burst). At per: :second a >333ms hiccup would refill a
+      # token and flake the assertion.
       Application.put_env(:httpower, :rate_limit,
         enabled: true,
         requests: 3,
-        per: :second
+        per: :minute
       )
 
       # Restart GenServer to pick up new config (config is cached at startup)
@@ -55,8 +60,9 @@ defmodule HTTPower.Middleware.RateLimiterGlobalTest do
         per: :second
       )
 
-      # Override with stricter limit
-      config = [enabled: true, requests: 2, per: :second]
+      # Override with stricter limit. per: :minute keeps GCRA refill negligible
+      # during the test so the 3rd check is reliably rejected under scheduler load.
+      config = [enabled: true, requests: 2, per: :minute]
 
       assert :ok = RateLimiter.consume("test_bucket", config)
       assert :ok = RateLimiter.consume("test_bucket", config)
