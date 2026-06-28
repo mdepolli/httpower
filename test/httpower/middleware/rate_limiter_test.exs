@@ -239,11 +239,9 @@ defmodule HTTPower.Middleware.RateLimiterTest do
       # Create a bucket
       assert :ok = RateLimiter.consume("test_bucket", config)
 
-      # Should have state
+      # Should have state — the raw GCRA tat (monotonic microseconds)
       state = RateLimiter.get_bucket_state("test_bucket")
-      assert {tokens, timestamp} = state
-      assert is_float(tokens)
-      assert is_integer(timestamp)
+      assert is_integer(state)
     end
 
     test "get_bucket_state returns nil for non-existent bucket" do
@@ -309,6 +307,42 @@ defmodule HTTPower.Middleware.RateLimiterTest do
     end
   end
 
+  describe "lock-free consume" do
+    test "consume does not depend on the GenServer process" do
+      # The consume hot path must not round-trip through the (serializing)
+      # GenServer. Proof: with the GenServer suspended, consume still works
+      # because the check-and-consume is a lock-free CAS on the public ETS table.
+      config = [enabled: true, requests: 5, per: :second, strategy: :error]
+      key = "lockfree_#{System.unique_integer([:positive])}"
+
+      :sys.suspend(RateLimiter)
+      on_exit(fn -> :sys.resume(RateLimiter) end)
+
+      task = Task.async(fn -> RateLimiter.consume(key, config) end)
+      result = Task.yield(task, 500) || Task.shutdown(task, :brutal_kill)
+
+      assert result == {:ok, :ok}
+    end
+
+    test "under concurrency, never admits more than the bucket capacity" do
+      # per: :hour makes refill during the (sub-second) test negligible, so a
+      # capacity-50 bucket must admit exactly 50 of 200 concurrent consumers —
+      # no over-admission from a lost-update race.
+      config = [enabled: true, requests: 50, per: :hour, strategy: :error]
+      key = "race_#{System.unique_integer([:positive])}"
+
+      results =
+        1..200
+        |> Task.async_stream(fn _ -> RateLimiter.consume(key, config) end,
+          max_concurrency: 50,
+          ordered: false
+        )
+        |> Enum.map(fn {:ok, r} -> r end)
+
+      assert Enum.count(results, &(&1 == :ok)) == 50
+    end
+  end
+
   describe "edge cases" do
     test "handles very high request rates" do
       config = [enabled: true, requests: 1000, per: :second]
@@ -352,46 +386,6 @@ defmodule HTTPower.Middleware.RateLimiterTest do
       assert {:error, :too_many_requests, _} =
                RateLimiter.check_rate_limit("concurrent_bucket", config)
     end
-
-    test "consume atomically checks and consumes in a single GenServer call" do
-      # consume/2 must check token availability and consume in a single atomic
-      # GenServer.call to prevent race conditions where concurrent callers both
-      # pass the check before either consumes.
-      config = [enabled: true, requests: 3, per: :hour, strategy: :error]
-
-      # Three consumes should succeed (3 tokens available)
-      assert :ok = RateLimiter.consume("atomic_bucket", config)
-      assert :ok = RateLimiter.consume("atomic_bucket", config)
-      assert :ok = RateLimiter.consume("atomic_bucket", config)
-
-      # Fourth should fail
-      assert {:error, :too_many_requests} = RateLimiter.consume("atomic_bucket", config)
-
-      # Verify token state: tokens should be exactly 0 (not negative)
-      {tokens, _ts} = RateLimiter.get_bucket_state("atomic_bucket")
-
-      assert tokens >= 0.0,
-             "Tokens went negative (#{tokens}), indicating consume subtracted without checking"
-    end
-
-    test "consume is atomic — tokens cannot go negative" do
-      # consume/2 uses a single atomic GenServer.call that checks and consumes
-      # in one step. This prevents the race condition where separate check+consume
-      # calls allowed multiple processes to pass the check before any consumed.
-      config = [enabled: true, requests: 1, per: :hour, strategy: :error]
-
-      # Consume the only token
-      assert :ok = RateLimiter.consume("atomic_single_bucket", config)
-
-      # Second consume must fail
-      assert {:error, :too_many_requests} = RateLimiter.consume("atomic_single_bucket", config)
-
-      # Tokens must never go negative — the failed consume should not decrement
-      {tokens, _ts} = RateLimiter.get_bucket_state("atomic_single_bucket")
-
-      assert tokens >= 0.0,
-             "Tokens went to #{tokens} — failed consume should not decrement tokens"
-    end
   end
 
   describe "rate limit header integration" do
@@ -399,8 +393,7 @@ defmodule HTTPower.Middleware.RateLimiterTest do
       config = [enabled: true, requests: 100, per: :minute]
 
       # Initial state - bucket has full capacity
-      assert {:ok, remaining} = RateLimiter.check_rate_limit("github_api", config)
-      assert remaining == 100.0
+      assert {:ok, 100.0} = RateLimiter.check_rate_limit("github_api", config)
 
       # Simulate receiving rate limit headers from GitHub API
       rate_limit_info = %{
@@ -411,11 +404,11 @@ defmodule HTTPower.Middleware.RateLimiterTest do
       }
 
       # Update bucket from server headers
-      assert :ok = RateLimiter.update_from_headers("github_api", rate_limit_info)
+      assert :ok = RateLimiter.update_from_headers("github_api", rate_limit_info, config)
 
-      # Bucket should now reflect server state (55 tokens remaining)
-      {current_tokens, _last_refill_ms} = RateLimiter.get_bucket_state("github_api")
-      assert current_tokens == 55.0
+      # Bucket should now reflect server state (~55 tokens remaining)
+      assert {:ok, remaining} = RateLimiter.check_rate_limit("github_api", config)
+      assert_in_delta remaining, 55.0, 1.0
     end
 
     test "get_info returns current bucket information" do
@@ -424,12 +417,10 @@ defmodule HTTPower.Middleware.RateLimiterTest do
       # Create bucket
       assert :ok = RateLimiter.consume("api_bucket", config)
 
-      # Get info
+      # Get info — exposes the raw GCRA tat
       info = RateLimiter.get_info("api_bucket")
       assert info != nil
-      assert Map.has_key?(info, :current_tokens)
-      assert Map.has_key?(info, :last_refill_ms)
-      assert info.current_tokens < 100.0
+      assert is_integer(info.tat_us)
     end
 
     test "get_info returns nil for non-existent bucket" do
@@ -437,6 +428,8 @@ defmodule HTTPower.Middleware.RateLimiterTest do
     end
 
     test "update_from_headers works with various header formats" do
+      config = [enabled: true, requests: 100, per: :minute]
+
       # Test with RFC format headers
       rfc_info = %{
         limit: 100,
@@ -445,9 +438,9 @@ defmodule HTTPower.Middleware.RateLimiterTest do
         format: :rfc
       }
 
-      assert :ok = RateLimiter.update_from_headers("rfc_api", rfc_info)
-      {tokens, _} = RateLimiter.get_bucket_state("rfc_api")
-      assert tokens == 80.0
+      assert :ok = RateLimiter.update_from_headers("rfc_api", rfc_info, config)
+      assert {:ok, rfc_remaining} = RateLimiter.check_rate_limit("rfc_api", config)
+      assert_in_delta rfc_remaining, 80.0, 1.0
 
       # Test with Stripe format headers
       stripe_info = %{
@@ -457,12 +450,14 @@ defmodule HTTPower.Middleware.RateLimiterTest do
         format: :stripe
       }
 
-      assert :ok = RateLimiter.update_from_headers("stripe_api", stripe_info)
-      {tokens, _} = RateLimiter.get_bucket_state("stripe_api")
-      assert tokens == 95.0
+      assert :ok = RateLimiter.update_from_headers("stripe_api", stripe_info, config)
+      assert {:ok, stripe_remaining} = RateLimiter.check_rate_limit("stripe_api", config)
+      assert_in_delta stripe_remaining, 95.0, 1.0
     end
 
     test "update_from_headers handles zero remaining tokens" do
+      config = [enabled: true, requests: 60, per: :minute]
+
       rate_limit_info = %{
         limit: 60,
         remaining: 0,
@@ -470,9 +465,11 @@ defmodule HTTPower.Middleware.RateLimiterTest do
         format: :github
       }
 
-      assert :ok = RateLimiter.update_from_headers("exhausted_api", rate_limit_info)
-      {tokens, _} = RateLimiter.get_bucket_state("exhausted_api")
-      assert tokens == 0.0
+      assert :ok = RateLimiter.update_from_headers("exhausted_api", rate_limit_info, config)
+
+      # No tokens left — the next request is rate limited
+      assert {:error, :too_many_requests, _wait} =
+               RateLimiter.check_rate_limit("exhausted_api", config)
     end
 
     test "integration: parse headers and update bucket" do
@@ -483,20 +480,21 @@ defmodule HTTPower.Middleware.RateLimiterTest do
         "x-ratelimit-reset" => "1234567890"
       }
 
+      config = [enabled: true, requests: 100, per: :minute]
+
       # Parse headers
       assert {:ok, rate_limit_info} = RateLimitHeaders.parse(headers)
       assert rate_limit_info.remaining == 42
 
       # Update bucket from parsed headers
-      assert :ok = RateLimiter.update_from_headers("github_integration", rate_limit_info)
+      assert :ok = RateLimiter.update_from_headers("github_integration", rate_limit_info, config)
 
-      # Verify bucket state matches server
-      {tokens, _} = RateLimiter.get_bucket_state("github_integration")
-      assert tokens == 42.0
+      # Verify bucket reflects server state (~42 tokens remaining)
+      assert {:ok, remaining} = RateLimiter.check_rate_limit("github_integration", config)
+      assert_in_delta remaining, 42.0, 1.0
 
-      # Get info should show the synchronized state
-      info = RateLimiter.get_info("github_integration")
-      assert info.current_tokens == 42.0
+      # Get info should expose the synchronized GCRA state
+      assert is_integer(RateLimiter.get_info("github_integration").tat_us)
     end
 
     test "bucket continues to refill after server synchronization" do
@@ -510,11 +508,11 @@ defmodule HTTPower.Middleware.RateLimiterTest do
         format: :github
       }
 
-      assert :ok = RateLimiter.update_from_headers("refill_test", rate_limit_info)
+      assert :ok = RateLimiter.update_from_headers("refill_test", rate_limit_info, config)
 
-      # Verify starting state
-      {tokens_before, _} = RateLimiter.get_bucket_state("refill_test")
-      assert tokens_before == 10.0
+      # Verify starting state (~10 tokens remaining)
+      assert {:ok, before} = RateLimiter.check_rate_limit("refill_test", config)
+      assert_in_delta before, 10.0, 1.0
 
       # Wait for token refill (100 req/sec = 10 tokens per 100ms)
       :timer.sleep(150)

@@ -69,10 +69,16 @@ defmodule HTTPower.Middleware.RateLimiter do
 
   ## Implementation Details
 
-  - Uses ETS table for fast in-memory storage
-  - Tokens refill continuously based on elapsed time
-  - Buckets are automatically cleaned up after inactivity
-  - Thread-safe with atomic check-and-consume via GenServer serialization
+  Internally this uses the GCRA (Generic Cell Rate Algorithm) formulation of a
+  token bucket: each bucket is a single timestamp (the "theoretical arrival
+  time") rather than a token count, which makes the hot path a lock-free
+  compare-and-swap. The token-bucket semantics above are preserved exactly.
+
+  - Uses a public ETS table for fast in-memory storage; one integer per bucket
+  - Refill is implicit in the GCRA timestamp arithmetic (no periodic ticking)
+  - Thread-safe via lock-free compare-and-swap (`:ets.select_replace/2`) in the
+    caller process — no GenServer round-trip on the hot path; rejects write nothing
+  - The GenServer owns only the table lifecycle and periodic cleanup of idle buckets
   - Adaptive mode queries circuit breaker state (read-only, no coupling)
   """
 
@@ -95,10 +101,11 @@ defmodule HTTPower.Middleware.RateLimiter do
           max_wait_time: pos_integer()
         ]
 
-  @type bucket_state :: {
-          current_tokens :: float(),
-          last_refill_ms :: integer()
-        }
+  # GCRA state: a single "theoretical arrival time" per bucket, in monotonic
+  # microseconds. The bucket is allowed iff `now >= tat - tau`; on accept,
+  # `tat = max(now, tat) + T`. A single value makes the hot path a lock-free
+  # compare-and-swap (no GenServer round-trip).
+  @type tat_us :: integer()
 
   ## Public API
 
@@ -159,8 +166,9 @@ defmodule HTTPower.Middleware.RateLimiter do
   ## Examples
 
       iex> HTTPower.RateLimiter.check_rate_limit("api.example.com")
-      {:ok, 99.0}
+      {:ok, 100.0}
 
+      # once the bucket is exhausted:
       iex> HTTPower.RateLimiter.check_rate_limit("api.example.com", requests: 5, per: :second)
       {:error, :too_many_requests, 200}
   """
@@ -168,9 +176,27 @@ defmodule HTTPower.Middleware.RateLimiter do
           {:ok, float()} | {:ok, :disabled} | {:error, :too_many_requests, integer()}
   def check_rate_limit(bucket_key, config \\ []) do
     if rate_limiting_enabled?(config) do
-      GenServer.call(__MODULE__, {:check_rate_limit, bucket_key, config})
+      peek(bucket_key, gcra_params(config))
     else
       {:ok, :disabled}
+    end
+  end
+
+  # Read-only GCRA check (no consume, no write).
+  defp peek(bucket_key, {requests, _t, tau} = params) do
+    now = now_us()
+
+    case :ets.lookup(@table_name, bucket_key) do
+      [] -> {:ok, requests * 1.0}
+      [{^bucket_key, tat}] -> peek_existing(tat, now, tau, params)
+    end
+  end
+
+  defp peek_existing(tat, now, tau, params) do
+    if allowed?(tat, now, tau) do
+      {:ok, remaining_tokens(tat, now, params)}
+    else
+      {:error, :too_many_requests, wait_ms(tat, now, tau)}
     end
   end
 
@@ -199,7 +225,7 @@ defmodule HTTPower.Middleware.RateLimiter do
     if rate_limiting_enabled?(config) do
       strategy = get_strategy(config)
 
-      case GenServer.call(__MODULE__, {:check_and_consume, bucket_key, config}) do
+      case do_consume(bucket_key, gcra_params(config)) do
         {:ok, remaining} ->
           :telemetry.execute(
             [:httpower, :rate_limit, :ok],
@@ -217,6 +243,53 @@ defmodule HTTPower.Middleware.RateLimiter do
     end
   end
 
+  # Lock-free check-and-consume: a GCRA compare-and-swap on the public ETS
+  # table. No GenServer round-trip; retries only on genuine write contention.
+  defp do_consume(bucket_key, params) do
+    now = now_us()
+
+    case :ets.lookup(@table_name, bucket_key) do
+      [] -> consume_fresh(bucket_key, now, params)
+      [{^bucket_key, tat}] -> consume_existing(bucket_key, tat, now, params)
+    end
+  end
+
+  defp consume_fresh(bucket_key, now, {_requests, t, _tau} = params) do
+    new_tat = now + t
+
+    if :ets.insert_new(@table_name, {bucket_key, new_tat}) do
+      {:ok, remaining_tokens(new_tat, now, params)}
+    else
+      # Another caller created the bucket first; retry against it.
+      do_consume(bucket_key, params)
+    end
+  end
+
+  defp consume_existing(bucket_key, tat, now, {_requests, t, tau} = params) do
+    new_tat = max(now, tat) + t
+
+    cond do
+      not allowed?(tat, now, tau) ->
+        {:error, :too_many_requests, wait_ms(tat, now, tau)}
+
+      cas(bucket_key, tat, new_tat) ->
+        {:ok, remaining_tokens(new_tat, now, params)}
+
+      true ->
+        # Lost the race; the value changed under us — recompute and retry.
+        do_consume(bucket_key, params)
+    end
+  end
+
+  # Atomic compare-and-swap on a single bucket row via select_replace: replace
+  # {key, old_tat} with {key, new_tat} only if the row still holds old_tat.
+  # Returns true if it swapped, false if another writer got there first.
+  defp cas(bucket_key, old_tat, new_tat) do
+    :ets.select_replace(@table_name, [
+      {{bucket_key, old_tat}, [], [{{{:const, bucket_key}, new_tat}}]}
+    ]) == 1
+  end
+
   @doc """
   Resets a specific bucket, clearing all tokens.
 
@@ -224,71 +297,68 @@ defmodule HTTPower.Middleware.RateLimiter do
   """
   @spec reset_bucket(bucket_key()) :: :ok
   def reset_bucket(bucket_key) do
-    GenServer.call(__MODULE__, {:reset_bucket, bucket_key})
+    :ets.delete(@table_name, bucket_key)
+    :ok
   end
 
   @doc """
-  Returns the current state of a bucket.
+  Returns the raw GCRA state (`tat_us`) of a bucket, or `nil` if it doesn't exist.
 
-  Returns `nil` if bucket doesn't exist.
+  This is the theoretical arrival time in monotonic microseconds. For a
+  human-meaningful "tokens remaining" value, use `check_rate_limit/2`, which
+  interprets the state against a rate config.
   """
-  @spec get_bucket_state(bucket_key()) :: bucket_state() | nil
+  @spec get_bucket_state(bucket_key()) :: tat_us() | nil
   def get_bucket_state(bucket_key) do
     case :ets.lookup(@table_name, bucket_key) do
-      [{^bucket_key, state}] -> state
+      [{^bucket_key, tat}] -> tat
       [] -> nil
     end
   end
 
   @doc """
-  Updates bucket state from server rate limit headers.
+  Synchronizes the local bucket with a server's reported rate limit state.
 
-  This synchronizes the local bucket with the server's actual rate limit state.
-  Server headers provide: limit, remaining, reset_at timestamp.
-  We convert this to our token bucket format: remaining tokens + current time.
+  Server headers report a remaining *count*; GCRA stores a single timestamp, so
+  we position the bucket's `tat` such that `remaining` tokens read back under the
+  given rate `config` (which supplies the window/rate the server count is
+  relative to). `remaining` is clamped to `[0, requests]`.
 
   ## Examples
 
-      iex> rate_limit_info = %{
-      ...>   limit: 60,
-      ...>   remaining: 55,
-      ...>   reset_at: ~U[2025-10-01 12:00:00Z],
-      ...>   format: :github
-      ...> }
-      iex> HTTPower.RateLimiter.update_from_headers("api.github.com", rate_limit_info)
+      iex> info = %{limit: 60, remaining: 55, reset_at: ~U[2025-10-01 12:00:00Z], format: :github}
+      iex> HTTPower.RateLimiter.update_from_headers("api.github.com", info, requests: 60, per: :minute)
       :ok
   """
-  @spec update_from_headers(bucket_key(), map()) :: :ok
-  def update_from_headers(bucket_key, rate_limit_info) when is_map(rate_limit_info) do
-    GenServer.call(__MODULE__, {:update_from_headers, bucket_key, rate_limit_info})
+  @spec update_from_headers(bucket_key(), map(), rate_limit_config()) :: :ok
+  def update_from_headers(bucket_key, rate_limit_info, config \\ [])
+      when is_map(rate_limit_info) do
+    {requests, t, tau} = gcra_params(config)
+
+    remaining =
+      rate_limit_info
+      |> Map.get(:remaining, 0)
+      |> min(requests)
+      |> max(0)
+
+    tat = now_us() + tau + t - round(remaining * t)
+    :ets.insert(@table_name, {bucket_key, tat})
+    :ok
   end
 
   @doc """
-  Returns rate limit information for a bucket.
-
-  Includes both current token count and server-provided limits if available.
-
-  Returns `nil` if bucket doesn't exist.
+  Returns the raw GCRA state for a bucket as a map, or `nil` if it doesn't exist.
 
   ## Examples
 
       iex> HTTPower.RateLimiter.get_info("api.github.com")
-      %{
-        current_tokens: 55.0,
-        last_refill_ms: 1234567890
-      }
+      %{tat_us: 1_234_567_890}
   """
-  @spec get_info(bucket_key()) :: map() | nil
+  @spec get_info(bucket_key()) :: %{tat_us: tat_us()} | nil
   def get_info(bucket_key) do
     case :ets.lookup(@table_name, bucket_key) do
-      [{^bucket_key, {current_tokens, last_refill_ms}}] ->
-        %{
-          current_tokens: current_tokens,
-          last_refill_ms: last_refill_ms
-        }
-
-      [] ->
-        nil
+      [{^bucket_key, tat}] -> %{tat_us: tat}
+      [] -> nil
     end
   end
 
@@ -296,9 +366,10 @@ defmodule HTTPower.Middleware.RateLimiter do
 
   @impl true
   def init(_opts) do
-    # Create ETS table for storing bucket states
-    # heir: :none ensures table dies with process (prevents orphaning on crash)
-    # write_concurrency improves performance under high concurrent load (2-3x throughput)
+    # The GenServer owns the table lifecycle and periodic cleanup only — all
+    # bucket operations run lock-free in caller processes against this public
+    # table. heir: :none ensures the table dies with the process (no orphaning
+    # on crash); write_concurrency lets concurrent CAS writers proceed in parallel.
     :ets.new(@table_name, [
       :named_table,
       :public,
@@ -308,62 +379,9 @@ defmodule HTTPower.Middleware.RateLimiter do
       {:heir, :none}
     ])
 
-    # Cache default config at startup to avoid repeated Application.get_env calls
-    default_config = Application.get_env(:httpower, :rate_limit, [])
-
-    # Schedule periodic cleanup
     schedule_cleanup()
 
-    {:ok, %{default_config: default_config}}
-  end
-
-  @impl true
-  def handle_call({:check_rate_limit, bucket_key, config}, _from, state) do
-    {refill_rate, refilled_tokens, now_ms} = refill_bucket(bucket_key, config, state)
-
-    if refilled_tokens >= 1.0 do
-      :ets.insert(@table_name, {bucket_key, {refilled_tokens, now_ms}})
-      {:reply, {:ok, refilled_tokens}, state}
-    else
-      wait_time_ms = calculate_wait_time(refilled_tokens, refill_rate)
-      {:reply, {:error, :too_many_requests, wait_time_ms}, state}
-    end
-  end
-
-  @impl true
-  def handle_call({:check_and_consume, bucket_key, config}, _from, state) do
-    {refill_rate, refilled_tokens, now_ms} = refill_bucket(bucket_key, config, state)
-
-    if refilled_tokens >= 1.0 do
-      new_tokens = refilled_tokens - 1.0
-      :ets.insert(@table_name, {bucket_key, {new_tokens, now_ms}})
-      {:reply, {:ok, new_tokens}, state}
-    else
-      :ets.insert(@table_name, {bucket_key, {refilled_tokens, now_ms}})
-      wait_time_ms = calculate_wait_time(refilled_tokens, refill_rate)
-      {:reply, {:error, :too_many_requests, wait_time_ms}, state}
-    end
-  end
-
-  @impl true
-  def handle_call({:reset_bucket, bucket_key}, _from, state) do
-    :ets.delete(@table_name, bucket_key)
-    {:reply, :ok, state}
-  end
-
-  @impl true
-  def handle_call({:update_from_headers, bucket_key, rate_limit_info}, _from, state) do
-    # Server provides: limit, remaining, reset_at
-    # We store: {current_tokens (float), last_refill_ms (integer)}
-    #
-    # Strategy: Set current_tokens to remaining value from server
-    # This synchronizes our local bucket with server's actual state
-    remaining = Map.get(rate_limit_info, :remaining, 0)
-    now_ms = System.monotonic_time(:millisecond)
-
-    :ets.insert(@table_name, {bucket_key, {remaining * 1.0, now_ms}})
-
-    {:reply, :ok, state}
+    {:ok, %{}}
   end
 
   @impl true
@@ -380,52 +398,44 @@ defmodule HTTPower.Middleware.RateLimiter do
 
   ## Private Functions
 
-  defp refill_bucket(bucket_key, config, state) do
-    {max_tokens, refill_rate} = get_bucket_params(config, state.default_config)
-    now_ms = System.monotonic_time(:millisecond)
+  defp now_us, do: System.monotonic_time(:microsecond)
 
-    {current_tokens, last_refill_ms} =
-      case :ets.lookup(@table_name, bucket_key) do
-        [{^bucket_key, bucket_state}] -> bucket_state
-        [] -> {max_tokens, now_ms}
-      end
+  # GCRA parameters derived from the rate config:
+  #   T   = emission interval (µs per token)
+  #   tau = burst tolerance, sized so an idle bucket admits a burst of `requests`
+  # Falls back to the runtime :rate_limit config for keys not in `config`.
+  defp gcra_params(config) do
+    default = Application.get_env(:httpower, :rate_limit, [])
+    requests = Keyword.get(config, :requests) || Keyword.get(default, :requests, 100)
+    per = Keyword.get(config, :per) || Keyword.get(default, :per, :second)
 
-    elapsed_ms = now_ms - last_refill_ms
-    refilled_tokens = min(max_tokens, current_tokens + elapsed_ms * refill_rate)
+    t = max(1, div(window_us(per), requests))
+    tau = (requests - 1) * t
 
-    {refill_rate, refilled_tokens, now_ms}
+    {requests, t, tau}
   end
 
-  defp calculate_wait_time(refilled_tokens, refill_rate) do
-    tokens_needed = 1.0 - refilled_tokens
-    trunc(Float.ceil(tokens_needed / refill_rate))
+  defp window_us(:second), do: 1_000_000
+  defp window_us(:minute), do: 60_000_000
+  defp window_us(:hour), do: 3_600_000_000
+
+  # A request is allowed iff its arrival is at or after the earliest permitted
+  # time (TAT minus the burst tolerance).
+  defp allowed?(tat, now, tau), do: now >= tat - tau
+
+  # Tokens currently available, as a continuous value in [0, requests]. Equals
+  # `requests` when fully idle and `1` at the reject boundary (tat - now == tau).
+  defp remaining_tokens(tat, now, {requests, t, tau}) do
+    ((tau + t - (tat - now)) / t)
+    |> max(0.0)
+    |> min(requests * 1.0)
   end
+
+  # Time until the next token is available (ms, rounded up).
+  defp wait_ms(tat, now, tau), do: div(tat - tau - now + 999, 1000)
 
   defp rate_limiting_enabled?(config) do
     HTTPower.Config.enabled?(config, :rate_limit, false)
-  end
-
-  # Use cached default_config instead of Application.get_env
-  defp get_bucket_params(config, default_config) do
-    requests =
-      Keyword.get(config, :requests) ||
-        Keyword.get(default_config, :requests, 100)
-
-    per =
-      Keyword.get(config, :per) ||
-        Keyword.get(default_config, :per, :second)
-
-    window_ms =
-      case per do
-        :second -> 1_000
-        :minute -> 60_000
-        :hour -> 3_600_000
-      end
-
-    max_tokens = requests * 1.0
-    refill_rate = max_tokens / window_ms
-
-    {max_tokens, refill_rate}
   end
 
   # Public-facing helper (loads config from Application.get_env)
@@ -477,7 +487,7 @@ defmodule HTTPower.Middleware.RateLimiter do
 
       # Re-check and consume after waiting — another request may have
       # consumed the token that refilled during our sleep
-      case GenServer.call(__MODULE__, {:check_and_consume, bucket_key, config}) do
+      case do_consume(bucket_key, gcra_params(config)) do
         {:ok, _remaining} ->
           :ok
 
@@ -499,11 +509,13 @@ defmodule HTTPower.Middleware.RateLimiter do
   end
 
   defp cleanup_old_buckets do
-    now_ms = System.monotonic_time(:millisecond)
-    cutoff_ms = now_ms - @bucket_ttl
+    cutoff_us = now_us() - @bucket_ttl * 1000
 
+    # Delete idle bucket rows (integer tat value) whose TAT is older than the
+    # TTL. The is_integer guard excludes adaptive-state rows, whose value is an
+    # atom (circuit state).
     :ets.select_delete(@table_name, [
-      {{:"$1", {:"$2", :"$3"}}, [{:<, :"$3", cutoff_ms}], [true]}
+      {{:"$1", :"$2"}, [{:is_integer, :"$2"}, {:<, :"$2", cutoff_us}], [true]}
     ])
   end
 
