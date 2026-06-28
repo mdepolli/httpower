@@ -57,9 +57,6 @@ defmodule HTTPower.Middleware.Dedup do
 
   use GenServer
 
-  # Compile-time config caching for performance (avoids repeated Application.get_env calls)
-  @default_config Application.compile_env(:httpower, :deduplicate, [])
-
   @completed_ttl 500
   @default_wait_timeout 30_000
   @cleanup_interval 5_000
@@ -435,7 +432,7 @@ defmodule HTTPower.Middleware.Dedup do
   end
 
   defp deduplication_enabled?(config) do
-    Keyword.get(config, :enabled, Keyword.get(@default_config, :enabled, false))
+    Keyword.get(config, :enabled, false)
   end
 
   defp schedule_cleanup do
