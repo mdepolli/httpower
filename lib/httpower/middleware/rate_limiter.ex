@@ -1,6 +1,7 @@
 defmodule HTTPower.Middleware.RateLimiter do
   @behaviour HTTPower.Middleware
 
+  alias HTTPower.Config
   alias HTTPower.Middleware.CircuitBreaker
 
   @moduledoc """
@@ -86,8 +87,6 @@ defmodule HTTPower.Middleware.RateLimiter do
   require Logger
 
   @table_name :httpower_rate_limiter
-  # Compile-time config caching for performance (avoids repeated Application.get_env calls)
-  @default_config Application.compile_env(:httpower, :rate_limit, [])
   # Clean up old buckets every minute
   @cleanup_interval 60_000
   # Remove buckets inactive for 5 minutes
@@ -128,7 +127,7 @@ defmodule HTTPower.Middleware.RateLimiter do
   ## Examples
 
       iex> request = %HTTPower.Request{url: "https://api.example.com", ...}
-      iex> HTTPower.RateLimiter.handle_request(request, [requests: 100, per: :minute])
+      iex> HTTPower.Middleware.RateLimiter.handle_request(request, [requests: 100, per: :minute])
       :ok
   """
   @impl HTTPower.Middleware
@@ -140,7 +139,7 @@ defmodule HTTPower.Middleware.RateLimiter do
       # Adaptive rate limiting: adjust rate based on circuit breaker health
       adjusted_config = maybe_adjust_rate_for_circuit_state(config, request)
 
-      case consume(rate_limit_key, adjusted_config) do
+      case consume_resolved(rate_limit_key, adjusted_config) do
         :ok ->
           :ok
 
@@ -165,16 +164,18 @@ defmodule HTTPower.Middleware.RateLimiter do
 
   ## Examples
 
-      iex> HTTPower.RateLimiter.check_rate_limit("api.example.com")
+      iex> HTTPower.Middleware.RateLimiter.check_rate_limit("api.example.com")
       {:ok, 100.0}
 
       # once the bucket is exhausted:
-      iex> HTTPower.RateLimiter.check_rate_limit("api.example.com", requests: 5, per: :second)
+      iex> HTTPower.Middleware.RateLimiter.check_rate_limit("api.example.com", requests: 5, per: :second)
       {:error, :too_many_requests, 200}
   """
   @spec check_rate_limit(bucket_key(), rate_limit_config()) ::
           {:ok, float()} | {:ok, :disabled} | {:error, :too_many_requests, integer()}
   def check_rate_limit(bucket_key, config \\ []) do
+    config = Config.resolve(:rate_limit, rate_limit: config)
+
     if rate_limiting_enabled?(config) do
       peek(bucket_key, gcra_params(config))
     else
@@ -213,15 +214,19 @@ defmodule HTTPower.Middleware.RateLimiter do
 
   ## Examples
 
-      iex> HTTPower.RateLimiter.consume("api.example.com")
+      iex> HTTPower.Middleware.RateLimiter.consume("api.example.com")
       :ok
 
-      iex> HTTPower.RateLimiter.consume("api.example.com", strategy: :error)
+      iex> HTTPower.Middleware.RateLimiter.consume("api.example.com", strategy: :error)
       {:error, :too_many_requests}
   """
   @spec consume(bucket_key(), rate_limit_config()) ::
           :ok | {:error, :too_many_requests}
   def consume(bucket_key, config \\ []) do
+    consume_resolved(bucket_key, Config.resolve(:rate_limit, rate_limit: config))
+  end
+
+  defp consume_resolved(bucket_key, config) do
     if rate_limiting_enabled?(config) do
       strategy = get_strategy(config)
 
@@ -327,7 +332,7 @@ defmodule HTTPower.Middleware.RateLimiter do
   ## Examples
 
       iex> info = %{limit: 60, remaining: 55, reset_at: ~U[2025-10-01 12:00:00Z], format: :github}
-      iex> HTTPower.RateLimiter.update_from_headers("api.github.com", info, requests: 60, per: :minute)
+      iex> HTTPower.Middleware.RateLimiter.update_from_headers("api.github.com", info, requests: 60, per: :minute)
       :ok
   """
   @spec update_from_headers(bucket_key(), map(), rate_limit_config()) :: :ok
@@ -351,7 +356,7 @@ defmodule HTTPower.Middleware.RateLimiter do
 
   ## Examples
 
-      iex> HTTPower.RateLimiter.get_info("api.github.com")
+      iex> HTTPower.Middleware.RateLimiter.get_info("api.github.com")
       %{tat_us: 1_234_567_890}
   """
   @spec get_info(bucket_key()) :: %{tat_us: tat_us()} | nil
@@ -406,17 +411,13 @@ defmodule HTTPower.Middleware.RateLimiter do
   # The global :rate_limit default is read lazily, only for keys the (already
   # merged) per-request config omits — so the hot path does no app-env lookup.
   defp gcra_params(config) do
-    requests = Keyword.get(config, :requests) || rate_limit_default(:requests, 100)
-    per = Keyword.get(config, :per) || rate_limit_default(:per, :second)
+    requests = Keyword.get(config, :requests, 100)
+    per = Keyword.get(config, :per, :second)
 
     t = max(1, div(window_us(per), requests))
     tau = (requests - 1) * t
 
     {requests, t, tau}
-  end
-
-  defp rate_limit_default(key, fallback) do
-    Application.get_env(:httpower, :rate_limit, []) |> Keyword.get(key, fallback)
   end
 
   defp window_us(:second), do: 1_000_000
@@ -439,29 +440,15 @@ defmodule HTTPower.Middleware.RateLimiter do
   defp wait_ms(tat, now, tau), do: div(tat - tau - now + 999, 1000)
 
   defp rate_limiting_enabled?(config) do
-    HTTPower.Config.enabled?(config, :rate_limit, false)
+    Keyword.get(config, :enabled, false)
   end
 
-  # Public-facing helper (loads config from Application.get_env)
-  defp get_strategy(config) when is_list(config) do
-    get_strategy(config, @default_config)
+  defp get_strategy(config) do
+    Keyword.get(config, :strategy, :wait)
   end
 
-  # Optimized version for GenServer callbacks (uses cached default_config)
-  defp get_strategy(config, default_config) do
-    Keyword.get(config, :strategy) ||
-      Keyword.get(default_config, :strategy, :wait)
-  end
-
-  # Public-facing helper (loads config from Application.get_env)
-  defp get_max_wait_time(config) when is_list(config) do
-    get_max_wait_time(config, @default_config)
-  end
-
-  # Optimized version for GenServer callbacks (uses cached default_config)
-  defp get_max_wait_time(config, default_config) do
-    Keyword.get(config, :max_wait_time) ||
-      Keyword.get(default_config, :max_wait_time, 5000)
+  defp get_max_wait_time(config) do
+    Keyword.get(config, :max_wait_time, 5000)
   end
 
   defp handle_rate_limit_exceeded(:error, _wait_time_ms, _config, bucket_key) do
