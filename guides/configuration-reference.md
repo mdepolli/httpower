@@ -65,6 +65,8 @@ This table shows which options are supported at each configuration level:
 | `pool_timeout` | ❌ | ✅ | ✅ | Finch adapter only; connection-checkout wait (ms) |
 | `ssl_verify` | ❌ | ✅ | ✅ | Per-request on **Req** only; Finch (default) uses pool-level TLS, Tesla configures it on the client |
 | `proxy` | ❌ | ✅ | ✅ | Per-request on **Req** only; Finch (default) uses pool-level proxy, Tesla configures it on the client |
+| `block_private_ips` | ✅ | ✅ | ✅ | SSRF guardrail; blocks private/loopback/link-local IP literals + `localhost` (default `false`) |
+| `allowed_hosts` | ✅ | ✅ | ✅ | SSRF guardrail; restricts requests to an explicit host allowlist (default: unset = all) |
 
 ## Global Configuration
 
@@ -535,6 +537,50 @@ HTTPower.Logger.detach()
 - **Example:**
   ```elixir
   HTTPower.get(url, proxy: {:http, "proxy.example.com", 8080, []}, adapter: HTTPower.Adapter.Req)
+  ```
+
+## SSRF Guardrails
+
+Two opt-in options harden HTTPower against Server-Side Request Forgery — coercing
+the client into reaching internal services or cloud metadata endpoints. Both are
+evaluated before any HTTP call (and before the request even reaches an adapter),
+and both can be set globally (`config :httpower`), per-client, or per-request.
+
+> **Literal checks only.** Host matching does **not** resolve DNS, so a hostname
+> that resolves to a private IP (e.g. `internal.corp` → `10.0.0.5`) is not caught
+> by `block_private_ips`. When you need a strict egress boundary, combine it with
+> `allowed_hosts`.
+
+### `block_private_ips`
+- **Type:** `boolean()`
+- **Default:** `false`
+- **Description:** When `true`, rejects requests whose host is an IP literal in a
+  loopback (`127.0.0.0/8`, `::1`), private (`10/8`, `172.16/12`, `192.168/16`),
+  link-local (`169.254.0.0/16` — including the `169.254.169.254` cloud-metadata
+  address — and IPv6 `fe80::/10`), unique-local (`fc00::/7`), or unspecified
+  (`0.0.0.0/8`, `::`) range, as well as the `localhost` hostname (and any
+  `*.localhost`). Blocked requests return
+  `{:error, %HTTPower.Error{reason: :blocked_private_ip}}`.
+- **Example:**
+  ```elixir
+  # config/runtime.exs
+  config :httpower, block_private_ips: true
+
+  # or per request
+  HTTPower.get(user_supplied_url, block_private_ips: true)
+  ```
+
+### `allowed_hosts`
+- **Type:** `[String.t()]`
+- **Default:** unset (all hosts allowed)
+- **Description:** When set to a non-empty list, only requests whose host matches
+  an entry (case-insensitive) are permitted; everything else returns
+  `{:error, %HTTPower.Error{reason: :host_not_allowed}}`. This is the strongest
+  guardrail — an explicit egress allowlist — and is unaffected by the DNS caveat
+  above, since it constrains the requested host directly.
+- **Example:**
+  ```elixir
+  HTTPower.get(url, allowed_hosts: ["api.stripe.com", "api.example.com"])
   ```
 
 ## Per-Client Configuration

@@ -23,6 +23,8 @@ defmodule HTTPower.Client do
   Runtime options passed per-request always take precedence.
   """
 
+  import Bitwise, only: [band: 2, bsr: 2]
+
   alias HTTPower.{Codec, Config, Error, Request, Response}
   alias HTTPower.Middleware.{CircuitBreaker, Dedup}
 
@@ -129,7 +131,7 @@ defmodule HTTPower.Client do
     headers = Keyword.get(opts, :headers, %{})
 
     with {:ok, :allowed} <- check_test_mode_allows_request(opts),
-         {:ok, %URI{} = uri} <- validate_url(url),
+         {:ok, %URI{} = uri} <- validate_url(url, opts),
          {:ok, request} <- build_request(method, uri, body, headers, opts),
          :ok <- validate_headers(request.headers) do
       pipeline = get_request_pipeline(request.opts)
@@ -176,7 +178,7 @@ defmodule HTTPower.Client do
     not (part |> to_string() |> String.contains?(["\r", "\n", "\0"]))
   end
 
-  defp validate_url(url) when is_binary(url) do
+  defp validate_url(url, opts) when is_binary(url) do
     uri = URI.parse(url)
 
     cond do
@@ -190,10 +192,91 @@ defmodule HTTPower.Client do
       not is_binary(uri.host) or uri.host == "" ->
         {:error, %Error{reason: :invalid_url, message: "URL must have a valid host"}}
 
+      not host_allowed?(uri.host, opts) ->
+        {:error,
+         %Error{
+           reason: :host_not_allowed,
+           message: "Host #{inspect(uri.host)} is not in the configured :allowed_hosts list"
+         }}
+
+      block_private_ips?(opts) and private_or_local_host?(uri.host) ->
+        {:error,
+         %Error{
+           reason: :blocked_private_ip,
+           message:
+             "Host #{inspect(uri.host)} resolves to a private, loopback, or link-local address (blocked by :block_private_ips)"
+         }}
+
       true ->
         {:ok, uri}
     end
   end
+
+  # SSRF guardrails. Both are opt-in via request opts (falling back to
+  # application config). Host checks are literal only — no DNS resolution — so a
+  # hostname that resolves to a private IP is not caught; pair :block_private_ips
+  # with :allowed_hosts when you need a strict egress boundary.
+  defp block_private_ips?(opts) do
+    opt_or_app_env(opts, :block_private_ips, false)
+  end
+
+  defp host_allowed?(host, opts) do
+    case opt_or_app_env(opts, :allowed_hosts, nil) do
+      nil -> true
+      [] -> true
+      hosts when is_list(hosts) -> String.downcase(host) in Enum.map(hosts, &String.downcase/1)
+    end
+  end
+
+  defp opt_or_app_env(opts, key, default) do
+    Keyword.get(opts, key, Application.get_env(:httpower, key, default))
+  end
+
+  # Matches loopback, RFC1918 private, link-local, and unique-local ranges for
+  # both IPv4 and IPv6, plus the `localhost` hostname (and `*.localhost`).
+  defp private_or_local_host?(host) do
+    normalized =
+      host
+      |> String.downcase()
+      |> String.trim_leading("[")
+      |> String.trim_trailing("]")
+
+    cond do
+      normalized == "localhost" -> true
+      String.ends_with?(normalized, ".localhost") -> true
+      true -> ip_literal_private?(normalized)
+    end
+  end
+
+  defp ip_literal_private?(host) do
+    case :inet.parse_address(String.to_charlist(host)) do
+      {:ok, address} -> private_ip?(address)
+      {:error, _} -> false
+    end
+  end
+
+  # IPv4 ranges
+  defp private_ip?({127, _, _, _}), do: true
+  defp private_ip?({10, _, _, _}), do: true
+  defp private_ip?({172, b, _, _}) when b >= 16 and b <= 31, do: true
+  defp private_ip?({192, 168, _, _}), do: true
+  defp private_ip?({169, 254, _, _}), do: true
+  defp private_ip?({0, _, _, _}), do: true
+  # IPv6 loopback (::1) and unspecified (::)
+  defp private_ip?({0, 0, 0, 0, 0, 0, 0, 1}), do: true
+  defp private_ip?({0, 0, 0, 0, 0, 0, 0, 0}), do: true
+  # IPv4-mapped IPv6 (::ffff:a.b.c.d) — re-check the embedded IPv4
+  defp private_ip?({0, 0, 0, 0, 0, 0xFFFF, g7, g8}) do
+    private_ip?({bsr(g7, 8), band(g7, 0xFF), bsr(g8, 8), band(g8, 0xFF)})
+  end
+
+  # IPv6 link-local (fe80::/10) and unique-local (fc00::/7)
+  defp private_ip?({a, _, _, _, _, _, _, _})
+       when band(a, 0xFFC0) == 0xFE80
+       when band(a, 0xFE00) == 0xFC00,
+       do: true
+
+  defp private_ip?(_), do: false
 
   defp sanitize_uri_for_telemetry(%URI{} = uri) do
     normalized_port =
@@ -203,17 +286,29 @@ defmodule HTTPower.Client do
         {_, port} -> port
       end
 
-    normalized_path = uri.path || ""
-
     normalized_uri = %URI{
       uri
       | port: normalized_port,
-        path: normalized_path,
+        path: redact_path_secrets(uri.path || ""),
         query: nil,
         fragment: nil
     }
 
     URI.to_string(normalized_uri)
+  end
+
+  # Recognized secret-token shapes that must not leak through URL paths into
+  # telemetry (e.g. `/v1/keys/sk_live_.../rotate`). Targets known provider key
+  # prefixes — conservative on purpose, so ordinary resource ids/slugs (UUIDs,
+  # `cus_123`) are left intact for useful, low-cardinality metrics.
+  @secret_path_segment ~r/^(?:(?:sk|pk|rk|whsec|ghp|gho|ghu|ghs|ghr)_|github_pat_|xox[a-z]-|AKIA)[A-Za-z0-9_-]{8,}$/
+
+  defp redact_path_secrets(path) do
+    path
+    |> String.split("/")
+    |> Enum.map_join("/", fn segment ->
+      if Regex.match?(@secret_path_segment, segment), do: "[REDACTED]", else: segment
+    end)
   end
 
   defp get_request_function(%Request{} = request, pipeline) do
@@ -425,7 +520,9 @@ defmodule HTTPower.Client do
   # caller's option namespace.
   @client_owned_opts [
     :adapter,
+    :allowed_hosts,
     :base_delay,
+    :block_private_ips,
     :body,
     :circuit_breaker,
     :circuit_breaker_key,

@@ -59,6 +59,9 @@ defmodule HTTPower.Sanitizer do
     "cvv",
     "cvv2",
     "cvc",
+    "cvn",
+    "card_cvv",
+    "security_code",
     "pin",
     "ssn",
     "social_security"
@@ -67,9 +70,11 @@ defmodule HTTPower.Sanitizer do
   # Credit card pattern: 13-19 digits with optional spaces/dashes in any grouping
   @credit_card_pattern ~r/\b(?:\d[\s\-]*){12,18}\d\b/
 
-  # CVV pattern: 3-4 digits often after keywords, separated by whitespace,
-  # quotes, colon, or equals (covers JSON, form-encoded, and plain text bodies)
-  @cvv_pattern ~r/\b(cvv|cvc|cvv2|security_?code)[\s"'=:]+\d{3,4}\b/i
+  # CVV pattern: 3-4 digits after a card-security keyword, separated by
+  # whitespace, quotes, colon, or equals (covers JSON, form-encoded, and plain
+  # text bodies). The exact-length (3-4 digit) requirement keeps ambiguous
+  # keywords like `cid` from matching longer non-CVV values (e.g. customer ids).
+  @cvv_pattern ~r/\b(cvv2?|cvc|cvn|cid|card_?cvv|security[-_]?code)[\s"'=:]+\d{3,4}\b/i
 
   @doc """
   Returns the built-in list of header names redacted by default.
@@ -166,6 +171,7 @@ defmodule HTTPower.Sanitizer do
         |> sanitize_credit_cards()
         |> sanitize_cvv()
         |> sanitize_json_fields(fields)
+        |> sanitize_form_fields(fields)
     end
   end
 
@@ -235,6 +241,16 @@ defmodule HTTPower.Sanitizer do
     end)
   end
 
+  defp sanitize_form_fields(text, fields) when is_binary(text) do
+    Enum.reduce(fields, text, fn field, acc ->
+      # Match `field=value` in URL/form-encoded bodies, anchored at the start of
+      # the string or after a `&`/`?` separator so we don't redact a field whose
+      # name merely ends with a configured one (e.g. `user_token` vs `token`).
+      pattern = ~r/(^|[&?])(#{Regex.escape(field)})=[^&]*/i
+      Regex.replace(pattern, acc, "\\1\\2=[REDACTED]")
+    end)
+  end
+
   defp sanitize_map(map, fields) when is_map(map) do
     Map.new(map, fn {key, value} ->
       normalized_key = key |> to_string() |> String.downcase()
@@ -255,6 +271,18 @@ defmodule HTTPower.Sanitizer do
     value
     |> sanitize_credit_cards()
     |> sanitize_cvv()
+  end
+
+  # Integers can carry a Luhn-valid PAN under a field name we don't recognize
+  # (configured card fields are already redacted by name in sanitize_map/2).
+  defp sanitize_value(value, _fields) when is_integer(value) do
+    value
+    |> Integer.to_string()
+    |> sanitize_credit_cards()
+    |> case do
+      "[REDACTED]" -> "[REDACTED]"
+      _ -> value
+    end
   end
 
   defp sanitize_value(value, _fields), do: value

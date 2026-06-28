@@ -704,6 +704,32 @@ defmodule HTTPowerTest do
       assert metadata.url == "https://api.example.com/users"
     end
 
+    test "redacts secret-shaped path segments in telemetry URLs" do
+      flush_mailbox()
+
+      HTTPower.Test.stub(fn conn ->
+        HTTPower.Test.json(conn, %{success: true})
+      end)
+
+      HTTPower.get("https://api.example.com/v1/keys/sk_live_abcdef0123456789/rotate")
+
+      assert_received {:telemetry, [:httpower, :request, :start], _,
+                       %{url: "https://api.example.com/v1/keys/[REDACTED]/rotate"}}
+    end
+
+    test "leaves ordinary path segments intact in telemetry URLs" do
+      flush_mailbox()
+
+      HTTPower.Test.stub(fn conn ->
+        HTTPower.Test.json(conn, %{success: true})
+      end)
+
+      test_url = "https://api.example.com/v1/customers/cus_12345/charges"
+      HTTPower.get(test_url)
+
+      assert_received {:telemetry, [:httpower, :request, :start], _, %{url: ^test_url}}
+    end
+
     test "sanitizes sensitive request headers and body in telemetry start metadata" do
       flush_mailbox()
 

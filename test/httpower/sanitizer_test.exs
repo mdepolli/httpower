@@ -166,6 +166,76 @@ defmodule HTTPower.SanitizerTest do
 
       assert sanitized =~ "cvv2: [REDACTED]"
     end
+
+    test "sanitizes Amex CVN in text" do
+      body = "cvn: 4321"
+      sanitized = Sanitizer.sanitize_body(body)
+
+      assert sanitized =~ "cvn: [REDACTED]"
+      refute sanitized =~ "4321"
+    end
+
+    test "sanitizes card_cvv keyword in text" do
+      body = "card_cvv: 321"
+      sanitized = Sanitizer.sanitize_body(body)
+
+      assert sanitized =~ "card_cvv: [REDACTED]"
+      refute sanitized =~ "321"
+    end
+
+    test "sanitizes hyphenated security-code keyword" do
+      body = "security-code: 999"
+      sanitized = Sanitizer.sanitize_body(body)
+
+      assert sanitized =~ "[REDACTED]"
+      refute sanitized =~ "999"
+    end
+
+    test "sanitizes Amex cid in form-encoded body" do
+      body = "amount=100&cid=123"
+      sanitized = Sanitizer.sanitize_body(body)
+
+      refute sanitized =~ "cid=123"
+      assert sanitized =~ "[REDACTED]"
+    end
+
+    test "does not redact cid followed by a non-CVV-length value" do
+      # A 5-digit customer id is not a CVV; leave it alone to avoid over-redaction.
+      body = "cid=45678&amount=100"
+      sanitized = Sanitizer.sanitize_body(body)
+
+      assert sanitized =~ "45678"
+    end
+  end
+
+  describe "body sanitization - form-encoded fields" do
+    test "redacts configured field=value pairs in a form body" do
+      body = "user=bob&password=hunter2&api_key=abc123&keep=ok"
+      sanitized = Sanitizer.sanitize_body(body)
+
+      refute sanitized =~ "hunter2"
+      refute sanitized =~ "abc123"
+      assert sanitized =~ "password=[REDACTED]"
+      assert sanitized =~ "api_key=[REDACTED]"
+      assert sanitized =~ "keep=ok"
+    end
+
+    test "redacts a configured field at the start of a form body" do
+      body = "password=secret&user=bob"
+      sanitized = Sanitizer.sanitize_body(body)
+
+      refute sanitized =~ "secret"
+      assert sanitized =~ "password=[REDACTED]"
+      assert sanitized =~ "user=bob"
+    end
+
+    test "does not over-redact a field that merely shares a suffix with a configured field" do
+      body = "user_token=keep_me&token=zap_me"
+      sanitized = Sanitizer.sanitize_body(body)
+
+      refute sanitized =~ "zap_me"
+      assert sanitized =~ "user_token=keep_me"
+    end
   end
 
   describe "body sanitization - JSON fields" do
@@ -322,6 +392,18 @@ defmodule HTTPower.SanitizerTest do
 
       assert sanitized[:username] == "john"
       assert sanitized[:password] == "[REDACTED]"
+    end
+
+    test "redacts an integer credit-card value in an unconfigured map field" do
+      # Configured card fields are always redacted; this guards the path where a
+      # Luhn-valid PAN arrives as an integer under a field name we don't know.
+      body = %{"reference" => 4_111_111_111_111_111, "count" => 1234}
+
+      sanitized = Sanitizer.sanitize_body(body)
+
+      assert sanitized["reference"] == "[REDACTED]"
+      # A short, non-card integer is left untouched.
+      assert sanitized["count"] == 1234
     end
 
     test "sanitizes lists of maps" do

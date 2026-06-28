@@ -426,6 +426,87 @@ defmodule HTTPower.ClientTest do
     end
   end
 
+  describe "SSRF guardrails - block_private_ips" do
+    test "blocks loopback IPv4 addresses" do
+      assert {:error, error} =
+               HTTPower.get("https://127.0.0.1/admin", block_private_ips: true)
+
+      assert error.reason == :blocked_private_ip
+    end
+
+    test "blocks RFC1918 private addresses" do
+      for host <- ["10.0.0.5", "172.16.0.1", "192.168.1.1"] do
+        assert {:error, %{reason: :blocked_private_ip}} =
+                 HTTPower.get("https://#{host}/x", block_private_ips: true)
+      end
+    end
+
+    test "blocks the cloud metadata link-local address" do
+      assert {:error, %{reason: :blocked_private_ip}} =
+               HTTPower.get("https://169.254.169.254/latest/meta-data/",
+                 block_private_ips: true
+               )
+    end
+
+    test "blocks the localhost hostname" do
+      assert {:error, %{reason: :blocked_private_ip}} =
+               HTTPower.get("https://localhost/x", block_private_ips: true)
+    end
+
+    test "blocks IPv6 loopback" do
+      assert {:error, %{reason: :blocked_private_ip}} =
+               HTTPower.get("https://[::1]/x", block_private_ips: true)
+    end
+
+    test "blocks IPv6 link-local and unique-local addresses" do
+      for host <- ["[fe80::1]", "[fc00::1]", "[fd12:3456::1]"] do
+        assert {:error, %{reason: :blocked_private_ip}} =
+                 HTTPower.get("https://#{host}/x", block_private_ips: true)
+      end
+    end
+
+    test "allows a public IPv6 address even with block_private_ips enabled" do
+      HTTPower.Test.stub(fn conn -> HTTPower.Test.json(conn, %{ok: true}) end)
+
+      assert {:ok, %{status: 200}} =
+               HTTPower.get("https://[2606:4700:4700::1111]/x", block_private_ips: true)
+    end
+
+    test "allows a public host even with block_private_ips enabled" do
+      HTTPower.Test.stub(fn conn -> HTTPower.Test.json(conn, %{ok: true}) end)
+
+      assert {:ok, %{status: 200}} =
+               HTTPower.get("https://api.example.com/x", block_private_ips: true)
+    end
+
+    test "does not block private hosts when the guardrail is off (default)" do
+      HTTPower.Test.stub(fn conn -> HTTPower.Test.json(conn, %{ok: true}) end)
+
+      # No block_private_ips option: localhost is reachable (stub intercepts it).
+      assert {:ok, %{status: 200}} = HTTPower.get("https://127.0.0.1/x")
+    end
+  end
+
+  describe "SSRF guardrails - allowed_hosts" do
+    test "rejects hosts not on the allowlist" do
+      assert {:error, error} =
+               HTTPower.get("https://evil.example.com/x",
+                 allowed_hosts: ["api.example.com"]
+               )
+
+      assert error.reason == :host_not_allowed
+    end
+
+    test "allows hosts on the allowlist (case-insensitive)" do
+      HTTPower.Test.stub(fn conn -> HTTPower.Test.json(conn, %{ok: true}) end)
+
+      assert {:ok, %{status: 200}} =
+               HTTPower.get("https://API.Example.com/x",
+                 allowed_hosts: ["api.example.com"]
+               )
+    end
+  end
+
   describe "telemetry - retry events" do
     setup do
       # Attach telemetry handler to capture events
