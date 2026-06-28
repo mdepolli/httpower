@@ -125,82 +125,6 @@ defmodule HTTPower.Adapter.FinchTest do
     end
   end
 
-  describe "request/5 with SSL options" do
-    test "configures SSL verification for HTTPS URLs" do
-      HTTPower.Test.stub(fn conn ->
-        HTTPower.Test.json(conn, %{secure: true})
-      end)
-
-      assert {:ok, %Response{}} =
-               FinchAdapter.request(
-                 :get,
-                 "https://secure-api.com/test",
-                 nil,
-                 %{},
-                 ssl_verify: true
-               )
-    end
-
-    test "allows disabling SSL verification" do
-      HTTPower.Test.stub(fn conn ->
-        HTTPower.Test.json(conn, %{insecure: true})
-      end)
-
-      assert {:ok, %Response{}} =
-               FinchAdapter.request(
-                 :get,
-                 "https://insecure-api.com/test",
-                 nil,
-                 %{},
-                 ssl_verify: false
-               )
-    end
-
-    test "does not add SSL options for HTTP URLs" do
-      HTTPower.Test.stub(fn conn ->
-        HTTPower.Test.json(conn, %{http: true})
-      end)
-
-      assert {:ok, %Response{}} =
-               FinchAdapter.request(:get, "http://api.example.com/test", nil, %{}, [])
-    end
-  end
-
-  describe "request/5 with proxy options" do
-    test "uses system proxy by default" do
-      HTTPower.Test.stub(fn conn ->
-        HTTPower.Test.json(conn, %{proxied: true})
-      end)
-
-      assert {:ok, %Response{}} =
-               FinchAdapter.request(:get, "https://api.example.com/test", nil, %{},
-                 proxy: :system
-               )
-    end
-
-    test "allows nil proxy (no proxy)" do
-      HTTPower.Test.stub(fn conn ->
-        HTTPower.Test.json(conn, %{no_proxy: true})
-      end)
-
-      assert {:ok, %Response{}} =
-               FinchAdapter.request(:get, "https://api.example.com/test", nil, %{}, proxy: nil)
-    end
-
-    test "accepts custom proxy options" do
-      HTTPower.Test.stub(fn conn ->
-        HTTPower.Test.json(conn, %{custom_proxy: true})
-      end)
-
-      proxy_opts = [host: "proxy.example.com", port: 8080]
-
-      assert {:ok, %Response{}} =
-               FinchAdapter.request(:get, "https://api.example.com/test", nil, %{},
-                 proxy: proxy_opts
-               )
-    end
-  end
-
   describe "response conversion" do
     test "converts response to HTTPower.Response" do
       HTTPower.Test.stub(fn conn ->
@@ -336,42 +260,6 @@ defmodule HTTPower.Adapter.FinchTest do
     end
   end
 
-  describe "conn_opts merging (SSL + proxy)" do
-    test "conn_opts contains both transport_opts and proxy for HTTPS with proxy" do
-      # Directly test the merging behavior that build_finch_opts should produce.
-      # Simulate the Finch option-building pipeline: SSL options first, then proxy options.
-      # After merging, conn_opts should contain BOTH keys.
-
-      # Step 1: Start with empty opts (as build_finch_opts does)
-      opts = []
-
-      # Step 2: Add SSL options (what maybe_add_ssl_options does for HTTPS)
-      ssl_opts = [verify: :verify_none]
-      conn_opts = Keyword.get(opts, :conn_opts, [])
-      transport_opts = Keyword.get(conn_opts, :transport_opts, [])
-      updated_transport_opts = Keyword.merge(transport_opts, ssl_opts)
-      updated_conn_opts = Keyword.put(conn_opts, :transport_opts, updated_transport_opts)
-      opts = Keyword.put(opts, :conn_opts, updated_conn_opts)
-
-      # Step 3: Add proxy options (what maybe_add_proxy_options does)
-      conn_opts = Keyword.get(opts, :conn_opts, [])
-      updated_conn_opts = Keyword.put(conn_opts, :proxy, :system)
-      opts = Keyword.put(opts, :conn_opts, updated_conn_opts)
-
-      # Verify: conn_opts should have BOTH transport_opts and proxy
-      final_conn_opts = Keyword.get(opts, :conn_opts, [])
-
-      assert Keyword.has_key?(final_conn_opts, :transport_opts),
-             "conn_opts should contain :transport_opts from SSL, got: #{inspect(final_conn_opts)}"
-
-      assert Keyword.has_key?(final_conn_opts, :proxy),
-             "conn_opts should contain :proxy, got: #{inspect(final_conn_opts)}"
-
-      assert final_conn_opts[:transport_opts] == [verify: :verify_none]
-      assert final_conn_opts[:proxy] == :system
-    end
-  end
-
   describe "integration with HTTPower.Test" do
     test "respects HTTPower.Test.stub configuration" do
       HTTPower.Test.stub(fn conn ->
@@ -396,6 +284,63 @@ defmodule HTTPower.Adapter.FinchTest do
                FinchAdapter.request(:get, "https://api.example.com/unknown", nil, %{}, [])
 
       assert Jason.decode!(body) == %{"path" => "default"}
+    end
+  end
+
+  describe "real Finch request behavior" do
+    setup do
+      # Disable HTTPower.Test mocking so requests reach the real Finch adapter.
+      :ets.delete(:httpower_test_stubs, self())
+      :ok
+    end
+
+    test "sends no body (no Content-Length) for a bodyless GET" do
+      port = start_capture_server()
+
+      assert {:ok, %Response{status: 200}} =
+               FinchAdapter.request(:get, "http://127.0.0.1:#{port}/", nil, %{}, [])
+
+      assert_receive {:captured_request, raw}, 2000
+      refute raw =~ ~r/content-length/i
+    end
+
+    test "accepts a pool_timeout option without error" do
+      port = start_capture_server()
+
+      assert {:ok, %Response{status: 200}} =
+               FinchAdapter.request(:get, "http://127.0.0.1:#{port}/", nil, %{},
+                 pool_timeout: 1_000
+               )
+    end
+  end
+
+  # One-shot TCP server: captures the raw request headers, sends a minimal
+  # 200 response, and forwards the captured request to the test process.
+  defp start_capture_server do
+    test_pid = self()
+    {:ok, listen} = :gen_tcp.listen(0, [:binary, active: false, reuseaddr: true])
+    {:ok, port} = :inet.port(listen)
+
+    spawn_link(fn ->
+      {:ok, socket} = :gen_tcp.accept(listen)
+      raw = recv_until_headers(socket, "")
+      send(test_pid, {:captured_request, raw})
+      :gen_tcp.send(socket, "HTTP/1.1 200 OK\r\ncontent-length: 0\r\n\r\n")
+      :gen_tcp.close(socket)
+      :gen_tcp.close(listen)
+    end)
+
+    port
+  end
+
+  defp recv_until_headers(socket, acc) do
+    if String.contains?(acc, "\r\n\r\n") do
+      acc
+    else
+      case :gen_tcp.recv(socket, 0, 2000) do
+        {:ok, data} -> recv_until_headers(socket, acc <> data)
+        {:error, _} -> acc
+      end
     end
   end
 end

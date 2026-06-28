@@ -11,7 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`HTTPower.Sanitizer` module** — Extracted the PCI-compliant header/body sanitization logic out of `HTTPower.Logger` into a neutral, dedicated module. It is now the single source of truth, used by both `HTTPower.Client` (for telemetry metadata) and `HTTPower.Logger` (for log output). `HTTPower.Logger.sanitize_headers/1` and `HTTPower.Logger.sanitize_body/1` remain available as delegations for backward compatibility.
 
+- **`pool_timeout` option for the Finch adapter** — Sets the maximum time (ms) to wait when checking out a pooled connection. Previously unconfigurable, so it fell back to Finch's hardcoded 5000ms default; that default still applies when the option is not set.
+
 ### Changed
+
+- **BREAKING: Finch adapter no longer accepts per-request `ssl_verify`/`proxy`** — these options never took effect with the Finch adapter: Finch configures TLS and proxy at the **pool** level (baked in at `Finch.start_link`), and `Finch.request/3` has no per-request connection options, so the adapter's per-request `conn_opts` were silently discarded. The dead option-building (and the misleading tests asserting it) is removed, and TLS/proxy are documented as pool-level via `config :httpower, :finch_pools` (which flows into Finch's `:pools`). Without explicit TLS config the pool inherits Mint's default `verify: :verify_peer`, so certificates are still verified by default. The Req adapter continues to honor `ssl_verify`/`proxy` per request (it starts a Finch pool per distinct `connect_options`); the Tesla adapter configures them on the Tesla client.
 
 - **BREAKING: Minimum Elixir version raised to 1.15** (was 1.14). HTTPower declares an unbounded optional `finch` dependency (`>= 0.19.0`), but Finch 0.22.0+ requires Elixir `~> 1.15`. The previous `~> 1.14` floor was a trap: a fresh consumer on Elixir 1.14 would resolve a current Finch and fail to compile, while HTTPower's own CI only passed on 1.14 because `mix.lock` pinned the older Finch 0.20.0. Raising the floor (rather than capping Finch, which would pin consumers to an old release) makes the supported Elixir range honest. The CI matrix drops Elixir 1.14 accordingly.
 
@@ -53,7 +57,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Req adapter no longer crashes on `proxy: :system`** — `proxy: :system` (the default) raised `CaseClauseError{term: {:ok, :system}}`: Req forwards `connect_options[:proxy]` to `Mint.HTTP.connect/4`, which only accepts a `{scheme, address, port, opts}` tuple. Neither Mint nor Req has system-proxy auto-detection, so `:system` is now treated as "no explicit proxy" (direct connection), matching the Finch adapter.
 
-- **Tesla adapter sends no body instead of an empty string for bodyless requests** — `build_tesla_opts` coerced a `nil` body to `""`, which emits `Content-Length: 0` on bodyless requests such as GET (RFC 9110 §9.3.1 says a GET should not include a body, and some servers reject it). `nil` is now passed through, matching `Tesla.Env`'s default.
+- **Finch and Tesla adapters send no body instead of an empty string for bodyless requests** — both coerced a `nil` body to `""`, which emits `Content-Length: 0` on bodyless requests such as GET (RFC 9110 §9.3.1 says a GET should not include a body, and some servers reject it). `nil` is now passed through to `Finch.build/4` and `Tesla.Env`, both of which treat it as "no body".
 
 - **Req adapter response headers are now consistently list-valued across adapters** — `convert_response` used `Map.new(headers)`, which on Req < 0.5 (where headers are a `[{k, v}]` tuple list) produced string-valued headers `%{k => v}`. `HTTPower.Codec`'s content-type detection only reads list-valued headers, so JSON responses would silently fail to decode under older Req. Header normalization is now shared via `HTTPower.Adapter.normalize_response_headers/1`, which always yields `%{k => [v]}` from either a tuple list or a map, matching the Finch and Tesla adapters.
 

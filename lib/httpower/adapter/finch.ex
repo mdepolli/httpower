@@ -12,28 +12,38 @@ if Code.ensure_loaded?(Finch) do
     - High-performance HTTP/1.1 and HTTP/2 support
     - Explicit connection pooling with configurable pool sizes
     - Built on Mint for low-level HTTP transport
-    - SSL/TLS support with configurable verification
-    - Proxy support (system or custom)
-
+    - Pool-level SSL/TLS and proxy configuration
 
     ## Configuration
 
-    The Finch adapter accepts standard HTTPower options:
+    The Finch adapter honors these per-request options:
 
-    - `timeout` - Request timeout in seconds (converted to milliseconds for Finch)
-    - `ssl_verify` - Enable SSL verification (default: true)
-    - `proxy` - Proxy configuration (`:system`, `nil`, or custom options)
+    - `timeout` - Receive timeout in seconds (converted to milliseconds for Finch)
+    - `pool_timeout` - Max time in milliseconds to wait to check out a pooled
+      connection (defaults to Finch's own default of 5000 when not set)
+
+    > #### Per-request `ssl_verify` and `proxy` are not supported {: .warning}
+    >
+    > Finch configures TLS verification and proxy at the **pool** level (baked in
+    > at `Finch.start_link`), not per request — `Finch.request/3` has no
+    > connection options. Passing `ssl_verify:` or `proxy:` per request has no
+    > effect with this adapter; configure them on the pool instead (below).
+    > Without explicit TLS config the pool inherits Mint's default
+    > `verify: :verify_peer`, so certificates are verified by default. The Req
+    > and Tesla adapters honor these options differently — see their docs.
 
     ## Pool Configuration
 
-    Configure Finch pools globally in your application config:
+    Configure Finch pools — including TLS and proxy — globally in your
+    application config (these flow straight into Finch's `:pools`):
 
         config :httpower, :finch_pools,
           default: [
             size: 10,
             count: System.schedulers_online(),
             conn_opts: [
-              timeout: 5_000
+              transport_opts: [verify: :verify_peer],
+              proxy: {:http, "proxy.example.com", 8080, []}
             ]
           ]
 
@@ -62,63 +72,32 @@ if Code.ensure_loaded?(Finch) do
     end
 
     defp do_request(method, url, body, headers, opts) do
-      timeout = Keyword.get(opts, :timeout, 60)
-      ssl_verify = Keyword.get(opts, :ssl_verify, true)
-      proxy = Keyword.get(opts, :proxy, :system)
-
-      finch_opts = build_finch_opts(url, timeout, ssl_verify, proxy)
+      finch_opts = build_finch_opts(opts)
 
       with {:ok, response} <- safe_finch_request(method, url, body, headers, finch_opts) do
         {:ok, convert_response(response)}
       end
     end
 
-    defp build_finch_opts(url, timeout, ssl_verify, proxy) do
-      base_opts = [
-        receive_timeout: timeout * 1000
-      ]
+    # Only per-request options Finch actually honors are set here. TLS
+    # verification and proxy are pool-level config in Finch (consumed at
+    # Finch.start_link, not per request), so they are configured via
+    # `config :httpower, :finch_pools` — see the moduledoc.
+    defp build_finch_opts(opts) do
+      timeout = Keyword.get(opts, :timeout, 60)
+      base_opts = [receive_timeout: timeout * 1000]
 
-      base_opts
-      |> maybe_add_ssl_options(url, ssl_verify)
-      |> maybe_add_proxy_options(proxy)
-    end
-
-    defp maybe_add_ssl_options(opts, url, ssl_verify) do
-      case url do
-        %URI{scheme: "https"} ->
-          ssl_opts = [verify: if(ssl_verify, do: :verify_peer, else: :verify_none)]
-          conn_opts = Keyword.get(opts, :conn_opts, [])
-          transport_opts = Keyword.get(conn_opts, :transport_opts, [])
-
-          updated_transport_opts = Keyword.merge(transport_opts, ssl_opts)
-          updated_conn_opts = Keyword.put(conn_opts, :transport_opts, updated_transport_opts)
-
-          Keyword.put(opts, :conn_opts, updated_conn_opts)
-
-        _ ->
-          opts
+      case Keyword.get(opts, :pool_timeout) do
+        nil -> base_opts
+        pool_timeout -> Keyword.put(base_opts, :pool_timeout, pool_timeout)
       end
     end
 
-    defp maybe_add_proxy_options(opts, :system) do
-      conn_opts = Keyword.get(opts, :conn_opts, [])
-      updated_conn_opts = Keyword.put(conn_opts, :proxy, :system)
-      Keyword.put(opts, :conn_opts, updated_conn_opts)
-    end
-
-    defp maybe_add_proxy_options(opts, nil), do: opts
-
-    defp maybe_add_proxy_options(opts, proxy_opts) when is_list(proxy_opts) do
-      conn_opts = Keyword.get(opts, :conn_opts, [])
-      updated_conn_opts = Keyword.put(conn_opts, :proxy, proxy_opts)
-      Keyword.put(opts, :conn_opts, updated_conn_opts)
-    end
-
-    defp maybe_add_proxy_options(opts, _), do: opts
-
     defp safe_finch_request(method, url, body, headers, opts) do
       prepared_headers = prepare_headers(headers, method)
-      request = Finch.build(method, url, format_headers(prepared_headers), body || "")
+      # Pass nil through as "no body"; Finch.build accepts nil. Coercing to ""
+      # would emit Content-Length: 0 on bodyless requests (e.g. GET).
+      request = Finch.build(method, url, format_headers(prepared_headers), body)
 
       case Finch.request(request, HTTPower.Finch, opts) do
         {:ok, response} -> {:ok, response}
