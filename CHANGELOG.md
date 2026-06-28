@@ -73,7 +73,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Telemetry handler no longer detaches itself on a malformed event** — `HTTPower.Logger`'s handler read `measurements.duration` directly with no error handling, and `:telemetry` permanently detaches any handler that raises — so one malformed event silently killed all subsequent logging. Handler bodies are now wrapped so an exception is logged as a warning and the event dropped, keeping the handler attached.
 
-- **`retry_count` in `[:httpower, :request, :stop]` telemetry now reflects actual retries** — the metadata read a `:retry_count` option that was never written, so it was always `0`. `HTTPower.Retry.execute_with_retry/6` now returns `{result, retry_count}` and `HTTPower.Client` threads the real count into the stop metadata.
+- **`retry_count` in `[:httpower, :request, :stop]` telemetry now reflects actual retries** — the metadata read a `:retry_count` option that was never written, so it was always `0`. `HTTPower.Retry.execute_with_retry` now returns `{result, retry_count}` and `HTTPower.Client` threads the real count into the stop metadata.
 
 - **`can_do_request?` guards the `HTTPower.Test` lookup** — when `test_mode: true`, the test-mode check called `HTTPower.Test.mock_enabled?/0` unguarded, which would raise if the test module were not loaded. It is now wrapped in `Code.ensure_loaded?(HTTPower.Test)`, mirroring `HTTPower.TestInterceptor`.
 

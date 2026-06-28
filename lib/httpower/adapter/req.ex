@@ -48,9 +48,11 @@ if Code.ensure_loaded?(Req) do
 
     alias HTTPower.{Adapter, Response}
 
-    # Connection/adapter-selection opts this adapter consumes itself. Dropped so
-    # they aren't passed raw to Req; everything else is caller passthrough.
-    @consumed_opts [:timeout, :ssl_verify, :proxy, :pool_timeout, :adapter_config]
+    # Opts this adapter consumes itself (:timeout, :ssl_verify, :proxy) plus
+    # the HTTPower-internal :adapter_config. Dropped so they aren't passed raw
+    # to Req; everything else — including :pool_timeout, which Req forwards to
+    # its Finch pool — is caller passthrough.
+    @consumed_opts [:timeout, :ssl_verify, :proxy, :adapter_config]
 
     @impl true
     def request(method, url, body, headers, opts) do

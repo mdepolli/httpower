@@ -57,6 +57,32 @@ defmodule HTTPower.ClientTest do
       # Unknown options pass straight through (e.g. adapter/Req-specific opts).
       assert Keyword.get(opts, :custom_passthrough) == 123
     end
+
+    test "with a {module, config} adapter, injects :adapter_config and passes through connection opts" do
+      HTTPower.get("https://api.example.com/x",
+        adapter: {HTTPower.ClientTest.OptsCapturingAdapter, [foo: :bar]},
+        circuit_breaker: [enabled: false],
+        rate_limit: [enabled: false],
+        deduplicate: false,
+        max_retries: 0,
+        base_delay: 1,
+        pool_timeout: 1000,
+        custom_passthrough: 123
+      )
+
+      assert_received {:adapter_opts, opts}
+
+      # The tuple's config is injected for the adapter to consume.
+      assert Keyword.get(opts, :adapter_config) == [foo: :bar]
+
+      # HTTPower-owned options are still stripped on the tuple path.
+      refute Keyword.has_key?(opts, :circuit_breaker)
+      refute Keyword.has_key?(opts, :max_retries)
+
+      # Connection and unknown opts pass through (pool_timeout reaches the adapter).
+      assert Keyword.get(opts, :pool_timeout) == 1000
+      assert Keyword.get(opts, :custom_passthrough) == 123
+    end
   end
 
   describe "retryable_error?/2" do
