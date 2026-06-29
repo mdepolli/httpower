@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.1] - 2026-06-29
+
 ### Security
 
 - **Bumped vulnerable dev/test lockfile dependencies** — `mix.lock` pinned `mint` 1.7.1, `req` 0.5.15, and `tesla` 1.15.3, all flagged by `mix hex.audit`/`deps.audit` (HTTP/2 floods and HTTP/1 response smuggling in Mint; decompression-bomb DoS and multipart header injection in Req; cross-origin auth-header leak, atom-table exhaustion, and decompression bomb in Tesla). Updated to `mint` 1.9.0, `req` 0.6.2, `tesla` 1.20.0, and `finch` 0.23.0. These are optional/transitive dependencies; HTTPower's `mix.exs` already declares them with open `>=` constraints, so consuming apps resolve patched versions on their own — this bump clears the advisories for HTTPower's own CI and lockfile.
@@ -1164,6 +1166,7 @@ OpentelemetryTelemetry.register_application_tracer(:httpower)
 - Production-ready error handling and logging
 - PCI DSS compliance considerations in design
 
+[0.23.1]: https://github.com/mdepolli/httpower/compare/v0.23.0...v0.23.1
 [0.23.0]: https://github.com/mdepolli/httpower/compare/v0.22.0...v0.23.0
 [0.22.0]: https://github.com/mdepolli/httpower/compare/v0.21.0...v0.22.0
 [0.21.0]: https://github.com/mdepolli/httpower/compare/v0.20.0...v0.21.0
