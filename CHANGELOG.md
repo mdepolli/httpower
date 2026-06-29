@@ -9,7 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Bumped vulnerable dev/test lockfile dependencies** — `mix.lock` pinned `mint` 1.7.1, `req` 0.5.15, and `tesla` 1.15.3, all flagged by `mix hex.audit`/`deps.audit` (HTTP/2 floods and HTTP/1 response smuggling in Mint; decompression-bomb DoS and multipart header injection in Req; cross-origin auth-header leak, atom-table exhaustion, and decompression bomb in Tesla). Updated to `mint` 1.9.0, `req` 0.6.2, `tesla` 1.20.0, and `finch` 0.23.0. These are optional/transitive dependencies; HTTPower's `mix.exs` already declares them with open `>=` constraints, so consuming apps resolve patched versions on their own — this bump clears the advisories for HTTPower's own CI and lockfile.
+
 - **SSRF guards now cover redirects (fail closed)** — The `:block_private_ips` and `:allowed_hosts` guards validate only the initial request URL. The Req adapter follows redirects automatically, so a permitted host could 30x-redirect to a private or disallowed target (e.g. `169.254.169.254`) that was never re-validated. When either guard is active, HTTPower now disables Req's automatic redirect following, returning the 3xx response as-is instead of transparently following it. The Finch adapter never auto-follows redirects (already safe); the Tesla adapter only follows when the user adds `Tesla.Middleware.FollowRedirects` to their own client. Internally, `HTTPower.Client` passes a `:block_redirects` flag to the adapter layer when a guard is configured.
+
+### Fixed
+
+- **Finch adapter: unwrap `Finch.TransportError` to the bare reason atom** — Finch 0.21+ wraps transport failures in a `Finch.TransportError` struct (carrying the underlying Mint error in `:source`), whereas older versions surfaced a bare `Mint.TransportError`. The adapter only unwrapped the latter, so connection errors (e.g. `:econnrefused`) leaked through as an unmatched struct instead of the reason atom `HTTPower.Retry` matches on — breaking transport-error retry classification. The adapter now unwraps both struct shapes.
 
 ## [0.23.0] - 2026-06-28
 

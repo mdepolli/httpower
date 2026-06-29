@@ -109,6 +109,11 @@ if Code.ensure_loaded?(Finch) do
       error -> {:error, unwrap_transport_error(error)}
     end
 
+    # Finch >= 0.21 wraps transport failures in Finch.TransportError (carrying
+    # the underlying Mint error in :source); older versions surfaced the bare
+    # Mint.TransportError. Unwrap both to the reason atom so HTTPower.Retry can
+    # match on it.
+    defp unwrap_transport_error(%{__struct__: Finch.TransportError, reason: reason}), do: reason
     defp unwrap_transport_error(%{__struct__: Mint.TransportError, reason: reason}), do: reason
     defp unwrap_transport_error(error), do: error
 
