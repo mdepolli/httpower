@@ -220,11 +220,20 @@ defmodule HTTPower.Client do
     opt_or_app_env(opts, :block_private_ips, false)
   end
 
-  defp host_allowed?(host, opts) do
+  # Single source of truth for the :allowed_hosts allowlist: the list of hosts,
+  # or nil when no allowlist is in effect (unset, empty, or a non-list
+  # misconfiguration). host_allowed?/2 and the redirect guard both read it.
+  defp allowed_hosts(opts) do
     case opt_or_app_env(opts, :allowed_hosts, nil) do
+      hosts when is_list(hosts) and hosts != [] -> hosts
+      _ -> nil
+    end
+  end
+
+  defp host_allowed?(host, opts) do
+    case allowed_hosts(opts) do
       nil -> true
-      [] -> true
-      hosts when is_list(hosts) -> String.downcase(host) in Enum.map(hosts, &String.downcase/1)
+      hosts -> String.downcase(host) in Enum.map(hosts, &String.downcase/1)
     end
   end
 
@@ -552,7 +561,25 @@ defmodule HTTPower.Client do
     adapter_module.request(method, normalize_url(url), body, headers, adapter_opts(opts))
   end
 
-  defp adapter_opts(opts), do: Keyword.drop(opts, @client_owned_opts)
+  defp adapter_opts(opts) do
+    opts
+    |> Keyword.drop(@client_owned_opts)
+    |> maybe_flag_redirect_guard(opts)
+  end
+
+  # SSRF guards (:block_private_ips / :allowed_hosts) only validate the initial
+  # URL. Signal adapters that auto-follow redirects (currently Req) to fail
+  # closed, so a permitted host can't redirect to a private or disallowed target
+  # that is never re-validated. Adapters that don't follow redirects (Finch)
+  # ignore the flag.
+  defp maybe_flag_redirect_guard(adapter_opts, opts) do
+    with false <- block_private_ips?(opts),
+         nil <- allowed_hosts(opts) do
+      adapter_opts
+    else
+      _ -> Keyword.put(adapter_opts, :block_redirects, true)
+    end
+  end
 
   defp normalize_url(%URI{} = uri), do: uri
   defp normalize_url(url) when is_binary(url), do: URI.parse(url)

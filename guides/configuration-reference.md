@@ -551,6 +551,14 @@ and both can be set globally (`config :httpower`), per-client, or per-request.
 > by `block_private_ips`. When you need a strict egress boundary, combine it with
 > `allowed_hosts`.
 
+> **Redirects fail closed.** The guards validate the initial URL only. Because a
+> redirect target would otherwise be followed without re-validation, enabling
+> either guard **disables automatic redirect following** on adapters that perform
+> it (the Req adapter); the 3xx response is returned as-is for you to inspect and
+> re-issue. The Finch adapter never auto-follows redirects, so it is unaffected.
+> The Tesla adapter follows redirects only if you add `Tesla.Middleware.FollowRedirects`
+> to your own client — guarding those redirects is your responsibility there.
+
 ### `block_private_ips`
 - **Type:** `boolean()`
 - **Default:** `false`

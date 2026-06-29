@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+
+- **SSRF guards now cover redirects (fail closed)** — The `:block_private_ips` and `:allowed_hosts` guards validate only the initial request URL. The Req adapter follows redirects automatically, so a permitted host could 30x-redirect to a private or disallowed target (e.g. `169.254.169.254`) that was never re-validated. When either guard is active, HTTPower now disables Req's automatic redirect following, returning the 3xx response as-is instead of transparently following it. The Finch adapter never auto-follows redirects (already safe); the Tesla adapter only follows when the user adds `Tesla.Middleware.FollowRedirects` to their own client. Internally, `HTTPower.Client` passes a `:block_redirects` flag to the adapter layer when a guard is configured.
+
 ## [0.23.0] - 2026-06-28
 
 ### Added

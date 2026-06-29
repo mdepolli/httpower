@@ -58,6 +58,41 @@ defmodule HTTPower.ClientTest do
       assert Keyword.get(opts, :custom_passthrough) == 123
     end
 
+    test "flags :block_redirects for the adapter when :block_private_ips is active" do
+      HTTPower.get("https://api.example.com/x",
+        adapter: HTTPower.ClientTest.OptsCapturingAdapter,
+        block_private_ips: true,
+        max_retries: 0,
+        base_delay: 1
+      )
+
+      assert_received {:adapter_opts, opts}
+      assert Keyword.get(opts, :block_redirects) == true
+    end
+
+    test "flags :block_redirects for the adapter when :allowed_hosts is active" do
+      HTTPower.get("https://api.example.com/x",
+        adapter: HTTPower.ClientTest.OptsCapturingAdapter,
+        allowed_hosts: ["api.example.com"],
+        max_retries: 0,
+        base_delay: 1
+      )
+
+      assert_received {:adapter_opts, opts}
+      assert Keyword.get(opts, :block_redirects) == true
+    end
+
+    test "does not flag :block_redirects when no SSRF guard is configured" do
+      HTTPower.get("https://api.example.com/x",
+        adapter: HTTPower.ClientTest.OptsCapturingAdapter,
+        max_retries: 0,
+        base_delay: 1
+      )
+
+      assert_received {:adapter_opts, opts}
+      refute Keyword.has_key?(opts, :block_redirects)
+    end
+
     test "with a {module, config} adapter, injects :adapter_config and passes through connection opts" do
       HTTPower.get("https://api.example.com/x",
         adapter: {HTTPower.ClientTest.OptsCapturingAdapter, [foo: :bar]},

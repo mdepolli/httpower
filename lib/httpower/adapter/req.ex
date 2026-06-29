@@ -52,11 +52,11 @@ if Code.ensure_loaded?(Req) do
 
     alias HTTPower.{Adapter, Response}
 
-    # Opts this adapter consumes itself (:timeout, :ssl_verify, :proxy) plus
-    # the HTTPower-internal :adapter_config. Dropped so they aren't passed raw
-    # to Req; everything else — including :pool_timeout, which Req forwards to
-    # its Finch pool — is caller passthrough.
-    @consumed_opts [:timeout, :ssl_verify, :proxy, :adapter_config]
+    # Opts this adapter consumes itself (:timeout, :ssl_verify, :proxy) plus the
+    # HTTPower-internal :adapter_config and :block_redirects. Dropped so they
+    # aren't passed raw to Req; everything else — including :pool_timeout, which
+    # Req forwards to its Finch pool — is caller passthrough.
+    @consumed_opts [:timeout, :ssl_verify, :proxy, :adapter_config, :block_redirects]
 
     @impl true
     def request(method, url, body, headers, opts) do
@@ -101,6 +101,22 @@ if Code.ensure_loaded?(Req) do
       |> maybe_add_ssl_options(url, ssl_verify)
       |> maybe_add_proxy_options(proxy)
       |> Keyword.merge(additional_opts)
+      |> maybe_disable_redirects(opts)
+    end
+
+    # HTTPower's SSRF guards (:block_private_ips / :allowed_hosts) validate only
+    # the initial URL. Req follows redirects automatically, so a permitted host
+    # could redirect to a private or disallowed target that is never re-checked.
+    # When Client signals active guards via :block_redirects, fail closed by
+    # disabling Req's redirect following — the 3xx response is returned as-is for
+    # the caller to handle. Applied last so it can't be overridden by a
+    # caller-supplied :redirect passthrough.
+    defp maybe_disable_redirects(req_opts, opts) do
+      if Keyword.get(opts, :block_redirects, false) do
+        Keyword.put(req_opts, :redirect, false)
+      else
+        req_opts
+      end
     end
 
     defp maybe_add_body(opts, nil), do: opts

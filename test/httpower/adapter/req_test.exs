@@ -468,6 +468,67 @@ defmodule HTTPower.Adapter.ReqTest do
     end
   end
 
+  describe "request/5 redirect guard (SSRF)" do
+    setup do
+      # Exercise the real Req code path; the interceptor short-circuits before
+      # do_request while HTTPower.Test mocking is enabled.
+      :ets.delete(:httpower_test_stubs, self())
+      Application.ensure_all_started(:req)
+      :ok
+    end
+
+    test "does not auto-follow redirects when :block_redirects is set (fail closed)" do
+      Req.Test.stub(HTTPower.Adapter.ReqTest.RedirectGuard, fn conn ->
+        case conn.request_path do
+          "/start" ->
+            conn
+            |> Plug.Conn.put_resp_header("location", "https://internal.evil/landing")
+            |> Plug.Conn.resp(302, "redirecting")
+
+          _ ->
+            Req.Test.json(conn, %{followed: true})
+        end
+      end)
+
+      # A permitted origin host that 302-redirects to a private/internal target
+      # must not be transparently followed past the SSRF guard.
+      assert {:ok, %Response{status: 302}} =
+               ReqAdapter.request(
+                 :get,
+                 URI.parse("https://api.example.com/start"),
+                 nil,
+                 %{},
+                 block_redirects: true,
+                 plug: {Req.Test, HTTPower.Adapter.ReqTest.RedirectGuard}
+               )
+    end
+
+    test "auto-follows redirects normally when :block_redirects is not set" do
+      Req.Test.stub(HTTPower.Adapter.ReqTest.RedirectFollow, fn conn ->
+        case conn.request_path do
+          "/start" ->
+            conn
+            |> Plug.Conn.put_resp_header("location", "https://api.example.com/landing")
+            |> Plug.Conn.resp(302, "redirecting")
+
+          _ ->
+            Req.Test.json(conn, %{followed: true})
+        end
+      end)
+
+      assert {:ok, %Response{status: 200, body: body}} =
+               ReqAdapter.request(
+                 :get,
+                 URI.parse("https://api.example.com/start"),
+                 nil,
+                 %{},
+                 plug: {Req.Test, HTTPower.Adapter.ReqTest.RedirectFollow}
+               )
+
+      assert Jason.decode!(body) == %{"followed" => true}
+    end
+  end
+
   describe "integration with HTTPower.Test" do
     test "respects HTTPower.Test.stub configuration" do
       HTTPower.Test.stub(fn conn ->
